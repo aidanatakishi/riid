@@ -1,0 +1,2968 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+    <meta name="theme-color" content="#4c1d95">
+    <title>Rəqəmsal İdarəetmə Paneli</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        html { scroll-behavior: smooth; }
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e293b; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+        
+        .fade-in { animation: fadeIn 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+
+        .slide-down { animation: slideDown 0.4s ease-out forwards; }
+        @keyframes slideDown { from { opacity: 0; transform: scaleY(0.8); transform-origin: top; } to { opacity: 1; transform: scaleY(1); } }
+
+        .card { background: white; border-radius: 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.03); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid #e2e8f0; }
+        .card:hover { box-shadow: 0 12px 20px -5px rgba(124, 58, 237, 0.15), 0 4px 6px -4px rgba(0, 0, 0, 0.05); transform: translateY(-3px); border-color: #ddd6fe; }
+        
+        .task-item { transition: all 0.2s ease; border-left: 4px solid transparent; background: #f8fafc; border-radius: 12px; }
+        .task-item:hover { background-color: white; border-left-color: #7c3aed; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); transform: translateX(4px); }
+        .task-item:active { transform: scale(0.98); }
+        
+        .hidden { display: none; }
+        
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .active-btn { background-color: #5b21b6 !important; color: white !important; border: 1px solid #5b21b6 !important; box-shadow: 0 4px 6px -1px rgba(91, 33, 182, 0.2); }
+        
+        .pulse-danger { animation: pulse 2s infinite; }
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 12px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+
+        .spinner { border: 4px solid rgba(255,255,255,0.3); width: 36px; height: 36px; border-radius: 50%; border-left-color: #fff; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .idda-header { background: linear-gradient(135deg, #2e1065 0%, #4c1d95 100%); border-bottom: 4px solid #7c3aed; }
+        .idda-btn { background-color: #7c3aed; transition: 0.2s; }
+        .idda-btn:hover { background-color: #6d28d9; box-shadow: 0 4px 6px -1px rgba(124, 58, 237, 0.3); }
+        .idda-btn:active { transform: scale(0.95); }
+        
+        .idda-secondary { background-color: transparent; border: 1px solid rgba(167, 139, 250, 0.5); color: #ddd6fe; transition: 0.2s; }
+        .idda-secondary:hover { background-color: rgba(124, 58, 237, 0.2); color: white; }
+
+        input[type="date"], input[type="text"], input[type="password"] {
+            border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.875rem; transition: all 0.2s; background: white;
+        }
+        input:focus {
+            border-color: #7c3aed; box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.1); outline: none;
+        }
+        input[type="date"] { min-height: 38px; }
+
+        .toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 500; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); animation: slideInRight 0.4s ease-out; }
+        @keyframes slideInRight { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    </style>
+</head>
+<body class="p-3 sm:p-4 md:p-6">
+
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-slate-900 bg-opacity-75 z-[100] flex items-center justify-center backdrop-blur-sm">
+        <div class="text-center text-white">
+            <div class="spinner mx-auto mb-3"></div>
+            <p class="text-slate-300 text-sm">Məlumatlar yüklənir...</p>
+        </div>
+    </div>
+
+    <div id="toastContainer"></div>
+
+    <header class="idda-header text-white p-4 md:p-6 rounded-2xl shadow-lg mb-4 md:mb-6 flex flex-col md:flex-row justify-between items-center">
+        <div class="flex items-center gap-3 md:gap-4 mb-4 md:mb-0 w-full md:w-auto">
+            <div class="bg-white p-2 rounded-xl shadow-md flex items-center justify-center w-12 h-12 md:w-16 md:h-16 shrink-0">
+                <img src="https://mincom.gov.az/storage/pages/249/innovasiya-ve-reqemsal-inkisaf-agentliyi-0.png" alt="İİDA Logo" class="h-8 w-8 md:h-12 md:w-12 object-contain" onerror="this.style.display='none'; document.getElementById('logoFallback').classList.remove('hidden');">
+                <svg id="logoFallback" class="hidden h-8 w-8 md:h-12 md:w-12 text-[#5b21b6]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                </svg>
+            </div>
+            <div class="border-l border-purple-300/30 pl-3 md:pl-4 text-center md:text-left">
+                <h1 class="text-sm md:text-xl font-bold tracking-tight leading-tight">Rəqəmsal İdarəetmə Paneli</h1>
+                <p class="text-purple-200 text-[9px] md:text-sm font-medium mt-1">Rəqəmsal İdarəetmə Departamenti (DGD)</p>
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-2 w-full md:w-auto justify-center">
+            <button onclick="toggleSettings()" class="idda-secondary px-3 py-2 md:px-4 rounded-lg text-xs md:text-sm font-semibold flex items-center gap-2 transition w-full sm:w-auto justify-center active:scale-95">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-6 6m-2-4a4 4 0 110-8 4 4 0 014 4z" /></svg>
+                Token
+            </button>
+            <button onclick="fetchDashboardData()" class="idda-btn text-white px-3 py-2 md:px-4 rounded-lg text-xs md:text-sm font-semibold flex items-center gap-2 transition shadow-sm w-full sm:w-auto justify-center active:scale-95">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                Yenilə
+            </button>
+            <button onclick="exportTasksToWord('Hesabat')" class="bg-white text-[#5b21b6] hover:bg-slate-100 px-3 py-2 md:px-4 rounded-lg text-xs md:text-sm font-semibold flex items-center gap-2 transition shadow-sm w-full sm:w-auto justify-center active:scale-95">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                Hesabatı yüklə
+            </button>
+        </div>
+    </header>
+
+    <div id="settingsPanel" class="bg-white p-4 rounded-2xl shadow-sm mb-6 hidden border border-slate-200 slide-down">
+        <div class="flex flex-col md:flex-row flex-wrap gap-3 items-center">
+            <input id="baseUrl" type="text" placeholder="Jira URL" class="w-full md:w-64">
+            <input id="pat" type="password" placeholder="PAT Token" class="w-full md:w-64">
+            <input id="projectKey" type="text" placeholder="Layihə (DGD)" class="w-full md:w-32 uppercase">
+            <button onclick="fetchDashboardData()" class="idda-btn text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition w-full md:w-auto shadow-sm active:scale-95">Məlumatları Yüklə</button>
+        </div>
+    </div>
+
+    <div class="bg-white p-3 md:p-4 rounded-2xl shadow-sm mb-6 flex flex-col md:flex-row flex-wrap gap-3 items-center justify-between border border-slate-200">
+        <div class="flex flex-wrap gap-2 items-center w-full md:w-auto">
+            <div class="flex gap-2 w-full md:w-auto">
+                <button onclick="selectLatestSprint()" class="bg-[#5b21b6] text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-[#4c1d95] w-full sm:w-auto transition active:scale-95 shadow-sm flex items-center justify-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    Bu həftə
+                </button>
+                <button onclick="selectPreviousSprint()" class="bg-purple-100 text-purple-800 px-3 py-2 rounded-lg text-xs font-semibold hover:bg-purple-200 w-full sm:w-auto transition active:scale-95 flex items-center justify-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" /></svg>
+                    Əvvəlki həftə
+                </button>
+            </div>
+
+            <div class="relative w-full md:w-64">
+                <select id="sprintFilter" onchange="onSprintDropdownChange()" class="w-full cursor-pointer appearance-none pl-3 pr-10 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition">
+                    <option value="all">Bütün Sprintlər</option>
+                </select>
+                <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-purple-500">
+                    <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+                </div>
+            </div>
+
+            <div id="directionFilterBadge" class="hidden bg-indigo-100 text-indigo-800 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 mt-2 md:mt-0 md:ml-2 w-full md:w-auto justify-center fade-in">
+                <span id="directionFilterName"></span>
+                <button onclick="clearDirectionFilter()" class="text-indigo-500 hover:text-indigo-800 font-bold transition active:scale-90">✕</button>
+            </div>
+            <div id="qurumFilterBadge" class="hidden bg-cyan-100 text-cyan-800 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 mt-2 md:mt-0 md:ml-2 w-full md:w-auto justify-center fade-in">
+                <span id="qurumFilterName"></span>
+                <button onclick="clearQurumFilter()" class="text-cyan-500 hover:text-cyan-800 font-bold transition active:scale-90">✕</button>
+            </div>
+            <div id="userFilterBadge" class="hidden bg-purple-100 text-purple-800 px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 mt-2 md:mt-0 md:ml-2 w-full md:w-auto justify-center fade-in">
+                <span id="userFilterName"></span>
+                <button onclick="clearUserFilter()" class="text-purple-500 hover:text-purple-800 font-bold transition active:scale-90">✕</button>
+            </div>
+        </div>
+        <div class="flex flex-wrap gap-2 items-center w-full md:w-auto">
+            <input type="date" id="startDate" max="9999-12-31" onchange="updateSprintFilterState()" class="flex-1 md:flex-none w-full md:w-auto">
+            <span class="text-slate-400 text-xs hidden md:block">-</span>
+            <input type="date" id="endDate" max="9999-12-31" onchange="updateSprintFilterState()" class="flex-1 md:flex-none w-full md:w-auto">
+            <button onclick="applyFilters()" class="bg-[#5b21b6] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-[#4c1d95] w-full md:w-auto transition active:scale-95 shadow-sm">Filtrlə</button>
+            <button onclick="filterTasks('rejected')" class="bg-rose-500 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-rose-600 w-full md:w-auto transition active:scale-95 shadow-sm">İmtina edilənlər</button>
+            <button onclick="resetAllFilters()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-xs font-semibold hover:bg-slate-300 w-full md:w-auto transition active:scale-95 shadow-sm flex items-center justify-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                Sıfırla
+            </button>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 gap-3 md:gap-5 mb-4">
+        <div class="card p-5 md:p-8 cursor-pointer active:scale-[0.98] transition relative overflow-hidden" onclick="filterTasks('all')">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div class="flex items-center gap-5">
+                    <span class="bg-purple-100 text-purple-600 p-3 rounded-2xl shadow-sm hidden md:block">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
+                    </span>
+                    <div>
+                        <h3 class="text-slate-400 text-xs md:text-sm font-bold uppercase tracking-widest mb-2">ÜMUMİ TAPŞIRIQ</h3>
+                        <p id="totalTasks" class="text-4xl md:text-5xl font-extrabold text-slate-800 leading-none">0</p>
+                    </div>
+                </div>
+                <div class="flex-1 max-w-xs w-full ml-auto">
+                    <div class="mb-4">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="text-[10px] md:text-xs text-slate-400 font-medium uppercase tracking-wider">Tamamlanma</span>
+                            <span id="totalCompletionRate" class="text-xs md:text-sm font-bold text-slate-600">0%</span>
+                        </div>
+                        <div class="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                            <div id="totalProgressBar" class="h-full bg-gradient-to-r from-purple-500 to-indigo-500 rounded-full transition-all duration-700" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div onclick="event.stopPropagation(); filterTasksByDateStatus('late');" class="flex items-center justify-center gap-2 bg-slate-50 border border-slate-200 hover:bg-rose-50 hover:border-rose-200 transition rounded-xl py-2 px-4 cursor-pointer group">
+                        <span class="w-2 h-2 rounded-full bg-rose-400 group-hover:scale-125 transition"></span>
+                        <span class="text-[11px] md:text-xs text-slate-500 group-hover:text-rose-600 font-bold transition flex items-center gap-1">
+                            Gecikən: <span id="lateTasks" class="text-sm md:text-base text-slate-700 group-hover:text-rose-700 font-extrabold transition">0</span>
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="statsGrid" class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-5 mb-6">
+        <div class="card p-0 cursor-pointer active:scale-95 transition relative overflow-hidden flex flex-col">
+            <div onclick="filterTasks('done');" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
+                <div class="flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="bg-emerald-50 text-emerald-600 p-2 rounded-xl shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 md:h-5 md:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        </span>
+                        <h3 class="text-slate-400 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Tamamlanan</h3>
+                    </div>
+                    <div class="flex items-end justify-between mt-auto">
+                        <p id="doneTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Bitmiş & Bağlı</p>
+                    </div>
+                </div>
+            </div>
+            <div onclick="filterTasks('done');" class="px-4 md:px-5 py-3 border-t-2 border-dashed border-slate-100 bg-slate-50/50 hover:bg-emerald-50 transition">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        <h3 class="text-slate-500 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Tamamlanma faizi</h3>
+                    </div>
+                    <p id="completionRate" class="text-xl md:text-2xl font-extrabold text-emerald-600 leading-none">0%</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-0 cursor-pointer active:scale-95 transition relative overflow-hidden flex flex-col">
+            <div onclick="filterTasks('planned');" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
+                <div class="flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="bg-orange-50 text-orange-600 p-2 rounded-xl shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 md:h-5 md:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        </span>
+                        <h3 class="text-slate-400 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Növbəti həftə</h3>
+                    </div>
+                    <div class="flex items-end justify-between mt-auto">
+                        <p id="plannedTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Planlaşdırılıb</p>
+                    </div>
+                </div>
+            </div>
+            <div onclick="filterTasks('sprint');" class="px-4 md:px-5 py-3 border-t-2 border-dashed border-slate-100 bg-slate-50/50 hover:bg-orange-50 transition">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                        <h3 class="text-slate-500 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Açıq Tasklar</h3>
+                    </div>
+                    <p id="openTasks" class="text-xl md:text-2xl font-extrabold text-orange-600 leading-none">0</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-0 cursor-pointer active:scale-95 transition relative overflow-hidden flex flex-col">
+            <div onclick="filterTasks('sprint');" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
+                <div class="flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="bg-blue-50 text-blue-600 p-2 rounded-xl shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 md:h-5 md:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                        </span>
+                        <h3 class="text-slate-400 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">İcradakı</h3>
+                    </div>
+                    <div class="flex items-end justify-between mt-auto">
+                        <p id="sprintTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">ESD & Rəy</p>
+                    </div>
+                </div>
+            </div>
+            <div onclick="event.stopPropagation(); showDueThisWeekTasks();" class="px-4 md:px-5 py-3 border-t-2 border-dashed border-slate-100 bg-cyan-50/50 hover:bg-cyan-100 transition cursor-pointer">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-cyan-500"></span>
+                        <h3 class="text-cyan-700 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Bu həftə bitməli</h3>
+                    </div>
+                    <p id="sprintTasksDueWeek" class="text-xl md:text-2xl font-extrabold text-cyan-600 leading-none">0</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="blockedCard" class="card p-0 cursor-pointer active:scale-95 transition relative overflow-hidden flex flex-col">
+            <div onclick="filterTasks('blocked');" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
+                <div class="flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="bg-red-50 text-red-600 p-2 rounded-xl shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 md:h-5 md:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                        </span>
+                        <h3 class="text-slate-400 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Çətinliklər</h3>
+                    </div>
+                    <div class="flex items-end justify-between mt-auto">
+                        <p id="blockedTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Bloklanıb</p>
+                    </div>
+                </div>
+            </div>
+            <div onclick="filterTasks('rejected');" class="px-4 md:px-5 py-3 border-t-2 border-dashed border-slate-100 bg-slate-50/50 hover:bg-rose-50 transition">
+                <div class="flex justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                        <h3 class="text-slate-500 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">İmtina</h3>
+                    </div>
+                    <p id="rejectedTasks" class="text-xl md:text-2xl font-extrabold text-rose-600 leading-none">0</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="otherCard" class="card p-0 cursor-pointer active:scale-95 transition relative overflow-hidden flex flex-col hidden">
+            <div onclick="filterTasks('other');" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
+                <div class="flex flex-col h-full">
+                    <div class="flex justify-between items-center mb-3">
+                        <span class="bg-slate-100 text-slate-600 p-2 rounded-xl shadow-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 md:h-5 md:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                        </span>
+                        <h3 class="text-slate-400 text-[9px] md:text-[11px] font-bold uppercase tracking-widest">Digər</h3>
+                    </div>
+                    <div class="flex items-end justify-between mt-auto">
+                        <p id="otherTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Açıq, Backlog</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
+        <div class="card p-4 md:p-6 flex flex-col items-center justify-center fade-in">
+            <h2 class="font-bold text-base md:text-lg text-slate-800 mb-4 self-start">İcra statusu</h2>
+            <div class="relative w-full h-56 md:h-64"><canvas id="statusChart"></canvas></div>
+        </div>
+        <div class="card p-4 md:p-6 flex flex-col items-center justify-center fade-in">
+            <h2 class="font-bold text-base md:text-lg text-slate-800 mb-4 self-start">İş yükü</h2>
+            <div class="relative w-full h-56 md:h-64"><canvas id="assigneeChart"></canvas></div>
+        </div>
+        <div class="card p-4 md:p-6 flex flex-col items-center justify-center fade-in">
+            <h2 class="font-bold text-base md:text-lg text-slate-800 mb-4 self-start">İstiqamətlər</h2>
+            <div class="relative w-full h-72 md:h-96"><canvas id="epicChart"></canvas></div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in">
+        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('dailyActivityContent')">
+            <div class="flex items-center gap-3">
+                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                </span>
+                <div>
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Gündəlik Fəaliyyət</h2>
+                    <p class="text-xs text-slate-500">Kim nə edib? (İstifadəçi seçin)</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                 <div class="bg-indigo-50 border border-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                    Bugün: <span id="dailyUpdatedCount" class="text-sm ml-1">0</span> dəyişiklik
+                </div>
+                <svg id="icon-dailyActivityContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
+        </div>
+        <div id="dailyActivityContent" class="hidden p-4 md:p-5">
+            <div id="dailyUsersList" class="flex gap-2 mb-5 overflow-x-auto pb-2 border-b border-slate-100"></div>
+            <div id="dailyUserActivity" class="max-h-[400px] overflow-y-auto pr-2"></div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in">
+        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('labelChartContent')">
+            <div class="flex items-center gap-3">
+                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>
+                </span>
+                <h2 class="font-bold text-base md:text-lg text-slate-800">İstiqamətlər üzrə əhatəli analitika</h2>
+            </div>
+            <svg id="icon-labelChartContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </div>
+        <div id="labelChartContent" class="p-4 md:p-5 hidden">
+            <div class="relative w-full h-80 md:h-96"><canvas id="labelChart"></canvas></div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in">
+        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('qurumStatContent')">
+            <div class="flex items-center gap-3">
+                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
+                </span>
+                <h2 class="font-bold text-base md:text-lg text-slate-800">Qurumlar üzrə Statistika</h2>
+            </div>
+            <svg id="icon-qurumStatContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </div>
+        <div id="qurumStatContent" class="p-4 md:p-5 hidden">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-1 relative h-64 md:h-80 flex items-center justify-center bg-slate-50 rounded-xl p-4">
+                    <canvas id="qurumChart"></canvas>
+                </div>
+                <div class="md:col-span-2 flex flex-col">
+                    <div class="mb-3 relative">
+                        <input type="text" id="qurumSearch" oninput="filterQurumList()" placeholder="       Qurum adı axtar..." class="w-full pl-10 pr-4 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition">
+                        <div class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </div>
+                    </div>
+                    <div id="qurumListContainer" class="flex-1 overflow-y-auto pr-1 max-h-64 md:max-h-72 border border-slate-100 rounded-xl bg-white">
+                        <table class="w-full text-sm">
+                            <thead class="sticky top-0 bg-slate-50 text-slate-500 text-xs uppercase tracking-wider z-10">
+                                <tr>
+                                    <th class="py-3 px-4 text-left font-semibold">Qurumun adı</th>
+                                    <th class="py-3 px-2 text-center font-semibold">Ümumi</th>
+                                    <th class="py-3 px-2 text-center font-semibold">İcradakı</th>
+                                    <th class="py-3 px-2 text-center font-semibold">Tamamlanıb</th>
+                                </tr>
+                            </thead>
+                            <tbody id="qurumTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in">
+        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('sprintComparisonContent')">
+            <div class="flex items-center gap-3">
+                <span class="bg-purple-100 p-2 rounded-lg text-purple-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                </span>
+                <h2 class="font-bold text-base md:text-lg text-slate-800">Həftələr üzrə Müqayisə</h2>
+            </div>
+            <svg id="icon-sprintComparisonContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </div>
+        <div id="sprintComparisonContent" class="p-4 md:p-5 hidden">
+            <div id="sprintComparison"></div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        <div class="card overflow-hidden fade-in">
+            <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('weeklyContent')">
+                <div class="flex items-center gap-3">
+                    <span class="bg-purple-100 p-2 rounded-lg text-purple-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    </span>
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Növbəti həftə üçün planlaşdırılan</h2>
+                </div>
+                <span id="weeklyDiff" class="text-xs md:text-sm font-bold bg-purple-100 text-purple-800 px-3 py-1.5 rounded-full whitespace-nowrap">Cəmi 0</span>
+            </div>
+            <div id="weeklyContent" class="p-4 md:p-5 hidden">
+                <div id="weeklyTaskList" class="space-y-2 max-h-80 overflow-y-auto pr-2"></div>
+            </div>
+        </div>
+
+        <div class="card overflow-hidden fade-in">
+            <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('pausedContent')">
+                <div class="flex items-center gap-3">
+                    <span class="bg-amber-100 p-2 rounded-lg text-amber-600">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                    </span>
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Müvəqqəti Dayandırılanlar</h2>
+                </div>
+                <span id="pausedCount" class="text-xs md:text-sm font-bold bg-amber-100 text-amber-800 px-3 py-1.5 rounded-full whitespace-nowrap">0</span>
+            </div>
+            <div id="pausedContent" class="p-4 md:p-5 hidden">
+                <div id="pausedTaskList" class="space-y-2 max-h-80 overflow-y-auto pr-2"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in">
+        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('cetinliklerContent')">
+            <div class="flex items-center gap-3">
+                <span class="bg-red-100 p-2 rounded-lg text-red-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg>
+                </span>
+                <h2 class="font-bold text-base md:text-lg text-slate-800">Çətinliklər</h2>
+            </div>
+            <svg id="icon-cetinliklerContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </div>
+        <div id="cetinliklerContent" class="p-4 md:p-5 hidden">
+            <div id="komplaynsList" class="space-y-6"></div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in">
+        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center cursor-pointer border-b border-slate-200" onclick="toggleDropdown('taskListContent')">
+            <div class="flex items-center gap-3">
+                <span class="bg-slate-200 p-2 rounded-lg text-slate-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                </span>
+                <h2 id="taskListTitle" class="font-bold text-base md:text-lg text-slate-800">Tapşırıqların Siyahısı</h2>
+            </div>
+            <button onclick="renderTaskList(filteredTasks, 'Tapşırıqların Siyahısı'); event.stopPropagation();" class="text-xs md:text-sm text-[#5b21b6] hover:underline z-10 whitespace-nowrap transition active:scale-95">Filtri Sıfırla</button>
+        </div>
+        <div id="taskListContent" class="p-4 md:p-5 hidden">
+            <div id="taskList"></div>
+            <div id="taskPagination" class="mt-6 flex flex-col md:flex-row justify-center items-center gap-3 md:gap-6"></div>
+        </div>
+    </div>
+
+    <script>
+        let allTasks = [];
+        let filteredTasks = [];
+        let allDirections = []; 
+        let issueIndex = {}; 
+        let currentBaseUrl = '';
+        let currentAssigneeFilter = null; 
+        let currentDirectionFilter = null;
+        let currentQurumFilter = null;
+        let sprintDateFiltered = [];
+        let epicChartTasks = [];
+        let qurumChartTasks = [];
+        let todayTasks = [];
+        let todayRefreshInterval = null;
+        let statusChart = null, assigneeChart = null, epicChart = null, labelChart = null, dailyDirectionChart = null, qurumChart = null;
+        let sprintDisplayMap = {}; 
+        let autoRefreshInterval = null; 
+        let isInitialLoad = true; 
+        let jiraFieldNames = {};
+        let activeLabelFilter = null;
+        let issueIndexById = {};
+        let parentCache = {};
+        let currentPage = 1;
+        const tasksPerPage = 10;
+        let currentDisplayTasks = [];
+        const EXCLUDED_USERS = ['ilham', 'salmanov', 'gunduz', 'ahmadli', 'ehmedli'];
+        const STRUCTURE_TYPES = ['istiqamət', 'tədbir', 'istiqamet', 'tedbir'];
+
+        function showToast(message, type) {
+            type = type || 'info';
+            var container = document.getElementById('toastContainer');
+            var toast = document.createElement('div');
+            var colors = { info: 'bg-indigo-600', success: 'bg-emerald-500', error: 'bg-red-500' };
+            toast.className = 'toast ' + colors[type] + ' cursor-pointer';
+            toast.innerText = message;
+            toast.onclick = function() { toast.remove(); };
+            container.appendChild(toast);
+            setTimeout(function() {
+                toast.style.transition = 'all 0.4s ease';
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(120%)';
+                setTimeout(function() { toast.remove(); }, 400);
+            }, 4000);
+        }
+
+        function animateValue(id, start, end, duration) {
+            var obj = document.getElementById(id);
+            if (!obj) return;
+            var startTimestamp = null;
+            var step = function(timestamp) {
+                if (!startTimestamp) startTimestamp = timestamp;
+                var progress = Math.min((timestamp - startTimestamp) / duration, 1);
+                obj.innerText = Math.floor(progress * (end - start) + start);
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                } else {
+                    obj.innerText = end;
+                }
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        function normalizeStr(str) {
+            if (!str) return '';
+            return str.trim().toLocaleLowerCase('az').replace(/i̇/g, 'i');
+        }
+
+        function getParentIssue(t) {
+            if (!t) return null;
+            if (parentCache.hasOwnProperty(t.key)) return parentCache[t.key];
+            var parent = null;
+            var f = t.fields || {};
+            if (f.parent && f.parent.key) {
+                if (issueIndex[f.parent.key]) {
+                    parent = issueIndex[f.parent.key];
+                } else {
+                    var found = allTasks.find(function(at) { return at.key === f.parent.key; });
+                    if (found) {
+                        parent = found;
+                        issueIndex[found.key] = found; 
+                    }
+                }
+            }
+            if (!parent) {
+                for (var key in f) {
+                    if (!key.startsWith('customfield_')) continue;
+                    var v = f[key];
+                    if (!v) continue;
+                    if (typeof v === 'string' && /^[A-Z][A-Z0-9]*-\d+$/.test(v.trim())) {
+                        var pKey = v.trim();
+                        if (issueIndex[pKey]) parent = issueIndex[pKey];
+                        else {
+                            var found2 = allTasks.find(function(at) { return at.key === pKey; });
+                            if (found2) { parent = found2; issueIndex[found2.key] = found2; }
+                        }
+                        if (parent) break;
+                    }
+                    if (typeof v === 'object' && !Array.isArray(v)) {
+                        var cand = v.key || (v.data && v.data.key);
+                        if (cand) {
+                            if (issueIndex[cand]) parent = issueIndex[cand];
+                            else {
+                                var found3 = allTasks.find(function(at) { return at.key === cand; });
+                                if (found3) { parent = found3; issueIndex[found3.key] = found3; }
+                            }
+                            if (parent) break;
+                        }
+                    }
+                }
+            }
+            if (!parent) {
+                var typeNameSub = f.issuetype ? normalizeStr(f.issuetype.name) : '';
+                var isSubtaskType = typeNameSub.includes('alt') || typeNameSub.includes('sub');
+                if (isSubtaskType && f.issuelinks && f.issuelinks.length > 0) {
+                    for (var li = 0; li < f.issuelinks.length; li++) {
+                        var linked = f.issuelinks[li].outwardIssue || f.issuelinks[li].inwardIssue;
+                        if (!linked) continue;
+                        var linkedType = linked.fields && linked.fields.issuetype ? normalizeStr(linked.fields.issuetype.name) : '';
+                        if (linkedType.includes('alt') || linkedType.includes('sub')) continue;
+                        if (issueIndex[linked.key]) { parent = issueIndex[linked.key]; }
+                        else {
+                            var found4 = allTasks.find(function(at) { return at.key === linked.key; });
+                            if (found4) { parent = found4; issueIndex[found4.key] = found4; }
+                        }
+                        if (parent) break;
+                    }
+                }
+            }
+            parentCache[t.key] = parent;
+            return parent;
+        }
+        
+        function resolveDirection(t) {
+            var cur = t, depth = 0;
+            while (cur && depth < 10) {
+                var typeName = cur.fields.issuetype ? normalizeStr(cur.fields.issuetype.name) : '';
+                if (!typeName.includes('alt') && (typeName.includes('istiqamət') || typeName.includes('istiqamet') || typeName.includes('epic') || typeName.includes('tədbir') || typeName.includes('tedbir'))) return cur;
+                cur = getParentIssue(cur);
+                depth++;
+            }
+            return null;
+        }
+
+        function isKomplaynsName(raw) {
+            var n = normalizeStr(raw);
+            if (!n) return false;
+            return n.indexOf('komplanys') !== -1 || n.indexOf('komplayn') !== -1 || n.indexOf('komplain') !== -1 || n.indexOf('compliance') !== -1;
+        }
+
+        function hasKomplaynsComponent(t) {
+            if (!t || !t.fields) return false;
+            var comps = t.fields.components;
+            if (!comps) return false;
+            if (!Array.isArray(comps)) comps = [comps];
+            for (var i = 0; i < comps.length; i++) {
+                var c = comps[i];
+                var raw = '';
+                if (typeof c === 'string') raw = c;
+                else if (c && typeof c === 'object') raw = c.name || c.value || '';
+                if (isKomplaynsName(raw)) return true;
+            }
+            return false;
+        }
+
+        function belongsToDept(t) {
+            var cur = t, depth = 0;
+            while (cur && depth < 10) {
+                if (hasKomplaynsComponent(cur)) return true;
+                cur = getParentIssue(cur);
+                depth++;
+            }
+            return false;
+        }
+
+        async function fetchJQL(baseUrl, pat, jql) {
+            var isLocal = window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost';
+            var url = isLocal ? 'http://127.0.0.1:5000/api/jira' : '/.netlify/functions/jira';
+            var res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ baseUrl: baseUrl, pat: pat, jql: jql }) });
+            var text = await res.text();
+            try {
+                var data = JSON.parse(text);
+                if (!res.ok) throw new Error('Jira API xətası: ' + (data.errorMessages ? data.errorMessages[0] : (data.error || res.status)));
+                if (data.names) jiraFieldNames = data.names;
+                return data;
+            } catch (e) {
+                throw new Error('Server cavabı JSON deyil: ' + text.substring(0, 150));
+            }
+        }
+
+        async function fetchTodayChanges() {
+            var baseUrl = document.getElementById('baseUrl').value;
+            var pat = document.getElementById('pat').value;
+            var projectKey = document.getElementById('projectKey').value.toUpperCase();
+            if (!baseUrl || !pat || !projectKey) return;
+            currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+            var today = new Date();
+            var todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+            var jql = 'project = ' + projectKey + ' AND updated >= "' + todayStr + '" ORDER BY updated DESC';
+            try {
+                var data = await fetchJQL(currentBaseUrl, pat, jql);
+                var updatedCount = 0;
+                data.issues.forEach(function(t) {
+                    var assigneeName = t.fields.assignee ? normalizeStr(t.fields.assignee.displayName) : '';
+                    var isExcluded = EXCLUDED_USERS.some(function(ex) { return assigneeName.includes(ex); });
+                    if (isExcluded) return;
+                    var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
+                    if (STRUCTURE_TYPES.includes(typeName)) return;
+                    var idx = allTasks.findIndex(function(at) { return at.key === t.key; });
+                    issueIndex[t.key] = t;
+                    parentCache = {};
+                    if (!belongsToDept(t)) {
+                        if (idx !== -1) { allTasks.splice(idx, 1); updatedCount++; }
+                        return;
+                    }
+                    var statusNorm = normalizeStr(t.fields.status.name);
+                    var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti');
+                    var shouldInclude = !statusNorm.includes('başlanmamış') && !statusNorm.includes('baslanmamis');
+                    if (idx !== -1) { allTasks[idx] = t; updatedCount++; }
+                    else if (shouldInclude || isPaused) { allTasks.unshift(t); updatedCount++; }
+                });
+                if (updatedCount > 0) applyFilters();
+            } catch (error) {
+                console.error('Bugünkü dəyişikliklər yüklənmədi:', error);
+            }
+        }
+
+       async function fetchDashboardData() {
+            var baseUrl = document.getElementById('baseUrl').value;
+            var pat = document.getElementById('pat').value;
+            var projectKey = document.getElementById('projectKey').value.toUpperCase();
+            if (!baseUrl || !pat || !projectKey) { toggleSettings(); showToast('Zəhmət olmasa məlumatları daxil edin!', 'error'); return; }
+            currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            try {
+                var jql = 'project = ' + projectKey + ' ORDER BY updated DESC';
+                var data = await fetchJQL(currentBaseUrl, pat, jql);
+                allDirections = []; allTasks = []; issueIndex = {}; parentCache = {};
+                data.issues.forEach(function(t) { issueIndex[t.key] = t; issueIndexById[String(t.id)] = t; });
+                data.issues.forEach(function(t) {
+                    var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
+                    if (!typeName.includes('alt') && (typeName.includes('istiqamət') || typeName.includes('istiqamet') || typeName.includes('epic') || typeName.includes('tədbir') || typeName.includes('tedbir'))) {
+                        if (hasKomplaynsComponent(t)) {
+                            allDirections.push(t); 
+                        }
+                        return;
+                    }
+                });
+                data.issues.forEach(function(t) {
+                    var assigneeName = t.fields.assignee ? normalizeStr(t.fields.assignee.displayName) : '';
+                    var isExcluded = EXCLUDED_USERS.some(function(ex) { return assigneeName.includes(ex); });
+                    if (isExcluded) return;
+                    var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
+                    if (STRUCTURE_TYPES.includes(typeName)) return;
+                    if (!belongsToDept(t)) return;
+                    var statusNorm = normalizeStr(t.fields.status.name);
+                    var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti');
+                    if ((!statusNorm.includes('başlanmamış') && !statusNorm.includes('baslanmamis')) || isPaused) allTasks.push(t);
+                });
+                document.getElementById('settingsPanel').classList.add('hidden');
+                populateSprintFilter(); 
+                loadFiltersFromStorage(); 
+                applyFilters(); 
+                showToast('Məlumatlar uğurla yeniləndi!', 'success');
+                var todayTmp = new Date(); todayTmp.setHours(0,0,0,0);
+                todayTasks = allTasks.filter(function(t) {
+                    var d = new Date(t.fields.updated); d.setHours(0,0,0,0);
+                    return d.getTime() === todayTmp.getTime();
+                });
+                renderDailyProgress();
+                fetchTodayChanges();
+                if (todayRefreshInterval) clearInterval(todayRefreshInterval);
+                todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+                if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+                autoRefreshInterval = setInterval(function() { fetchDashboardData(); }, 900000); 
+            } catch (error) {
+                showToast(error.message, 'error');
+            } finally {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+            }
+        }
+
+        function toggleSettings() {
+            var panel = document.getElementById('settingsPanel');
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) panel.classList.add('slide-down');
+        }
+
+        function populateSprintFilter() {
+            var sprintSet = new Set();
+            allTasks.forEach(function(t) { getSprintNames(t).forEach(function(n) { sprintSet.add(n); }); });
+            var sprintSelect = document.getElementById('sprintFilter');
+            var previousVal = sprintSelect.value; 
+            
+            sprintSelect.innerHTML = '<option value="all">Bütün Sprintlər</option>';
+            var sortedSprints = Array.from(sprintSet).sort(function(a, b) {
+                var numA = parseInt((a.match(/\d+/) || [0])[0]);
+                var numB = parseInt((b.match(/\d+/) || [0])[0]);
+                return numB - numA;
+            });
+            sortedSprints.forEach(function(s) {
+                var opt = document.createElement('option');
+                opt.value = s; opt.innerText = s;
+                sprintSelect.appendChild(opt);
+            });
+            
+            var optionExists = Array.from(sprintSelect.options).some(opt => opt.value === previousVal);
+            if (optionExists) {
+                sprintSelect.value = previousVal;
+            } else if (sortedSprints.length > 0) {
+                sprintSelect.value = sortedSprints[0];
+            } else {
+                sprintSelect.value = 'all';
+            }
+        }
+
+        function clearDateRangeInputs() {
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            updateSprintFilterState();
+        }
+
+        function updateSprintFilterState() {
+            var startStr = document.getElementById('startDate').value;
+            var endStr = document.getElementById('endDate').value;
+            var sprintSelect = document.getElementById('sprintFilter');
+            if (!sprintSelect) return;
+            if (startStr || endStr) {
+                sprintSelect.disabled = true;
+                sprintSelect.classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                sprintSelect.disabled = false;
+                sprintSelect.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+        }
+
+        function selectLatestSprint() {
+            var sprintSelect = document.getElementById('sprintFilter');
+            if (sprintSelect.options.length > 1) {
+                clearDateRangeInputs();
+                sprintSelect.selectedIndex = 1;
+                applyFilters();
+            }
+        }
+
+        function selectPreviousSprint() {
+            var sprintSelect = document.getElementById('sprintFilter');
+            if (sprintSelect.options.length > 2) {
+                clearDateRangeInputs();
+                sprintSelect.selectedIndex = 2;
+                applyFilters();
+            }
+            else { showToast('Əvvəlki həftə tapılmadı!', 'error'); }
+        }
+
+        function onSprintDropdownChange() {
+            clearDateRangeInputs();
+            applyFilters();
+        }
+
+        function resetAllFilters() {
+            var sprintSelect = document.getElementById('sprintFilter');
+            if (sprintSelect.options.length > 1) { sprintSelect.selectedIndex = 1; } 
+            else { sprintSelect.selectedIndex = 0; }
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+            var qurumSearch = document.getElementById('qurumSearch');
+            if (qurumSearch) qurumSearch.value = '';
+            currentAssigneeFilter = null;
+            currentDirectionFilter = null;
+            currentQurumFilter = null;
+            activeLabelFilter = null;
+            currentPage = 1;
+            localStorage.removeItem('dgd_filter_sprint');
+            localStorage.removeItem('dgd_filter_startDate');
+            localStorage.removeItem('dgd_filter_endDate');
+            localStorage.removeItem('dgd_filter_assignee');
+            localStorage.removeItem('dgd_filter_direction');
+            localStorage.removeItem('dgd_filter_qurum');
+            var badges = ['userFilterBadge', 'directionFilterBadge', 'qurumFilterBadge'];
+            badges.forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) { el.classList.add('hidden'); el.classList.remove('flex'); }
+            });
+            applyFilters();
+            showToast('Bütün filtrlər sıfırlandı!', 'info');
+        }
+
+        function applyFilters() {
+            currentPage = 1;
+            var sprintSelectEl = document.getElementById('sprintFilter');
+            var sprintVal = sprintSelectEl.value;
+            var startStr = document.getElementById('startDate').value;
+            var endStr = document.getElementById('endDate').value;
+            var useDateFilter = startStr || endStr;
+
+            updateSprintFilterState();
+
+            var startDateObj = null, endDateObj = null;
+            if (useDateFilter) {
+                if (startStr) {
+                    var sParts = startStr.split('-');
+                    startDateObj = new Date(sParts[0], sParts[1] - 1, sParts[2]);
+                    startDateObj.setHours(0, 0, 0, 0);
+                }
+                if (endStr) {
+                    var eParts = endStr.split('-');
+                    endDateObj = new Date(eParts[0], eParts[1] - 1, eParts[2]);
+                    endDateObj.setHours(23, 59, 59, 999);
+                }
+            }
+
+            sprintDateFiltered = allTasks.filter(function(t) {
+                if (!useDateFilter && sprintVal && sprintVal !== 'all') {
+                    var sprints = getSprintNames(t);
+                    if (!sprints.includes(sprintVal)) return false;
+                }
+                if (useDateFilter) {
+                    var taskDateRaw = t.fields['customfield_10808'];
+                    if (!taskDateRaw) return false; 
+                    var dStr = String(taskDateRaw).split('T')[0];
+                    var dParts = dStr.split('-');
+                    if (dParts.length < 3) return false;
+                    var d = new Date(dParts[0], dParts[1] - 1, dParts[2]);
+                    d.setHours(12, 0, 0, 0); 
+                    if (startDateObj && d < startDateObj) return false;
+                    if (endDateObj && d > endDateObj) return false;
+                }
+                return true;
+            });
+
+            filteredTasks = sprintDateFiltered.filter(function(t) {
+                if (currentDirectionFilter) {
+                    var dir = resolveDirection(t);
+                    if (!dir || dir.key !== currentDirectionFilter) return false;
+                }
+                if (currentQurumFilter) {
+                    var q = getQurumName(t) || 'Təyin edilməyib';
+                    if (q !== currentQurumFilter) return false;
+                }
+                if (currentAssigneeFilter) {
+                    if (!t.fields.assignee || t.fields.assignee.displayName !== currentAssigneeFilter) return false;
+                }
+                var st = normalizeStr(t.fields.status.name);
+                if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
+                if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
+                return true;
+            });
+
+            var sprintSelect = document.getElementById('sprintFilter');
+            var nextSprint = null;
+            if (sprintVal && sprintVal !== 'all') {
+                var selIdx = -1;
+                for (var i = 1; i < sprintSelect.options.length; i++) {
+                    if (sprintSelect.options[i].value === sprintVal) { selIdx = i; break; }
+                }
+                if (selIdx > 1) nextSprint = sprintSelect.options[selIdx - 1].value;
+            }
+            var isHistorical = nextSprint !== null && !useDateFilter;
+
+            if (isHistorical) {
+                filteredTasks = filteredTasks.map(function(t) {
+                    var histStatus = getHistoricalStatus(t, nextSprint);
+                    if (histStatus !== t.fields.status.name) {
+                        var newT = Object.assign({}, t);
+                        newT.fields = Object.assign({}, t.fields);
+                        newT.fields.status = Object.assign({}, t.fields.status, { name: histStatus });
+                        return newT;
+                    }
+                    return t;
+                });
+            }
+
+            epicChartTasks = sprintDateFiltered.filter(function(t) {
+                if (currentQurumFilter) { var q = getQurumName(t) || 'Təyin edilməyib'; if (q !== currentQurumFilter) return false; }
+                if (currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== currentAssigneeFilter) return false; }
+                return true;
+            });
+            qurumChartTasks = sprintDateFiltered.filter(function(t) {
+                if (currentDirectionFilter) { var dir = resolveDirection(t); if (!dir || dir.key !== currentDirectionFilter) return false; }
+                if (currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== currentAssigneeFilter) return false; }
+                return true;
+            });
+
+            if (currentDirectionFilter) {
+                var b = document.getElementById('directionFilterBadge');
+                b.classList.remove('hidden'); b.classList.add('flex');
+                var dirObj = allDirections.find(function(d) { return d.key === currentDirectionFilter; });
+                document.getElementById('directionFilterName').innerText = 'İstiqamət: ' + (dirObj ? dirObj.fields.summary : '');
+            } else {
+                var b2 = document.getElementById('directionFilterBadge');
+                b2.classList.add('hidden'); b2.classList.remove('flex');
+            }
+            if (currentQurumFilter) {
+                var qb = document.getElementById('qurumFilterBadge');
+                qb.classList.remove('hidden'); qb.classList.add('flex');
+                document.getElementById('qurumFilterName').innerText = 'Qurum: ' + currentQurumFilter;
+            } else {
+                var qb2 = document.getElementById('qurumFilterBadge');
+                qb2.classList.add('hidden'); qb2.classList.remove('flex');
+            }
+            if (currentAssigneeFilter) {
+                document.getElementById('userFilterBadge').classList.remove('hidden');
+                document.getElementById('userFilterBadge').classList.add('flex');
+                document.getElementById('userFilterName').innerText = 'İstifadəçi: ' + currentAssigneeFilter;
+            } else {
+                document.getElementById('userFilterBadge').classList.add('hidden');
+                document.getElementById('userFilterBadge').classList.remove('flex');
+            }
+
+            renderStats(sprintDateFiltered); renderDifficulties(filteredTasks); renderTaskList(filteredTasks);
+            renderStatusChart(filteredTasks); renderAssigneeChart(filteredTasks);
+            renderEpicChart(epicChartTasks); renderLabelChart();
+            renderWeeklyTasks(); renderSprintComparison(); renderDailyProgress(); renderQurumChart(qurumChartTasks);
+            renderPausedTasks();
+            saveFiltersToStorage();
+        }
+
+        function saveFiltersToStorage() {
+            try {
+                localStorage.setItem('dgd_filter_sprint', document.getElementById('sprintFilter').value);
+                localStorage.setItem('dgd_filter_startDate', document.getElementById('startDate').value);
+                localStorage.setItem('dgd_filter_endDate', document.getElementById('endDate').value);
+                localStorage.setItem('dgd_filter_assignee', currentAssigneeFilter || '');
+                localStorage.setItem('dgd_filter_direction', currentDirectionFilter || '');
+                localStorage.setItem('dgd_filter_qurum', currentQurumFilter || '');
+            } catch(e) {}
+        }
+
+        function loadFiltersFromStorage() {
+            var savedSprint = localStorage.getItem('dgd_filter_sprint');
+            if (savedSprint) {
+                var sprintSelect = document.getElementById('sprintFilter');
+                var optionExists = Array.from(sprintSelect.options).some(opt => opt.value === savedSprint);
+                if (optionExists) sprintSelect.value = savedSprint;
+            }
+            document.getElementById('startDate').value = localStorage.getItem('dgd_filter_startDate') || '';
+            document.getElementById('endDate').value = localStorage.getItem('dgd_filter_endDate') || '';
+            currentAssigneeFilter = localStorage.getItem('dgd_filter_assignee') || null;
+            currentDirectionFilter = localStorage.getItem('dgd_filter_direction') || null;
+            currentQurumFilter = localStorage.getItem('dgd_filter_qurum') || null;
+            updateSprintFilterState();
+        }
+
+        function clearUserFilter() { 
+            currentAssigneeFilter = null; 
+            localStorage.removeItem('dgd_filter_assignee');
+            applyFilters(); 
+        }
+        function clearDirectionFilter() { 
+            currentDirectionFilter = null; 
+            localStorage.removeItem('dgd_filter_direction');
+            applyFilters(); 
+        }
+        function clearQurumFilter() { 
+            currentQurumFilter = null; 
+            localStorage.removeItem('dgd_filter_qurum');
+            applyFilters(); 
+        }
+
+        function setQurumFilter(qName) {
+            if (currentQurumFilter === qName) { currentQurumFilter = null; } else { currentQurumFilter = qName; }
+            applyFilters();
+        }
+
+        function filterQurumByStatus(qName, statusType) {
+            var fTasks = qurumChartTasks.filter(function(t) {
+                var q = getQurumName(t) || 'Təyin edilməyib';
+                if (q !== qName) return false;
+                if (statusType === 'all') return true;
+                if (statusType === 'done') return getStatusGroup(t.fields.status.name) === 'done';
+                if (statusType === 'planned') return getStatusGroup(t.fields.status.name) === 'planned';
+                if (statusType === 'progress') {
+                    var g = getStatusGroup(t.fields.status.name);
+                    return g === 'progress' || g === 'esd' || g === 'review';
+                }
+                return false;
+            });
+            var title = qName + ' - ';
+            if (statusType === 'done') title += 'Tamamlanmış';
+            else if (statusType === 'planned') title += 'Planlaşdırılmış';
+            else if (statusType === 'progress') title += 'İcradakı';
+            else title += 'Ümumi';
+            title += ' Tapşırıqlar';
+            renderTaskList(fTasks, title);
+            var listEl = document.getElementById('taskListContent');
+            listEl.classList.remove('hidden'); listEl.classList.add('slide-down');
+            listEl.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function getStatusGroup(statusName) {
+            if (!statusName) return 'other';
+            var n = normalizeStr(statusName);
+            if (n.includes('başlanmamış') || n.includes('baslanmamis')) return 'progress';
+            if (n.includes('dayandır') || n.includes('dayandir') || n.includes('müvəqqəti') || n.includes('muveqqeti')) return 'paused';
+            if (n.includes('həll') || n.includes('hel') || n.includes('bağlı') || n.includes('bagli') || n.includes('tamamla') || n === 'done' || n === 'closed' || n === 'resolved') return 'done';
+            if (n.includes('planlaşdır') || n.includes('planlasdir') || n === 'planned' || n === 'to do') return 'planned';
+            if (n.includes('icradadır') || n.includes('icradadir') || n === 'in progress' || n.includes('esd') || n.includes('rəy') || n.includes('rey') || n.includes('review')) return 'progress';
+            if (n.includes('blok')) return 'blocked';
+            if (n.includes('imtina')) return 'rejected';
+            return 'other';
+        }
+
+        function isDueThisWeek(t) {
+            if (!t.fields) return false;
+            var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
+            if (!dueDateRaw) return false;
+            try {
+                var dueStr = String(dueDateRaw).split('T')[0];
+                var parts = dueStr.split('-');
+                if (parts.length < 3) return false;
+                var dueYear = parseInt(parts[0], 10);
+                var dueMonth = parseInt(parts[1], 10) - 1; 
+                var dueDay = parseInt(parts[2], 10);
+                var dueDate = new Date(dueYear, dueMonth, dueDay);
+                dueDate.setHours(0, 0, 0, 0);
+                var now = new Date();
+                var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+                var bakuNow = new Date(utc + (4 * 3600000));
+                bakuNow.setHours(0, 0, 0, 0);
+                var dayOfWeek = bakuNow.getDay(); 
+                var diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+                var monday = new Date(bakuNow);
+                monday.setDate(bakuNow.getDate() + diffToMonday);
+                monday.setHours(0, 0, 0, 0);
+                var sunday = new Date(monday);
+                sunday.setDate(monday.getDate() + 6);
+                sunday.setHours(23, 59, 59, 999);
+                return dueDate >= monday && dueDate <= sunday;
+            } catch(e) { 
+                return false; 
+            }
+        }
+
+        function getHistoricalStatus(t, latestSprint) {
+            var taskSprints = getSprintNames(t);
+            if (taskSprints.length <= 1) return t.fields.status.name;
+            if (!latestSprint) return t.fields.status.name;
+            if (t.changelog && t.changelog.histories) {
+                var sprintChangeDate = null;
+                t.changelog.histories.forEach(function(h) {
+                    if (h.items) {
+                        h.items.forEach(function(item) {
+                            if (item.field && item.field.toLowerCase().indexOf('sprint') !== -1) {
+                                var toString = item.toString || '';
+                                if (toString.indexOf(latestSprint) !== -1) {
+                                    var d = new Date(h.created);
+                                    if (!sprintChangeDate || d > sprintChangeDate) sprintChangeDate = d;
+                                }
+                            }
+                        });
+                    }
+                });
+                if (sprintChangeDate) {
+                    var lastStatus = t.fields.status.name;
+                    t.changelog.histories.forEach(function(h) {
+                        var d = new Date(h.created);
+                        if (d <= sprintChangeDate) {
+                            if (h.items) {
+                                h.items.forEach(function(item) {
+                                    if (item.field && item.field.toLowerCase() === 'status') {
+                                        lastStatus = item.toString;
+                                    }
+                                });
+                            }
+                        }
+                    });
+                    return lastStatus;
+                }
+            }
+            return t.fields.status.name;
+        }
+
+        function getDifficultyField(t) {
+            if (!t.fields) return null;
+            if (t.fields['customfield_12703']) {
+                var val = t.fields['customfield_12703'];
+                if (typeof val === 'object' && val.value) return val.value;
+                if (typeof val === 'string' && val.trim() !== '') return val;
+            }
+            var diffFieldKey = null;
+            for (var key in jiraFieldNames) {
+                var fieldName = normalizeStr(jiraFieldNames[key]);
+                if (fieldName === 'çətinlik' || fieldName.includes('çətin') || fieldName.includes('cetin') || fieldName.includes('difficult') || fieldName.includes('severity')) { diffFieldKey = key; break; }
+            }
+            if (diffFieldKey && t.fields[diffFieldKey]) {
+                var val2 = t.fields[diffFieldKey];
+                if (typeof val2 === 'object' && val2.value) return val2.value;
+                if (typeof val2 === 'string' && val2.trim() !== '') return val2;
+            }
+            for (var key2 in t.fields) {
+                var lowerKey = key2.toLowerCase();
+                if (lowerKey.includes('çətin') || lowerKey.includes('cetin') || lowerKey.includes('difficult') || lowerKey.includes('severity')) {
+                    var val3 = t.fields[key2];
+                    if (val3 && typeof val3 === 'object' && val3.value) return val3.value;
+                    if (val3 && typeof val3 === 'string' && val3.trim() !== '') return val3;
+                }
+            }
+            return null;
+        }
+
+        function hasValidDifficulty(t) {
+            var diff = getDifficultyField(t);
+            if (!diff) return false;
+            var normDiff = normalizeStr(diff);
+            return normDiff !== 'none' && normDiff !== 'qeyd edilməyib' && normDiff !== 'qeyd edilmeyib' && normDiff !== 'null' && normDiff !== '';
+        }
+
+        var PHASE_FIELDS = [
+            { date: 'customfield_15611', text: 'customfield_15612' }, 
+            { date: 'customfield_15613', text: 'customfield_15614' }, 
+            { date: 'customfield_15615', text: 'customfield_15616' }, 
+            { date: 'customfield_15617', text: 'customfield_15618' }, 
+            { date: 'customfield_15619', text: 'customfield_15620' }  
+        ];
+
+                // Tarixi müqayisə/sıralama üçün Date obyektinə çevirir (həm YYYY-MM-DD, həm də DD/Mon/YYYY formatlarını dəstəkləyir)
+        function parsePhaseDate(raw) {
+            if (!raw) return null;
+            try {
+                var rawStr = String(raw);
+                if (typeof raw === 'object' && raw.value) rawStr = String(raw.value);
+                var datePart = rawStr.split('T')[0].trim();
+                
+                // Format 1: YYYY-MM-DD (məsələn, 2026-08-24)
+                if (datePart.indexOf('-') !== -1) {
+                    var p = datePart.split('-');
+                    if (p.length !== 3) return null;
+                    var year = parseInt(p[0], 10), month = parseInt(p[1], 10), day = parseInt(p[2], 10);
+                    if (!year || !month || !day || month < 1 || month > 12) return null;
+                    var d = new Date(year, month - 1, day);
+                    d.setHours(12, 0, 0, 0);
+                    return d;
+                }
+                
+                // Format 2: DD/Mon/YYYY (məsələn, 24/Aug/2026)
+                if (datePart.indexOf('/') !== -1) {
+                    var p2 = datePart.split('/');
+                    if (p2.length !== 3) return null;
+                    var day2 = parseInt(p2[0], 10);
+                    var year2 = parseInt(p2[2], 10);
+                    var monthsArr = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    var month2 = monthsArr.indexOf(p2[1]) + 1;
+                    if (!year2 || !month2 || !day2) return null;
+                    var d2 = new Date(year2, month2 - 1, day2);
+                    d2.setHours(12, 0, 0, 0);
+                    return d2;
+                }
+                
+                return null;
+            } catch(e) { return null; }
+        }
+
+        function formatDateObj(d) {
+            if (!d) return '';
+            var dd = String(d.getDate()).padStart(2, '0');
+            var mm = String(d.getMonth() + 1).padStart(2, '0');
+            var yyyy = d.getFullYear();
+            return dd + '.' + mm + '.' + yyyy;
+        }
+
+        function getPhaseFieldText(t, fieldKey) {
+            if (!t.fields) return '';
+            var val = t.fields[fieldKey];
+            if (!val) return '';
+            if (typeof val === 'object' && val.value) return String(val.value).trim();
+            if (typeof val === 'string') return val.trim();
+            return String(val).trim();
+        }
+
+        function getRawPhaseEntries(t, periodStart, periodEnd) {
+            if (!t || !t.fields) return [];
+            var entries = [];
+            PHASE_FIELDS.forEach(function(pf) {
+                var dateObj = parsePhaseDate(t.fields[pf.date]);
+                var textStr = getPhaseFieldText(t, pf.text);
+                if (!dateObj || !textStr) return;
+                if (periodStart && dateObj < periodStart) return;
+                if (periodEnd && dateObj > periodEnd) return;
+                entries.push({ date: dateObj, text: textStr });
+            });
+            entries.sort(function(a, b) { return a.date - b.date; });
+            return entries;
+        }
+
+        function formatPhaseEntriesText(entries) {
+            return entries.map(function(e) {
+                return formatDateObj(e.date) + ' tarixində ' + e.text;
+            }).join(' ');
+        }
+
+        function getQurumName(t) {
+            if (!t.fields) return null;
+            var val1 = t.fields['customfield_13608'];
+            if (val1) {
+                if (Array.isArray(val1)) { var names = val1.map(function(v) { return v.name || v.value || (typeof v === 'string' ? v : ''); }).filter(Boolean); if (names.length > 0) return names.join(', '); }
+                if (typeof val1 === 'object' && (val1.value || val1.name)) return val1.value || val1.name;
+                if (typeof val1 === 'string' && val1.trim() !== '') return val1;
+            }
+            var val2 = t.fields['customfield_12424'];
+            if (val2) {
+                if (Array.isArray(val2)) { var names2 = val2.map(function(v) { return v.name || v.value || (typeof v === 'string' ? v : ''); }).filter(Boolean); if (names2.length > 0) return names2.join(', '); }
+                if (typeof val2 === 'object' && (val2.value || val2.name)) return val2.value || val2.name;
+                if (typeof val2 === 'string' && val2.trim() !== '') return val2;
+            }
+            return null;
+        }
+
+        function renderStats(tasks) {
+            // Alt tapşırığı olan (istər subtasks, istər issuelinks vasitəsilə) ana tapşırıqları siyahıdan çıxardırıq!
+            var units = tasks.filter(function(t) {
+                if (!t || !t.fields) return false;
+                
+                var subtasks = t.fields.subtasks || [];
+                if (subtasks.length > 0) return false;
+                
+                if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
+                    for (var i = 0; i < t.fields.issuelinks.length; i++) {
+                        var link = t.fields.issuelinks[i];
+                        var linkedIssue = link.outwardIssue || link.inwardIssue;
+                        if (!linkedIssue) continue;
+                        if (linkedIssue.fields && linkedIssue.fields.issuetype) {
+                            var linkedType = normalizeStr(linkedIssue.fields.issuetype.name);
+                            if (linkedType.includes('alt') || linkedType.includes('sub')) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                return true;
+            });
+
+            var backlogTasks = units.filter(function(t) { 
+                var st = normalizeStr(t.fields.status.name || '');
+                return st.includes('başlanmamış') || st.includes('baslanmamis');
+            }).length;
+
+            var pausedTasks = units.filter(function(t) {
+                var st = normalizeStr(t.fields.status.name || '');
+                return st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+            }).length;
+
+            var rejected = units.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'rejected'; }).length;
+
+            var total = units.length - backlogTasks - pausedTasks - rejected;
+            if (total < 0) total = 0;
+
+            animateValue('totalTasks', 0, total, 800);
+
+            var validTasks = units.filter(function(t) {
+                var st = normalizeStr(t.fields.status.name || '');
+                var isRejected = getStatusGroup(st) === 'rejected';
+                var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
+                var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+                return !isRejected && !isBacklog && !isPaused;
+            });
+
+            var done = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'done'; }).length;
+            var completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
+            var openTasks = total - done;
+            if (openTasks < 0) openTasks = 0;
+
+            var compRateEl = document.getElementById('completionRate');
+            var openTasksEl = document.getElementById('openTasks');
+            if (compRateEl) compRateEl.innerText = completionRate + '%';
+            if (openTasksEl) openTasksEl.innerText = openTasks;
+
+            function hasDiff(t) {
+                var g = getStatusGroup(t.fields.status.name || '');
+                var diff = hasValidDifficulty(t);
+                return diff && g !== 'done' && g !== 'rejected';
+            }
+
+            var blocked = validTasks.filter(function(t) {
+                var g = getStatusGroup(t.fields.status.name || '');
+                return g === 'blocked' || hasDiff(t);
+            }).length;
+            
+            var sprintT = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'progress' && !hasDiff(t); }).length;
+            
+            var sprintDueWeek = validTasks.filter(function(t) { 
+                var g = getStatusGroup(t.fields.status.name || '');
+                return g !== 'done' && g !== 'rejected' && !hasDiff(t) && isDueThisWeek(t); 
+            }).length;
+            
+            var planned = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'planned' && !hasDiff(t); }).length;
+            var other = validTasks.filter(function(t) {
+                var g = getStatusGroup(t.fields.status.name || '');
+                return g === 'other' && !hasDiff(t);
+            }).length;
+
+            var lateTasks = validTasks.filter(function(t) { return getDateStatus(t) === 'late'; }).length;
+
+            var totalCompletionRateVal = total > 0 ? Math.round((done / total) * 100) : 0;
+            var totalProgressBarEl = document.getElementById('totalProgressBar');
+            var totalCompletionRateEl = document.getElementById('totalCompletionRate');
+            if (totalProgressBarEl) totalProgressBarEl.style.width = totalCompletionRateVal + '%';
+            if (totalCompletionRateEl) totalCompletionRateEl.innerText = totalCompletionRateVal + '%';
+
+            animateValue('doneTasks', 0, done, 800);
+            animateValue('plannedTasks', 0, planned, 800);
+            animateValue('sprintTasks', 0, sprintT, 800);
+            animateValue('blockedTasks', 0, blocked, 800);
+            animateValue('rejectedTasks', 0, rejected, 800);
+            animateValue('otherTasks', 0, other, 800);
+            animateValue('lateTasks', 0, lateTasks, 800);
+            
+            var dueWeekEl = document.getElementById('sprintTasksDueWeek');
+            if (dueWeekEl) dueWeekEl.innerText = sprintDueWeek;
+
+            var blockedCard = document.getElementById('blockedCard');
+            if (blocked > 0 || rejected > 0) blockedCard.classList.add('pulse-danger');
+            else blockedCard.classList.remove('pulse-danger');
+
+            var otherCard = document.getElementById('otherCard');
+            if (other > 0) {
+                otherCard.classList.remove('hidden');
+                document.getElementById('statsGrid').classList.remove('lg:grid-cols-4');
+                document.getElementById('statsGrid').classList.add('lg:grid-cols-5');
+            } else {
+                otherCard.classList.add('hidden');
+                document.getElementById('statsGrid').classList.remove('lg:grid-cols-5');
+                document.getElementById('statsGrid').classList.add('lg:grid-cols-4');
+            }
+        }
+
+        function getDateStatus(t) {
+            var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
+            if (!dueDateRaw) return 'nodate';
+            try {
+                var dueStr = String(dueDateRaw).split('T')[0];
+                var parts = dueStr.split('-');
+                if (parts.length < 3) return 'nodate';
+                var dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
+                dueDate.setHours(23, 59, 59, 999); 
+                var statusGroup = getStatusGroup(t.fields.status.name);
+                var isDone = (statusGroup === 'done');
+                var today = new Date(); today.setHours(0,0,0,0);
+                if (isDone) {
+                    var resolvedRaw = t.fields['resolutiondate'] || t.fields['updated'];
+                    if (!resolvedRaw) return 'ontime';
+                    var resStr = String(resolvedRaw).split('T')[0];
+                    var resParts = resStr.split('-');
+                    if (resParts.length < 3) return 'ontime';
+                    var resDate = new Date(resParts[0], resParts[1] - 1, resParts[2]);
+                    resDate.setHours(12, 0, 0, 0);
+                    if (resDate < dueDate) return 'early';
+                    if (resDate.getTime() === dueDate.setHours(12,0,0,0)) return 'ontime';
+                    return 'late';
+                } else {
+                    if (dueDate < today) return 'late';
+                    return 'upcoming';
+                }
+            } catch(e) { 
+                return 'nodate'; 
+            }
+        }
+
+        function filterTasksByDateStatus(type) {
+            var f = filteredTasks.filter(function(t) { return getDateStatus(t) === type; });
+            var title = type === 'early' ? 'Vaxtından Öncə Bitən Tapşırıqlar' : type === 'ontime' ? 'Zamanında Bitən Tapşırıqlar' : 'Gecikən / Vaxtı Keçmiş Tapşırıqlar';
+            renderTaskList(f, title);
+            var listEl = document.getElementById('taskListContent');
+            listEl.classList.remove('hidden');
+            listEl.classList.add('slide-down');
+            listEl.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderDifficulties(tasks) {
+            var listDiv = document.getElementById('komplaynsList');
+            listDiv.innerHTML = '';
+            var blockedOrDiffTasks = tasks.filter(function(t) {
+                var g = getStatusGroup(t.fields.status.name);
+                return (g === 'blocked' || hasValidDifficulty(t)) && g !== 'done' && g !== 'rejected';
+            });
+            var html = '';
+            if (blockedOrDiffTasks.length > 0) {
+                html += '<div class="mb-6"><div class="grid grid-cols-1 md:grid-cols-2 gap-4">';
+                blockedOrDiffTasks.forEach(function(t) { html += getDifficultyCardHtml(t, 'diff'); });
+                html += '</div></div>';
+            }
+            if (html === '') html = '<p class="text-slate-400 text-sm col-span-2 text-center py-4">Çətinlik və ya bloklanma olunmuş tapşırıq yoxdur.</p>';
+            listDiv.innerHTML = html;
+        }
+
+        function getDifficultyCardHtml(t, type) {
+            type = type || 'diff';
+            var assignee = t.fields.assignee;
+            var assigneeName = assignee ? assignee.displayName : 'Təyin edilməyib';
+            var initials = getInitials(assigneeName);
+            var avatarColor = assignee ? '#5b21b6' : '#94a3b8';
+            var statusGroup = getStatusGroup(t.fields.status.name);
+            var difficultyName = getDifficultyField(t);
+            var statusBadgeHtml = '';
+            if (type === 'reject' || statusGroup === 'rejected') {
+                statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-rose-50 text-rose-700 border border-rose-100 px-2 py-1 rounded">Status: İmtina</span>';
+            } else if (statusGroup === 'blocked') {
+                statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded">Status: Bloklanıb</span>';
+            }
+            var diffHtml = '';
+            if (difficultyName) {
+                var normD = normalizeStr(difficultyName);
+                var displayD = (normD !== 'none' && normD !== 'qeyd edilməyib' && normD !== 'qeyd edilmeyib' && normD !== 'null') ? difficultyName : null;
+                if (displayD) diffHtml = '<div class="mt-2 bg-orange-50 border border-orange-100 rounded-lg p-2"><span class="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Çətinlik:</span><p class="text-xs text-orange-800 mt-0.5 break-words">' + displayD + '</p></div>';
+            }
+            return '<div onclick="window.open(\'' + currentBaseUrl + '/browse/' + t.key + '\', \'_blank\')" class="task-item p-4 rounded-xl border border-slate-200 cursor-pointer fade-in"><div class="flex justify-between items-center mb-2"><div class="flex items-center gap-2 flex-wrap"><span class="font-mono text-xs font-bold text-[#5b21b6] bg-purple-50 px-2 py-1 rounded">' + t.key + '</span>' + statusBadgeHtml + '</div><span class="text-xs font-medium ' + getStatusColor(t.fields.status.name) + ' text-white px-2 py-1 rounded-full">' + t.fields.status.name + '</span></div><p class="text-sm text-slate-700 line-clamp-2 mb-2">' + t.fields.summary + '</p>' + diffHtml + '<div class="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100"><div class="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-white text-[10px] font-bold" style="background-color: ' + avatarColor + ';">' + initials + '</div><span class="text-xs text-slate-500">' + assigneeName + '</span></div></div>';
+        }
+
+        function getInitials(name) {
+            if (!name || name === 'Təyin edilməyib') return '?';
+            return name.split(' ').map(function(p) { return p[0]; }).join('').toUpperCase().substring(0, 2);
+        }
+
+        function getIssueTypeIcon(typeName) {
+            var n = normalizeStr(typeName);
+            if (n.includes('alt') || n.includes('sub')) return '<span class="w-4 h-4 inline-block"></span>';
+            if (n.includes('bug')) return '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>';
+            return '<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" /></svg>';
+        }
+
+        function renderTaskList(tasks, title) {
+            title = title || 'Tapşırıqların Siyahısı';
+            currentDisplayTasks = tasks;
+            document.getElementById('taskListTitle').innerText = title;
+            var listDiv = document.getElementById('taskList');
+            var pagDiv = document.getElementById('taskPagination');
+            listDiv.innerHTML = '';
+            if (pagDiv) pagDiv.innerHTML = '';
+            if (tasks.length === 0) { listDiv.innerHTML += '<p class="text-slate-400 text-sm p-4 text-center">Bu filtrə uyğun tapşırıq tapılmadı.</p>'; return; }
+            var totalPages = Math.ceil(tasks.length / tasksPerPage);
+            if (currentPage > totalPages) currentPage = 1;
+            if (currentPage < 1) currentPage = 1;
+            var start = (currentPage - 1) * tasksPerPage;
+            var end = start + tasksPerPage;
+            var paginatedTasks = tasks.slice(start, end);
+            
+            function fmtDate(dateStr) {
+                if (!dateStr) return '-';
+                try {
+                    var d = new Date(dateStr);
+                    return d.toLocaleDateString('az-AZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                } catch(e) { return '-'; }
+            }
+
+            paginatedTasks.forEach(function(t) {
+                var assignee = t.fields.assignee;
+                var assigneeName = assignee ? assignee.displayName : 'Təyin edilməyib';
+                var initials = getInitials(assigneeName);
+                var avatarColor = assignee ? '#5b21b6' : '#94a3b8';
+                var hasSubtasks = t.fields.subtasks && t.fields.subtasks.length > 0;
+                var hasIssueLinks = t.fields.issuelinks && t.fields.issuelinks.length > 0;
+                var issueTypeName = t.fields.issuetype ? t.fields.issuetype.name : '';
+                var issueTypeIcon = getIssueTypeIcon(issueTypeName);
+                var isSubtask = normalizeStr(issueTypeName).includes('alt') || normalizeStr(issueTypeName).includes('sub');
+
+                var toggleButtonsHtml = '';
+                var subtaskHtml = '';
+                var relatedHtml = '';
+                
+                var mainRowClick = 'window.open(\'' + currentBaseUrl + '/browse/' + t.key + '\', \'_blank\')';
+                if (!isSubtask && hasSubtasks) {
+                    mainRowClick = 'toggleSubtasks(\'' + t.key + '\')';
+                } else if (!isSubtask && hasIssueLinks) {
+                    mainRowClick = 'toggleRelated(\'' + t.key + '\')';
+                }
+
+                if (hasSubtasks && !isSubtask) {
+                    toggleButtonsHtml += '<span onclick="event.stopPropagation(); toggleSubtasks(\'' + t.key + '\')" class="text-[10px] text-blue-600 mr-2 bg-blue-100 px-2 py-1 rounded cursor-pointer hover:bg-blue-200 transition">Alt (' + t.fields.subtasks.length + ')</span>';
+                    subtaskHtml = '<div id="subtasks-' + t.key + '" class="hidden bg-slate-50 border-t border-slate-100">';
+                    subtaskHtml += '<div class="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-bold flex items-center gap-1">Alt Tapşırıqlar (' + t.fields.subtasks.length + ')</div>';
+                    subtaskHtml += t.fields.subtasks.map(function(sub) {
+                        var subStatusName = sub.fields && sub.fields.status ? sub.fields.status.name : 'Naməlum';
+                        return '<div onclick="event.stopPropagation(); window.open(\'' + currentBaseUrl + '/browse/' + sub.key + '\', \'_blank\')" class="flex flex-col gap-1 text-xs text-slate-600 p-2 mx-2 rounded-lg hover:bg-white cursor-pointer border border-slate-100 mb-1 transition"><div class="flex items-center gap-2"><span class="font-mono text-[10px] text-slate-400 w-16">' + sub.key + '</span><span class="px-1.5 py-0.5 text-[9px] rounded-full text-white ' + getStatusColor(subStatusName) + '">' + subStatusName + '</span></div><div class="truncate font-medium pl-1">' + (sub.fields.summary || '') + '</div></div>';
+                    }).join('');
+                    subtaskHtml += '</div>';
+                }
+                if (hasIssueLinks && !isSubtask) {
+                    toggleButtonsHtml += '<span onclick="event.stopPropagation(); toggleRelated(\'' + t.key + '\')" class="text-[10px] text-indigo-600 mr-2 bg-indigo-100 px-2 py-1 rounded cursor-pointer hover:bg-indigo-200 transition">Əlaqəli (' + t.fields.issuelinks.length + ')</span>';
+                    relatedHtml = '<div id="related-' + t.key + '" class="hidden bg-slate-50 border-t border-slate-100">';
+                    relatedHtml += '<div class="px-4 pt-3 pb-1 text-[10px] uppercase tracking-wider text-slate-400 font-bold flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>Əlaqəli Tapşırıqlar (' + t.fields.issuelinks.length + ')</div>';
+                    relatedHtml += t.fields.issuelinks.map(function(link) {
+                        var linkedIssue = link.outwardIssue || link.inwardIssue;
+                        if (!linkedIssue) return '';
+                        var linkStatus = linkedIssue.fields && linkedIssue.fields.status ? linkedIssue.fields.status.name : 'Naməlum';
+                        var linkSummary = linkedIssue.fields && linkedIssue.fields.summary ? linkedIssue.fields.summary : '';
+                        var linkPriority = linkedIssue.fields && linkedIssue.fields.priority ? linkedIssue.fields.priority.name : '';
+                        var linkType = link.type ? (link.outwardIssue ? link.type.outward : link.type.inward) : 'əlaqəli';
+                        return '<div onclick="event.stopPropagation(); window.open(\'' + currentBaseUrl + '/browse/' + linkedIssue.key + '\', \'_blank\')" class="flex flex-col gap-1 text-xs text-slate-600 p-2 mx-2 rounded-lg hover:bg-white cursor-pointer border border-slate-100 mb-1 transition"><div class="flex items-center gap-2"><span class="font-mono text-[10px] text-slate-400 w-16">' + linkedIssue.key + '</span><span class="px-1.5 py-0.5 text-[9px] rounded-full text-white ' + getStatusColor(linkStatus) + '">' + linkStatus + '</span><span class="text-[9px] text-indigo-400 italic ml-auto">' + linkType + '</span></div><div class="truncate font-medium pl-1">' + linkSummary + '</div>' + (linkPriority ? '<div class="text-[9px] text-slate-400 pl-1">Prioritet: ' + linkPriority + '</div>' : '') + '</div>';
+                    }).join('');
+                    relatedHtml += '</div>';
+                }
+
+                var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
+                var resolvedDateRaw = t.fields['resolutiondate'];
+                var statusGroup = getStatusGroup(t.fields.status.name);
+                var isDone = (statusGroup === 'done');
+                var dateStatus = getDateStatus(t);
+
+                var dateInfoHtml = '<div class="flex flex-col items-end text-[10px] text-slate-400 ml-3 shrink-0 hidden md:flex">';
+                dateInfoHtml += '<div class="flex items-center gap-1 mb-0.5"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg><span>Bitmə: <b class="text-slate-600">' + fmtDate(dueDateRaw) + '</b></span></div>';
+                
+                if (isDone) {
+                    dateInfoHtml += '<div class="flex items-center gap-1 text-emerald-600"><svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><span>Tamamlandı: <b>' + fmtDate(resolvedDateRaw) + '</b></span></div>';
+                } else {
+                    if (dateStatus === 'late') dateInfoHtml += '<span class="text-red-500 font-bold mt-0.5">(Gecikib)</span>';
+                    else if (dateStatus === 'early') dateInfoHtml += '<span class="text-teal-500 font-bold mt-0.5">(Öncə bitə bilər)</span>';
+                }
+                dateInfoHtml += '</div>';
+
+                listDiv.innerHTML += '<div class="fade-in border border-slate-200 rounded-xl overflow-hidden mb-2"><div class="task-item p-3 md:p-4 cursor-pointer flex items-center gap-3 md:gap-4" onclick="' + mainRowClick + '"><div class="flex-shrink-0 w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center text-white text-xs md:text-sm font-bold" style="background-color: ' + avatarColor + ';">' + initials + '</div><div class="flex-1 min-w-0"><div class="flex items-center gap-2 mb-1">' + issueTypeIcon + '<span class="font-mono text-xs md:text-sm font-bold text-[#5b21b6]">' + t.key + '</span><span class="px-2 py-0.5 text-[10px] md:text-xs rounded-full text-white ' + getStatusColor(t.fields.status.name) + '">' + t.fields.status.name + '</span>' + (issueTypeName ? '<span class="hidden md:inline-block px-1.5 py-0.5 text-[9px] rounded bg-slate-100 text-slate-500 font-medium">' + issueTypeName + '</span>' : '') + '</div><p class="text-xs md:text-sm text-slate-600 truncate">' + t.fields.summary + '</p></div>' + toggleButtonsHtml + dateInfoHtml + '<a href="' + currentBaseUrl + '/browse/' + t.key + '" target="_blank" onclick="event.stopPropagation()" class="text-slate-300 hover:text-[#5b21b6] transition z-10 ml-2"><svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 md:h-5 md:w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg></a></div>' + subtaskHtml + relatedHtml + '</div>';
+            });
+            if (pagDiv && totalPages > 1) {
+                var html = '';
+                if (currentPage > 1) html += '<button onclick="changePage(' + (currentPage - 1) + ')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition">Əvvəlki</button>';
+                html += '<span class="text-sm text-slate-600 font-medium">Səhifə ' + currentPage + ' / ' + totalPages + '</span>';
+                if (currentPage < totalPages) html += '<button onclick="changePage(' + (currentPage + 1) + ')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-xs font-semibold text-slate-700 transition">Növbəti</button>';
+                pagDiv.innerHTML = html;
+            }
+        }
+
+        function toggleSubtasks(key) {
+            var el = document.getElementById('subtasks-' + key);
+            if (el) el.classList.toggle('hidden');
+        }
+
+        function toggleRelated(key) {
+            var el = document.getElementById('related-' + key);
+            if (el) el.classList.toggle('hidden');
+        }
+
+        function changePage(page) {
+            currentPage = page;
+            renderTaskList(currentDisplayTasks, document.getElementById('taskListTitle').innerText);
+        }
+
+        function getStatusColor(statusName) {
+            var g = getStatusGroup(statusName);
+            return { 'planned': 'bg-orange-500', 'progress': 'bg-blue-500', 'review': 'bg-cyan-500', 'esd': 'bg-indigo-500', 'blocked': 'bg-red-500', 'paused': 'bg-amber-500', 'rejected': 'bg-rose-700', 'done': 'bg-emerald-500', 'other': 'bg-slate-400' }[g];
+        }
+
+        function renderStatusChart(tasks) {
+            var gN = { 'progress': 'İcradakı (ESD & Rəy)', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'done': 'Tamamlanmış', 'planned': 'Planlaşdırılıb', 'paused': 'Dayandırılıb', 'other': 'Digər' };
+            var gC = { 'progress': '#3b82f6', 'blocked': '#ef4444', 'rejected': '#e11d48', 'done': '#10b981', 'planned': '#f59e0b', 'paused': '#f59e0b', 'other': '#cbd5e1' };
+            var counts = {};
+            tasks.forEach(function(t) { var n = gN[getStatusGroup(t.fields.status.name)]; if (n) counts[n] = (counts[n] || 0) + 1; });
+            var labels = Object.keys(counts), data = Object.values(counts);
+            var colors = labels.map(function(l) { return gC[Object.keys(gN).find(function(k) { return gN[k] === l; })] || '#94a3b8'; });
+            drawChart('statusChart', 'doughnut', labels, data, colors, function(e, c) {
+                if (c.length > 0) {
+                    var k = Object.keys(gN).find(function(kk) { return gN[kk] === labels[c[0].index]; });
+                    if (k) {
+                        renderTaskList(filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), labels[c[0].index] + ' - Tapşırıqları');
+                        toggleDropdown('taskListContent');
+                        document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
+                    }
+                }
+            });
+        }
+
+        function renderAssigneeChart(tasks) {
+            var counts = {};
+            tasks.forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
+            var labels = Object.keys(counts), data = Object.values(counts);
+            var PALETTE = ['#4c1d95', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2'];
+            var colors = labels.map(function(_, i) { return PALETTE[i % PALETTE.length]; });
+            var click = function(e, c) { if (c.length > 0) { currentAssigneeFilter = labels[c[0].index]; applyFilters(); toggleDropdown('taskListContent'); } };
+            drawChart('assigneeChart', 'bar', labels, data, colors, click, click);
+        }
+
+        function renderEpicChart(tasks) {
+            var counts = {}, dirKeysMap = {}, tasksByDir = {};
+            var exc = ['tədbirlərin statistikası', 'tədbirin statistikasi', 'statistika'];
+            tasks.forEach(function(t) {
+                var dir = resolveDirection(t);
+                if (dir) { if (!tasksByDir[dir.key]) tasksByDir[dir.key] = []; tasksByDir[dir.key].push(t); }
+            });
+            allDirections.forEach(function(d) {
+                var name = d.fields.summary, key = d.key;
+                if (exc.some(function(kw) { return normalizeStr(name).includes(kw); })) return;
+                dirKeysMap[name] = key;
+                var total = (tasksByDir[key] || []).length;
+                if (total > 0) counts[name] = total;
+            });
+            var labels = Object.keys(counts), data = Object.values(counts);
+            var PALETTE = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2', '#c026d3', '#65a30d', '#e11d48', '#4f46e5', '#0d9488', '#b45309'];
+            var colors = labels.map(function(label, i) {
+                var dirObj = allDirections.find(function(d) { return d.fields.summary === label; });
+                if (dirObj && dirObj.key === currentDirectionFilter) return '#f59e0b';
+                return PALETTE[i % PALETTE.length];
+            });
+            drawChart('epicChart', 'bar', labels, data, colors, function(e, c) {
+                if (c.length > 0) {
+                    var n = labels[c[0].index];
+                    var newDir = dirKeysMap[n];
+                    if (newDir === currentDirectionFilter) { currentDirectionFilter = null; } else { currentDirectionFilter = newDir; }
+                    applyFilters();
+                }
+            }, null, true);
+        }
+
+        function renderQurumChart(tasks) {
+            var qurumData = {};
+            tasks.forEach(function(t) {
+                var qName = getQurumName(t) || 'Təyin edilməyib';
+                if (!qurumData[qName]) qurumData[qName] = { total: 0, done: 0, inProgress: 0, planned: 0, blocked: 0 };
+                qurumData[qName].total++;
+                var g = getStatusGroup(t.fields.status.name);
+                if (g === 'done') qurumData[qName].done++;
+                else if (g === 'progress' || g === 'esd' || g === 'review') qurumData[qName].inProgress++;
+                else if (g === 'planned') qurumData[qName].planned++;
+                else if (g === 'blocked' || hasValidDifficulty(t)) qurumData[qName].blocked++;
+            });
+            var sortedQurums = Object.keys(qurumData).sort(function(a, b) { return qurumData[b].total - qurumData[a].total; });
+            var tbody = document.getElementById('qurumTableBody');
+            tbody.innerHTML = '';
+            var PALETTE = ['#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#a855f7', '#0d9488', '#b45309'];
+            var colors = sortedQurums.map(function(qName, i) { if (qName === currentQurumFilter) return '#f59e0b'; return PALETTE[i % PALETTE.length]; });
+            if (sortedQurums.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-slate-400">Məlumat yoxdur.</td></tr>';
+            } else {
+                sortedQurums.forEach(function(qName, index) {
+                    var d = qurumData[qName];
+                    var donePercent = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
+                    var color = colors[index];
+                    var safeName = qName.replace(/'/g, "\\'");
+                    var isActive = qName === currentQurumFilter;
+                    var tr = document.createElement('tr');
+                    tr.className = 'transition ' + (isActive ? 'bg-amber-50 ring-2 ring-amber-300' : 'hover:bg-indigo-50/50');
+                    tr.innerHTML = '<td class="py-3 px-4 font-medium text-slate-700 cursor-pointer hover:bg-indigo-100/50 rounded-l-lg transition ' + (isActive ? 'text-amber-700' : '') + '" onclick="setQurumFilter(\'' + safeName + '\')"><div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background-color: ' + color + '"></span>' + qName + (isActive ? '<span class="text-[9px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full ml-1">AKTİV</span>' : '') + '</div></td><td class="py-3 px-2 text-center font-bold text-slate-800 cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'all\')">' + d.total + '</td><td class="py-3 px-2 text-center text-orange-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'planned\')">' + d.planned + '</td><td class="py-3 px-2 text-center text-blue-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'progress\')">' + d.inProgress + '</td><td class="py-3 px-2 text-center cursor-pointer hover:bg-indigo-100/50 rounded-r-lg transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'done\')"><div class="flex items-center justify-center gap-2"><span class="text-emerald-600 font-medium">' + d.done + '</span><div class="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block"><div class="h-full bg-emerald-500 rounded-full" style="width: ' + donePercent + '%"></div></div></div></td>';
+                    tbody.appendChild(tr);
+                });
+            }
+            var thead = tbody.previousElementSibling ? tbody.previousElementSibling.querySelector('tr') : null;
+            if (thead) {
+                thead.innerHTML = '<th class="py-3 px-4 text-left font-semibold">Qurumun adı</th><th class="py-3 px-2 text-center font-semibold">Ümumi</th><th class="py-3 px-2 text-center font-semibold">Plan.</th><th class="py-3 px-2 text-center font-semibold">İcradakı</th><th class="py-3 px-2 text-center font-semibold">Tamamlanıb</th>';
+            }
+            var canvas = document.getElementById('qurumChart');
+            if (!canvas) return;
+            var ctx = canvas.getContext('2d');
+            var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+            var labels = sortedQurums;
+            var data = labels.map(function(q) { return qurumData[q].total; });
+            var centerTextPlugin = {
+                id: 'centerText',
+                afterDraw: function(chart) {
+                    var ctx2 = chart.ctx;
+                    var area = chart.chartArea;
+                    ctx2.save();
+                    var total = data.reduce(function(a, b) { return a + b; }, 0);
+                    ctx2.font = 'bold 24px Inter';
+                    ctx2.fillStyle = '#1e293b';
+                    ctx2.textAlign = 'center';
+                    ctx2.textBaseline = 'middle';
+                    ctx2.fillText(total, area.left + area.width / 2, area.top + area.height / 2 - 10);
+                    ctx2.font = '500 10px Inter';
+                    ctx2.fillStyle = '#64748b';
+                    ctx2.fillText('Toplam Task', area.left + area.width / 2, area.top + area.height / 2 + 10);
+                    ctx2.restore();
+                }
+            };
+            qurumChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 2, borderColor: '#f8fafc', hoverOffset: 12 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '65%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: 12, cornerRadius: 8, titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 },
+                            callbacks: { label: function(context) { var label = context.label || ''; if (label) label += ': '; if (context.parsed !== null) label += context.parsed + ' task'; return label; } } }
+                    },
+                    onClick: function(e, c) { if (c.length > 0) { var clicked = labels[c[0].index]; if (clicked === currentQurumFilter) { currentQurumFilter = null; } else { currentQurumFilter = clicked; } applyFilters(); } }
+                },
+                plugins: [centerTextPlugin]
+            });
+        }
+
+        function filterQurumList() {
+            var searchStr = document.getElementById('qurumSearch').value.toLowerCase();
+            var rows = document.querySelectorAll('#qurumTableBody tr');
+            rows.forEach(function(row) {
+                var text = row.textContent.toLowerCase();
+                if (text.includes(searchStr)) row.classList.remove('hidden');
+                else row.classList.add('hidden');
+            });
+        }
+
+        function renderWeeklyTasks() {
+            var planned = allTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
+            var list = document.getElementById('weeklyTaskList'); 
+            if (!list) return;
+            list.innerHTML = '';
+            if (planned.length === 0) { list.innerHTML = '<p class="text-slate-400 text-sm text-center py-4">Statusu "Planlaşdırılıb" olan tapşırıq yoxdur.</p>'; }
+            else { planned.forEach(function(t) { list.innerHTML += '<div onclick="window.open(\'' + currentBaseUrl + '/browse/' + t.key + '\', \'_blank\')" class="task-item p-3 rounded-xl border border-slate-200 cursor-pointer flex items-center justify-between fade-in"><div class="mr-2 min-w-0"><span class="font-mono text-xs font-bold text-[#5b21b6]">' + t.key + '</span><p class="text-sm text-slate-600 mt-1 truncate">' + t.fields.summary + '</p></div><span class="text-xs ' + getStatusColor(t.fields.status.name) + ' text-white px-2 py-1 rounded-full whitespace-nowrap">' + t.fields.status.name + '</span></div>'; }); }
+            document.getElementById('weeklyDiff').innerText = 'Cəmi ' + planned.length + ' tapşırıq';
+        }
+
+        function renderPausedTasks() {
+            var pausedTasks = allTasks.filter(function(t) {
+                var statusNorm = normalizeStr(t.fields.status.name);
+                var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti') || statusNorm.includes('paused');
+                return isPaused && belongsToDept(t);
+            });
+            var list = document.getElementById('pausedTaskList'); 
+            list.innerHTML = '';
+            document.getElementById('pausedCount').innerText = pausedTasks.length + ' tapşırıq';
+            
+            if (pausedTasks.length === 0) { 
+                list.innerHTML = '<p class="text-slate-400 text-sm text-center py-4">Müvəqqəti dayandırılmış tapşırıq yoxdur.</p>'; 
+            } else { 
+                pausedTasks.forEach(function(t) { 
+                    list.innerHTML += '<div onclick="window.open(\'' + currentBaseUrl + '/browse/' + t.key + '\', \'_blank\')" class="task-item p-3 rounded-xl border border-slate-200 cursor-pointer flex items-center justify-between fade-in"><div class="mr-2 min-w-0"><span class="font-mono text-xs font-bold text-[#5b21b6]">' + t.key + '</span><p class="text-sm text-slate-600 mt-1 truncate">' + t.fields.summary + '</p></div><span class="text-xs ' + getStatusColor(t.fields.status.name) + ' text-white px-2 py-1 rounded-full whitespace-nowrap">' + t.fields.status.name + '</span></div>'; 
+                }); 
+            }
+        }
+
+        function renderSprintComparison() {
+            var map = {};
+            allTasks.forEach(function(t) { getSprintNames(t).forEach(function(n) { if (!map[n]) map[n] = []; if (!map[n].includes(t)) map[n].push(t); }); });
+            var names = Object.keys(map).sort(function(a, b) { return (parseInt((b.match(/\d+/) || [0])[0])) - (parseInt((a.match(/\d+/) || [0])[0])); });
+            if (names.length === 0) { document.getElementById('sprintComparison').innerHTML = '<p class="text-slate-400 text-sm text-center py-4">Sprint məlumatı yoxdur.</p>'; return; }
+
+            var sprintVal = document.getElementById('sprintFilter').value;
+            var curName, prevName;
+
+            if (sprintVal && sprintVal !== 'all') {
+                var selIdx = names.indexOf(sprintVal);
+                if (selIdx !== -1) {
+                    curName = names[selIdx];
+                    prevName = (selIdx + 1 < names.length) ? names[selIdx + 1] : null;
+                } else {
+                    curName = names[0];
+                    prevName = names[1] || null;
+                }
+            } else {
+                curName = names[0];
+                prevName = names[1] || null;
+            }
+
+            sprintDisplayMap = {};
+            if (curName) sprintDisplayMap[curName] = 'Seçilmiş sprint';
+            if (prevName) sprintDisplayMap[prevName] = 'Əvvəlki sprint';
+
+            var curTasks = map[curName] || [], prevTasks = prevName ? map[prevName] : [];
+
+            function card(jName, dName, tasks, coTitle, isPrev) {
+                if (!jName || tasks.length === 0) return '<div class="text-slate-400 text-sm p-4 text-center">Məlumat yoxdur.</div>';
+                var validTasks = tasks.filter(function(t) {
+                    var st = normalizeStr(t.fields.status.name);
+                    var isRejected = getStatusGroup(st) === 'rejected';
+                    var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
+                    var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+                    return !isRejected && !isBacklog && !isPaused;
+                });
+
+                var total = validTasks.length;
+                var done = validTasks.filter(function(t) {
+                    var status = isPrev ? getHistoricalStatus(t, curName) : t.fields.status.name;
+                    return getStatusGroup(status) === 'done';
+                }).length;
+                var co = total - done;
+                
+                return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md"><h3 class="font-bold text-md text-slate-800 mb-3">' + dName + '</h3><div class="space-y-3"><div onclick="filterSprintComparison(\'' + jName + '\',\'all\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">Ümumi Tapşırıq</span><span class="font-bold text-slate-800">' + total + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'done\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-emerald-600">Tamamlanmış</span><span class="font-bold text-emerald-600">' + done + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'carryover\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">' + coTitle + '</span><span class="font-bold text-slate-800">' + co + '</span></div></div></div></div>';
+            }
+
+            document.getElementById('sprintComparison').innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">'
+                + card(prevName, 'Əvvəlki sprint', prevTasks, 'Növbəti sprintə keçən', true)
+                + card(curName, 'Seçilmiş sprint', curTasks, 'İcrası davam edən', false)
+                + '</div>';
+        }
+
+        function filterSprintComparison(sprintName, type) {
+            var sTasks = allTasks.filter(function(t) { return getSprintNames(t).includes(sprintName); });
+            var validSTasks = sTasks.filter(function(t) {
+                var st = normalizeStr(t.fields.status.name);
+                var isRejected = getStatusGroup(st) === 'rejected';
+                var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
+                var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+                return !isRejected && !isBacklog && !isPaused;
+            });
+
+            var f = [];
+            var title = (sprintDisplayMap[sprintName] || sprintName) + ' - Tapşırıqları';
+
+            var curSprint = null, prevSprint = null;
+            for (var key in sprintDisplayMap) {
+                if (sprintDisplayMap[key] === 'Seçilmiş sprint' || sprintDisplayMap[key] === 'Cari həftə') curSprint = key;
+                if (sprintDisplayMap[key] === 'Əvvəlki sprint' || sprintDisplayMap[key] === 'Əvvəlki həftə') prevSprint = key;
+            }
+
+            if (type === 'done') {
+                if (sprintName === prevSprint && curSprint) {
+                    f = validSTasks.filter(function(t) {
+                        return getStatusGroup(getHistoricalStatus(t, curSprint)) === 'done';
+                    });
+                } else {
+                    f = validSTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; });
+                }
+                title += ' - Tamamlanmış';
+            }
+            else if (type === 'carryover') {
+                if (sprintName === prevSprint && curSprint) {
+                    f = validSTasks.filter(function(t) {
+                        return getStatusGroup(getHistoricalStatus(t, curSprint)) !== 'done';
+                    });
+                    title += ' - Növbəti sprintə keçən';
+                } else {
+                    f = validSTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) !== 'done'; });
+                    title += ' - Davam edən';
+                }
+            }
+            else { f = validSTasks; }
+
+            renderTaskList(f, title);
+            toggleDropdown('taskListContent');
+            document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderLabelChart() {
+            var exc = ['tədbirlərin statistikası', 'tədbirin statistikasi', 'statistika'];
+            var directionLabels = [];
+            var allLabelsSet = new Set();
+            var dataMatrix = {};
+            allDirections.forEach(function(d) {
+                var name = d.fields.summary;
+                if (exc.some(function(kw) { return normalizeStr(name).includes(kw); })) return;
+                var dirTasks = filteredTasks.filter(function(t) { var dir = resolveDirection(t); return dir && dir.key === d.key; });
+                if (dirTasks.length > 0) {
+                    directionLabels.push(name);
+                    dataMatrix[name] = {};
+                    dirTasks.forEach(function(t) {
+                        var labels = t.fields.labels || [];
+                        if (labels.length === 0) { allLabelsSet.add('Etiketsiz'); dataMatrix[name]['Etiketsiz'] = (dataMatrix[name]['Etiketsiz'] || 0) + 1; }
+                        else { labels.forEach(function(lbl) { var l = lbl.trim(); if (l) { allLabelsSet.add(l); dataMatrix[name][l] = (dataMatrix[name][l] || 0) + 1; } }); }
+                    });
+                }
+            });
+            var uniqueLabels = Array.from(allLabelsSet);
+            var PALETTE = ['#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#a855f7'];
+            var datasets = uniqueLabels.map(function(lbl, i) {
+                return { label: lbl, data: directionLabels.map(function(dirName) { return dataMatrix[dirName][lbl] || 0; }), backgroundColor: PALETTE[i % PALETTE.length], borderWidth: 0, hoverOffset: 4, borderRadius: 4 };
+            });
+            var onClickCB = function(e, elements) {
+                if (elements.length > 0) {
+                    var index = elements[0].index;
+                    var datasetIndex = elements[0].datasetIndex;
+                    var selectedDir = directionLabels[index];
+                    var selectedLabel = datasets[datasetIndex].label;
+                    var dirObj = allDirections.find(function(d) { return d.fields.summary === selectedDir; });
+                    if (dirObj) {
+                        var fTasks = filteredTasks.filter(function(t) { var tDir = resolveDirection(t); return tDir && tDir.key === dirObj.key && (t.fields.labels || []).includes(selectedLabel); });
+                        renderTaskList(fTasks, selectedDir + ' - Etiket: ' + selectedLabel);
+                        toggleDropdown('taskListContent');
+                        document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
+                    }
+                }
+            };
+            var legendCB = function(e, item, legend) {
+                var index = item.datasetIndex;
+                var ci = legend.chart;
+                var clickedLabel = ci.data.datasets[index].label;
+                if (activeLabelFilter === clickedLabel) { activeLabelFilter = null; ci.data.datasets.forEach(function(ds, i) { ci.setDatasetVisibility(i, true); }); }
+                else { activeLabelFilter = clickedLabel; ci.data.datasets.forEach(function(ds, i) { ci.setDatasetVisibility(i, ds.label === clickedLabel); }); }
+                ci.update();
+            };
+            drawStackedChart('labelChart', 'bar', directionLabels, datasets, onClickCB, true, legendCB);
+        }
+        function drawChart(id, type, labels, data, colors, onClickCB, legendCB, isHorizontal) {
+            onClickCB = onClickCB || null; legendCB = legendCB || null; isHorizontal = isHorizontal || false;
+            var ctx = document.getElementById(id).getContext('2d');
+            var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+            new Chart(ctx, {
+                type: type,
+                data: { labels: labels, datasets: [{ label: 'Tapşırıq Sayı', data: data, backgroundColor: colors, borderWidth: 0, hoverOffset: 12, borderRadius: 6 }] },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: isHorizontal ? 'y' : 'x',
+                    onClick: onClickCB, onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
+                    plugins: {
+                        legend: { display: !isHorizontal, position: 'bottom', labels: { usePointStyle: true, padding: 15, font: { family: 'Inter', size: 11 }, boxWidth: 8 }, onClick: legendCB },
+                        tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 }, padding: 12, cornerRadius: 8, displayColors: true, boxPadding: 4 }
+                    },
+                    scales: isHorizontal ? {
+                        x: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter' }, color: '#64748b' } },
+                        y: { grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
+                    } : {
+                        x: { grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } },
+                        y: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
+                    }
+                }
+            });
+        }
+        var totalLabelsPlugin = {
+            id: 'totalLabels',
+            afterDatasetsDraw: function(chart) {
+                var ctx = chart.ctx;
+                var data = chart.data;
+                var meta = chart.getDatasetMeta(0);
+                ctx.save();
+                ctx.font = 'bold 11px Inter';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'left';
+                data.labels.forEach(function(label, i) {
+                    var total = 0;
+                    var maxX = 0;
+                    chart.data.datasets.forEach(function(dataset, di) {
+                        var dMeta = chart.getDatasetMeta(di);
+                        if (dMeta.data[i] && !dMeta.hidden && dataset.data[i] > 0) { total += dataset.data[i]; if (dMeta.data[i].x > maxX) maxX = dMeta.data[i].x; }
+                    });
+                    if (total > 0 && meta.data[i]) { var yPos = meta.data[i].y; ctx.fillText(total, maxX + 8, yPos + 4); }
+                });
+                ctx.restore();
+            }
+        };
+        function drawStackedChart(id, type, labels, datasets, onClickCB, isHorizontal, legendCB) {
+            onClickCB = onClickCB || null; isHorizontal = isHorizontal || false; legendCB = legendCB || null;
+            var ctx = document.getElementById(id).getContext('2d');
+            var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+            new Chart(ctx, {
+                type: type, data: { labels: labels, datasets: datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: isHorizontal ? 'y' : 'x',
+                    onClick: onClickCB, onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
+                    plugins: {
+                        legend: { display: true, position: 'bottom', labels: { usePointStyle: true, padding: 15, font: { family: 'Inter', size: 11 }, boxWidth: 8, color: '#475569' }, onClick: legendCB },
+                        tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 }, padding: 12, cornerRadius: 8, boxPadding: 4 }
+                    },
+                    scales: isHorizontal ? {
+                        x: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } },
+                        y: { stacked: true, grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
+                    } : {
+                        x: { stacked: true, grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } },
+                        y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
+                    }
+                },
+                plugins: [totalLabelsPlugin]
+            });
+        }
+        function renderDailyProgress() {
+            var usersListDiv = document.getElementById('dailyUsersList');
+            var userActivityDiv = document.getElementById('dailyUserActivity');
+            var countDiv = document.getElementById('dailyUpdatedCount');
+            if (!usersListDiv || !userActivityDiv || !countDiv) return;
+
+            var sprintVal = document.getElementById('sprintFilter').value;
+            var sprintSelect = document.getElementById('sprintFilter');
+            var latestSprint = (sprintSelect.options.length > 1) ? sprintSelect.options[1].value : null;
+            var isHistorical = sprintVal && sprintVal !== 'all' && latestSprint && sprintVal !== latestSprint;
+
+            var rangeStart, rangeEnd, rangeLabel;
+            if (isHistorical) {
+                var range = getSprintDateRange(sprintVal);
+                if (range) {
+                    rangeStart = range.start;
+                    rangeEnd = range.end;
+                    rangeLabel = sprintVal;
+                } else {
+                    rangeStart = new Date(); rangeStart.setHours(0,0,0,0);
+                    rangeEnd = new Date(); rangeEnd.setHours(23,59,59,999);
+                    rangeLabel = 'Bugün';
+                }
+            } else {
+                rangeStart = new Date(); rangeStart.setHours(0,0,0,0);
+                rangeEnd = new Date(); rangeEnd.setHours(23,59,59,999);
+                rangeLabel = 'Bugün';
+            }
+
+            dailyDateRange = { start: rangeStart, end: rangeEnd, label: rangeLabel };
+
+            var EXCLUDED_FIELDS = ['rank', 'flagged', 'aggregated'];
+            var SYSTEM_AUTHORS = ['jira', 'system', 'automation', 'bot'];
+
+            function inRange(dateStr) {
+                var d = new Date(dateStr);
+                return d >= rangeStart && d <= rangeEnd;
+            }
+
+            var dailyUpdated = filteredTasks.filter(function(t) {
+                if (!inRange(t.fields.updated)) return false;
+                var createdDate = new Date(t.fields.created);
+                if (createdDate >= rangeStart && createdDate <= rangeEnd) return true;
+                if (t.changelog && t.changelog.histories && t.changelog.histories.length > 0) {
+                    return t.changelog.histories.some(function(h) {
+                        if (!inRange(h.created)) return false;
+                        var author = h.author ? normalizeStr(h.author.displayName || h.author.name || '') : '';
+                        if (SYSTEM_AUTHORS.some(function(sys) { return author.indexOf(sys) !== -1; })) return false;
+                        if (h.items && h.items.length > 0) {
+                            return h.items.some(function(item) {
+                                var fieldName = (item.field || '').toLowerCase();
+                                return !EXCLUDED_FIELDS.some(function(ex) { return fieldName.indexOf(ex) !== -1; });
+                            });
+                        }
+                        return false;
+                    });
+                }
+                return false;
+            });
+
+            var count = 0;
+            filteredTasks.forEach(function(t) {
+                if (!inRange(t.fields.updated)) return;
+                var createdDate = new Date(t.fields.created);
+                if (createdDate >= rangeStart && createdDate <= rangeEnd) count++;
+                if (t.changelog && t.changelog.histories) {
+                    t.changelog.histories.forEach(function(h) {
+                        if (!inRange(h.created)) return;
+                        var author = h.author ? normalizeStr(h.author.displayName || h.author.name || '') : '';
+                        if (SYSTEM_AUTHORS.some(function(sys) { return author.indexOf(sys) !== -1; })) return;
+                        if (h.items && h.items.length > 0) {
+                            var meaningful = h.items.filter(function(item) {
+                                var fieldName = (item.field || '').toLowerCase();
+                                return !EXCLUDED_FIELDS.some(function(ex) { return fieldName.indexOf(ex) !== -1; });
+                            });
+                            if (meaningful.length > 0) count++;
+                        }
+                    });
+                }
+            });
+
+            countDiv.innerText = count;
+
+            if (dailyUpdated.length === 0) {
+                usersListDiv.innerHTML = '';
+                userActivityDiv.innerHTML = '<div class="text-center py-6 flex flex-col items-center justify-center text-slate-400"><svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 mb-2 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1"><path stroke-linecap="round" stroke-linejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><p class="text-xs font-medium">' + rangeLabel + ' üçün dəyişiklik yoxdur.</p><p class="text-[10px] text-slate-300 mt-1">' + rangeStart.toLocaleDateString('az-AZ') + ' - ' + rangeEnd.toLocaleDateString('az-AZ') + '</p></div>';
+                return;
+            }
+
+            var userGroups = {};
+            dailyUpdated.forEach(function(t) {
+                var name = t.fields.assignee ? t.fields.assignee.displayName : 'Təyin edilməyib';
+                if (!userGroups[name]) userGroups[name] = [];
+                userGroups[name].push(t);
+            });
+
+            var sortedUsers = Object.keys(userGroups).sort(function(a, b) { return userGroups[b].length - userGroups[a].length; });
+
+            var usersHtml = '';
+            sortedUsers.forEach(function(userName) {
+                var tasks = userGroups[userName];
+                var initials = getInitials(userName);
+                var avatarColor = userName !== 'Təyin edilməyib' ? '#4f46e5' : '#94a3b8';
+                var safeName = userName.replace(/'/g, "\\'");
+                usersHtml += '<div onclick="selectDailyUser(\'' + safeName + '\')" class="daily-user-card flex flex-col items-center justify-center gap-1 p-2 rounded-xl cursor-pointer transition-all border border-transparent hover:bg-slate-50 shrink-0 w-20 text-center" data-user="' + userName + '"><div class="relative"><div class="w-10 h-10 rounded-full flex items-center justify-center text-white text-[11px] font-bold shrink-0" style="background-color: ' + avatarColor + ';">' + initials + '</div><span class="absolute -bottom-1 -right-1 bg-indigo-600 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border-2 border-white">' + tasks.length + '</span></div><p class="text-[10px] font-medium text-slate-600 leading-tight truncate w-full">' + userName.split(' ')[0] + '</p></div>';
+            });
+            usersListDiv.innerHTML = usersHtml;
+
+            var selectedUser = sessionStorage.getItem('selectedDailyUser') || sortedUsers[0];
+            if (userGroups[selectedUser]) { showUserActivity(selectedUser, userGroups[selectedUser]); }
+            else if (sortedUsers.length > 0) { showUserActivity(sortedUsers[0], userGroups[sortedUsers[0]]); }
+        }
+
+        function selectDailyUser(userName) {
+            if (!dailyDateRange) return;
+            var rangeStart = dailyDateRange.start;
+            var rangeEnd = dailyDateRange.end;
+            var EXCLUDED_FIELDS = ['rank', 'flagged', 'aggregated'];
+            var SYSTEM_AUTHORS = ['jira', 'system', 'automation', 'bot'];
+
+            function inRange(dateStr) {
+                var d = new Date(dateStr);
+                return d >= rangeStart && d <= rangeEnd;
+            }
+
+            var userTasks = filteredTasks.filter(function(t) {
+                var name = t.fields.assignee ? t.fields.assignee.displayName : 'Təyin edilməyib';
+                if (name !== userName) return false;
+                if (!inRange(t.fields.updated)) return false;
+                var createdDate = new Date(t.fields.created);
+                if (createdDate >= rangeStart && createdDate <= rangeEnd) return true;
+                if (t.changelog && t.changelog.histories && t.changelog.histories.length > 0) {
+                    return t.changelog.histories.some(function(h) {
+                        if (!inRange(h.created)) return false;
+                        var author = h.author ? normalizeStr(h.author.displayName || h.author.name || '') : '';
+                        if (SYSTEM_AUTHORS.some(function(sys) { return author.indexOf(sys) !== -1; })) return false;
+                        if (h.items && h.items.length > 0) {
+                            return h.items.some(function(item) {
+                                var fieldName = (item.field || '').toLowerCase();
+                                return !EXCLUDED_FIELDS.some(function(ex) { return fieldName.indexOf(ex) !== -1; });
+                            });
+                        }
+                        return false;
+                    });
+                }
+                return false;
+            });
+
+            showUserActivity(userName, userTasks);
+        }
+
+        function showUserActivity(userName, tasks) {
+            sessionStorage.setItem('selectedDailyUser', userName);
+            document.querySelectorAll('.daily-user-card').forEach(function(el) {
+                if (el.dataset.user === userName) { el.classList.add('bg-white', 'border-slate-200', 'shadow-sm'); el.classList.remove('border-transparent'); }
+                else { el.classList.remove('bg-white', 'border-slate-200', 'shadow-sm'); el.classList.add('border-transparent'); }
+            });
+
+            if (!dailyDateRange) return;
+            var rangeStart = dailyDateRange.start;
+            var rangeEnd = dailyDateRange.end;
+            var rangeLabel = dailyDateRange.label;
+
+            var userActivityDiv = document.getElementById('dailyUserActivity');
+            var activityHtml = '<div class="flex items-center gap-2 mb-4 pb-3 border-b border-slate-100"><p class="text-sm font-bold text-slate-700">' + userName + '</p><span class="text-xs text-slate-500"> - ' + tasks.length + ' taskda dəyişiklik</span></div>';
+
+            if (tasks.length === 0) {
+                activityHtml += '<p class="text-xs text-slate-400 text-center py-4">' + rangeLabel + ' üçün dəyişiklik yoxdur.</p>';
+                userActivityDiv.innerHTML = activityHtml;
+                return;
+            }
+
+            var EXCLUDED_FIELDS = ['rank', 'flagged', 'aggregated'];
+
+            function inRange(dateStr) {
+                var d = new Date(dateStr);
+                return d >= rangeStart && d <= rangeEnd;
+            }
+
+            var taskWithChanges = tasks.map(function(t) {
+                var periodChanges = [];
+                var createdDate = new Date(t.fields.created);
+                var isCreatedInPeriod = createdDate >= rangeStart && createdDate <= rangeEnd;
+                var latestTime = t.fields.updated;
+
+                if (t.changelog && t.changelog.histories) {
+                    t.changelog.histories.forEach(function(change) {
+                        if (!inRange(change.created)) return;
+                        if (new Date(change.created) > new Date(latestTime)) latestTime = change.created;
+                        if (change.items && change.items.length > 0) {
+                            var meaningfulItems = change.items.filter(function(item) {
+                                var fieldName = (item.field || '').toLowerCase();
+                                return !EXCLUDED_FIELDS.some(function(ex) { return fieldName.indexOf(ex) !== -1; });
+                            });
+                            if (meaningfulItems.length > 0) periodChanges.push({ created: change.created, items: meaningfulItems });
+                        }
+                    });
+                }
+
+                if (isCreatedInPeriod && new Date(t.fields.created) > new Date(latestTime)) latestTime = t.fields.created;
+                return { task: t, changes: periodChanges, isCreatedInPeriod: isCreatedInPeriod, latestTime: latestTime };
+            });
+
+            taskWithChanges.sort(function(a, b) { return new Date(b.latestTime) - new Date(a.latestTime); });
+
+            activityHtml += '<div class="relative space-y-3">';
+            taskWithChanges.forEach(function(item, index) {
+                var t = item.task;
+                var changes = item.changes;
+                var isCreatedInPeriod = item.isCreatedInPeriod;
+                var realTime = new Date(item.latestTime).toLocaleString('az-AZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+                var changeBadges = [];
+                var dotColor = 'bg-indigo-500';
+
+                if (isCreatedInPeriod) {
+                    var createdTime = new Date(t.fields.created).toLocaleString('az-AZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    changeBadges.push('<div class="flex items-center gap-1 bg-purple-50 border border-purple-200 rounded-md px-2 py-1 text-purple-700"><svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg><span class="text-[9px] font-bold">Yeni task yaratdı</span><span class="text-[9px] opacity-50 ml-1">' + createdTime + '</span></div>');
+                    dotColor = 'bg-purple-500';
+                }
+
+                if (changes.length > 0) {
+                    changes.forEach(function(change) {
+                        if (!change.items || change.items.length === 0) return;
+                        var entryTime = new Date(change.created).toLocaleString('az-AZ', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                        change.items.forEach(function(chItem) {
+                            var meta = getChangeFieldMeta(chItem);
+                            if (!isCreatedInPeriod) dotColor = meta.dot;
+                            var isLongText = (chItem.field || '').toLowerCase() === 'description';
+                            if (isLongText) {
+                                changeBadges.push('<div class="flex items-center gap-1 ' + meta.badge + ' border rounded-md px-2 py-1"><span class="text-[9px] font-bold">' + meta.label + ' yeniləndi</span><span class="text-[9px] opacity-50 ml-1">' + entryTime + '</span></div>');
+                            } else {
+                                var fromStr = truncateChangeValue(chItem.fromString);
+                                var toStr = truncateChangeValue(chItem.toString);
+                                changeBadges.push('<div class="flex items-center gap-1 ' + meta.badge + ' border rounded-md px-2 py-1"><span class="text-[9px] font-bold">' + meta.label + ':</span><span class="text-[9px] line-through opacity-60">' + fromStr + '</span><svg xmlns="http://www.w3.org/2000/svg" class="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg><span class="text-[9px] font-bold">' + toStr + '</span><span class="text-[9px] opacity-50 ml-1">' + entryTime + '</span></div>');
+                            }
+                        });
+                    });
+                }
+
+                if (changeBadges.length === 0) {
+                    var statusName = t.fields.status ? t.fields.status.name : 'Naməlum';
+                    changeBadges.push('<div class="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 text-slate-700"><span class="text-[9px] font-bold">Şərh / Status: ' + statusName + '</span></div>');
+                }
+
+                var lineHtml = index < taskWithChanges.length - 1 ? '<div class="w-px flex-1 bg-slate-200 min-h-[20px]"></div>' : '';
+                activityHtml += '<div class="flex gap-3"><div class="flex flex-col items-center"><div class="w-3 h-3 rounded-full ' + dotColor + ' border-2 border-white shadow-sm mt-1"></div>' + lineHtml + '</div><div onclick="window.open(\'' + currentBaseUrl + '/browse/' + t.key + '\', \'_blank\')" class="flex-1 pb-2 cursor-pointer group"><div class="flex items-center justify-between mb-1.5"><div class="flex items-center gap-2"><span class="font-mono text-[10px] font-bold text-[#5b21b6] bg-purple-50 px-1.5 py-0.5 rounded">' + t.key + '</span><span class="text-xs text-slate-700 truncate">' + t.fields.summary + '</span></div><span class="text-[9px] text-slate-400 font-medium shrink-0 ml-2">' + realTime + '</span></div><div class="flex flex-wrap gap-1.5 pl-1">' + changeBadges.join('') + '</div></div></div>';
+            });
+            activityHtml += '</div>';
+            userActivityDiv.innerHTML = activityHtml;
+        }
+
+        function truncateChangeValue(str, max) {
+            max = max || 40;
+            if (!str) return 'Boş';
+            var clean = String(str).replace(/\s+/g, ' ').trim();
+            if (!clean) return 'Boş';
+            return clean.length > max ? clean.slice(0, max) + '…' : clean;
+        }
+
+        function getChangeFieldMeta(item) {
+            var fieldName = (item.field || '').toLowerCase();
+            if (fieldName === 'status') return { label: 'Status', badge: 'bg-blue-50 border-blue-200 text-blue-700', dot: 'bg-blue-500' };
+            if (fieldName.indexOf('çətin') !== -1) return { label: 'Çətinlik', badge: 'bg-red-50 border-red-200 text-red-700', dot: 'bg-red-500' };
+            if (fieldName.indexOf('qurum') !== -1) return { label: 'Qurum', badge: 'bg-cyan-50 border-cyan-200 text-cyan-700', dot: 'bg-cyan-500' };
+            if (fieldName === 'description') return { label: 'Təsvir', badge: 'bg-amber-50 border-amber-200 text-amber-700', dot: 'bg-amber-500' };
+            if (fieldName === 'priority') return { label: 'Prioritet', badge: 'bg-orange-50 border-orange-200 text-orange-700', dot: 'bg-orange-500' };
+            if (fieldName === 'assignee') return { label: 'Təyinat', badge: 'bg-indigo-50 border-indigo-200 text-indigo-700', dot: 'bg-indigo-500' };
+            if (fieldName === 'summary') return { label: 'Başlıq', badge: 'bg-emerald-50 border-emerald-200 text-emerald-700', dot: 'bg-emerald-500' };
+            if (fieldName === 'labels') return { label: 'Etiket', badge: 'bg-pink-50 border-pink-200 text-pink-700', dot: 'bg-pink-500' };
+            if (fieldName === 'duedate') return { label: 'Bitmə tarixi', badge: 'bg-yellow-50 border-yellow-200 text-yellow-700', dot: 'bg-yellow-500' };
+            if (fieldName.indexOf('sprint') !== -1 || fieldName.indexOf('fix version') !== -1) return { label: 'Sprint', badge: 'bg-purple-50 border-purple-200 text-purple-700', dot: 'bg-purple-500' };
+            if (fieldName === 'component' || fieldName === 'components') return { label: 'Komponent', badge: 'bg-teal-50 border-teal-200 text-teal-700', dot: 'bg-teal-500' };
+            if (fieldName === 'link') return { label: 'Bağlantı', badge: 'bg-fuchsia-50 border-fuchsia-200 text-fuchsia-700', dot: 'bg-fuchsia-500' };
+            return { label: item.field || 'Dəyişiklik', badge: 'bg-slate-100 border-slate-200 text-slate-700', dot: 'bg-slate-500' };
+        }
+      
+        function toggleDropdown(id) {
+            var el = document.getElementById(id);
+            var icon = document.getElementById('icon-' + id);
+            if (!el) return;
+            el.classList.toggle('hidden');
+            if (!el.classList.contains('hidden')) {
+                el.classList.add('slide-down');
+                if (icon) icon.style.transform = 'rotate(180deg)';
+                setTimeout(function() {
+                    if (typeof statusChart !== 'undefined' && statusChart) statusChart.resize();
+                    if (typeof assigneeChart !== 'undefined' && assigneeChart) assigneeChart.resize();
+                    if (typeof epicChart !== 'undefined' && epicChart) epicChart.resize();
+                    if (typeof labelChart !== 'undefined' && labelChart) labelChart.resize();
+                    if (typeof qurumChart !== 'undefined' && qurumChart) qurumChart.resize();
+                }, 300);
+            } else {
+                if (icon) icon.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function changePage(page) {
+            currentPage = page;
+            renderTaskList(currentDisplayTasks, document.getElementById('taskListTitle').innerText);
+        }
+
+        function showDifficulties() {
+            var el = document.getElementById('cetinliklerContent');
+            if (!el) return;
+            el.classList.remove('hidden');
+            el.classList.add('slide-down');
+            var icon = document.getElementById('icon-cetinliklerContent');
+            if (icon) icon.style.transform = 'rotate(180deg)';
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        function showDueThisWeekTasks() {
+            var dueTasks = [];
+            filteredTasks.forEach(function(t) {
+                if (isDueThisWeek(t)) {
+                    var g = getStatusGroup(t.fields.status.name);
+                    if (g !== 'done' && g !== 'rejected') {
+                        dueTasks.push(t);
+                    }
+                }
+            });
+            if (dueTasks.length === 0) {
+                showToast('Bu həftə bitməli olan task tapılmadı! (Tarix fields-i yoxlayın)', 'info');
+            }
+            renderTaskList(dueTasks, 'Bu həftə bitməli olan Tapşırıqlar');
+            var listEl = document.getElementById('taskListContent');
+            listEl.classList.remove('hidden');
+            listEl.classList.add('slide-down');
+            listEl.scrollIntoView({ behavior: 'smooth' });
+        }
+        var dailyDateRange = null;
+
+        function getSprintDateRange(sprintName) {
+            if (!sprintName || sprintName === 'all') return null;
+            for (var i = 0; i < allTasks.length; i++) {
+                var t = allTasks[i];
+                var f = t.fields.customfield_10101;
+                if (!f) continue;
+                var sprints = Array.isArray(f) ? f : [f];
+                for (var j = 0; j < sprints.length; j++) {
+                    var s = typeof sprints[j] === 'string' ? sprints[j] : JSON.stringify(sprints[j]);
+                    if (s.indexOf(sprintName) !== -1) {
+                        var startMatch = s.match(/startDate=([^,]+)/);
+                        var endMatch = s.match(/endDate=([^,]+)/);
+                        if (startMatch && endMatch) {
+                            return {
+                                start: new Date(startMatch[1]),
+                                end: new Date(endMatch[1])
+                            };
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        function getSprintNames(t) {
+            var f = t.fields.customfield_10101;
+            if (!f) return [];
+            return (Array.isArray(f) ? f : [f]).map(function(s) {
+                var m = (typeof s === 'string' ? s : JSON.stringify(s)).match(/name=([^,]+)/);
+                return m ? m[1] : null;
+            }).filter(Boolean);
+        }
+
+        function filterTasks(type) {
+            currentPage = 1;
+            var f = filteredTasks, title = 'Ümumi Tapşırıqların Siyahısı';
+            
+            if (type === 'all') { 
+                f = filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) !== 'rejected'; }); 
+            }
+            if (type === 'planned') { f = filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }); title = 'Növbəti həftə iş yükü (Planlaşdırılıb)'; }
+            else if (type === 'sprint') { f = filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'progress'; }); title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar'; }
+            else if(type==='done') { 
+                f = filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
+                title = "Tamamlanmış (Həll edilib) Tapşırıqlar"; 
+            }
+            else if (type === 'blocked') { 
+                f = filteredTasks.filter(function(t) { 
+                    var g = getStatusGroup(t.fields.status.name); 
+                    return (g === 'blocked' || hasValidDifficulty(t)) && g !== 'rejected'; 
+                }); 
+                title = 'Çətinliklər'; 
+            }
+            else if (type === 'rejected') { f = filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
+            else if (type === 'other') { f = filteredTasks.filter(function(t) { var g = getStatusGroup(t.fields.status.name); return g === 'other' && !hasValidDifficulty(t); }); title = 'Digər Statusda Olan Tapşırıqlar'; }
+            
+            renderTaskList(f, title);
+            renderQurumChart(f);
+            
+            var listEl = document.getElementById('taskListContent');
+            listEl.classList.remove('hidden');
+            listEl.classList.add('slide-down');
+            listEl.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        var _docxLibPromise = null;
+        function loadDocxLib() {
+            if (!_docxLibPromise) {
+                _docxLibPromise = import('https://esm.sh/docx@8.5.0').catch(function(err) {
+                    _docxLibPromise = null;
+                    throw err;
+                });
+            }
+            return _docxLibPromise;
+        }
+
+                 async function exportTasksToWord(title) {
+            var docxLib;
+            try {
+                docxLib = await loadDocxLib();
+            } catch (err) {
+                console.error(err);
+                showToast('DOCX kitabxanası yüklənmədi. İnternet bağlantısını yoxlayın.', 'error');
+                return;
+            }
+            var { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
+                  HeadingLevel, AlignmentType, WidthType, ShadingType, BorderStyle, VerticalAlign } = docxLib;
+
+            var COL_NAVY = '000000';    
+            var COL_SLATE = '000000';   
+            var COL_GREY = '000000';    
+            var FILL_CARD = 'F2F2F2';   
+            var BORDER_CARD = '1E3A8A'; 
+            var REPORT_FONT = 'Arial';  
+            var FONT_SIZE = 24;         
+
+            var dateStr = new Date().toLocaleDateString('az-AZ');
+
+            var startDate = document.getElementById('startDate').value;
+            var endDate = document.getElementById('endDate').value;
+            var sprintVal = document.getElementById('sprintFilter').value;
+            var periodText = '';
+            var periodStart = null, periodEnd = null;
+            if (startDate || endDate) {
+                if (startDate) {
+                    var sP = startDate.split('-');
+                    periodStart = new Date(sP[0], sP[1] - 1, sP[2]);
+                    periodStart.setHours(0, 0, 0, 0);
+                }
+                if (endDate) {
+                    var eP = endDate.split('-');
+                    periodEnd = new Date(eP[0], eP[1] - 1, eP[2]);
+                    periodEnd.setHours(23, 59, 59, 999);
+                }
+                if (startDate && endDate) periodText = startDate + ' - ' + endDate;
+                else if (startDate) periodText = startDate + ' tarixindən etibarən';
+                else periodText = endDate + ' tarixinə qədər';
+            } else if (sprintVal && sprintVal !== 'all') {
+                var sprintRange = getSprintDateRange(sprintVal);
+                if (sprintRange) {
+                    periodStart = sprintRange.start;
+                    periodEnd = sprintRange.end;
+                    periodText = sprintRange.start.toLocaleDateString('az-AZ') + ' - ' + sprintRange.end.toLocaleDateString('az-AZ');
+                } else periodText = sprintVal.replace(/sprint/i, '').trim();
+            } else periodText = 'Bütün dövr';
+
+            function groupByDirection(tasks) {
+                var groups = {};
+                tasks.forEach(function(t) {
+                    var dir = resolveDirection(t);
+                    var dirName = dir ? (dir.fields.summary || 'DİGƏR İSTİQAMƏTLƏR').trim() : 'DİGƏR İSTİQAMƏTLƏR';
+                    if (!groups[dirName]) groups[dirName] = [];
+                    groups[dirName].push(t);
+                });
+                var sortedGroups = {};
+                Object.keys(groups).sort().forEach(function(k) {
+                    sortedGroups[k] = groups[k];
+                });
+                return sortedGroups;
+            }
+
+            // Hesabat üçün vahidləri təyin edirik (Ana taskları çıxardırıq)
+            var reportUnits = [];
+            filteredTasks.forEach(function(t) {
+                var st = normalizeStr(t.fields.status.name);
+                var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+                if (isPaused) return;
+
+                var hasChildren = false;
+                var subtasks = t.fields.subtasks || [];
+                if (subtasks.length > 0) hasChildren = true;
+
+                if (!hasChildren && t.fields.issuelinks && t.fields.issuelinks.length > 0) {
+                    for (var i = 0; i < t.fields.issuelinks.length; i++) {
+                        var link = t.fields.issuelinks[i];
+                        var linkedIssue = link.outwardIssue || link.inwardIssue;
+                        if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
+                            var linkedType = normalizeStr(linkedIssue.fields.issuetype.name);
+                            if (linkedType.includes('alt') || linkedType.includes('sub')) {
+                                hasChildren = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!hasChildren) {
+                    reportUnits.push(t);
+                }
+            });
+
+            // Word-a yazılacaq list üçün taskları və ya alt tapşırıqları götürürük
+                        function getPrintTasks(filterFn) {
+                var printList = [];
+                filteredTasks.forEach(function(t) {
+                    var st = normalizeStr(t.fields.status.name);
+                    var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+                    if (isPaused) return;
+
+                    var typeNameSub = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
+                    if (typeNameSub.includes('alt') || typeNameSub.includes('sub')) return;
+
+                    // Əgər ana tapşırığın ÖZ statusu filterə uyğundursa, onu birbaça götürürük
+                    if (filterFn(t)) {
+                        printList.push(t);
+                    } else {
+                        // Əgər ana tapşırıq filterə uyğun deyilsə, alt tapşırıqlarını yoxlayırıq
+                        var hasMatchingChild = false;
+                        var subtasks = t.fields.subtasks || [];
+                        subtasks.forEach(function(sub) {
+                            var subIssue = issueIndex[sub.key] || sub;
+                            if (filterFn(subIssue)) hasMatchingChild = true;
+                        });
+
+                        if (!hasMatchingChild && t.fields.issuelinks && t.fields.issuelinks.length > 0) {
+                            for (var i = 0; i < t.fields.issuelinks.length; i++) {
+                                var linkedIssue = t.fields.issuelinks[i].outwardIssue || t.fields.issuelinks[i].inwardIssue;
+                                if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
+                                    var lType = normalizeStr(linkedIssue.fields.issuetype.name);
+                                    if (lType.includes('alt') || lType.includes('sub')) {
+                                        var subIssue = issueIndex[linkedIssue.key] || linkedIssue;
+                                        if (filterFn(subIssue)) {
+                                            hasMatchingChild = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Əgər uyğun gələn alt tapşırığı varsa, ana tapşırığı siyahıya əlavə edirik ki, onun altında mərhələləri toplayaq
+                        if (hasMatchingChild) {
+                            printList.push(t);
+                        }
+                    }
+                });
+                return printList;
+            }
+
+            function buildSection(tasks, isProblemSection, periodStart, periodEnd, filterFn) {
+                var nodes = [];
+                var groups = groupByDirection(tasks);
+                var dirNames = Object.keys(groups);
+                dirNames.forEach(function(dirName, dirIdx) {
+                    nodes.push(new Paragraph({
+                        spacing: { before: 240, after: 100 },
+                        children: [new TextRun({ text: dirName.toLocaleUpperCase('az'), bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })]
+                    }));
+                    
+                    groups[dirName].forEach(function(t) {
+                        var taskText = t.fields.summary;
+                        var isOwnDone = filterFn(t);
+
+                        if (isProblemSection) {
+                            var g = getStatusGroup(t.fields.status.name);
+                            var diff = getDifficultyField(t);
+                            if (g === 'rejected') taskText += ' — imtina';
+                            else if (g === 'blocked') taskText += ' — bloklanıb';
+                            else if (diff) taskText += ' — qarşılanan çətinlik: ' + diff;
+                        }
+
+                        // Ana tapşırığın başlığını yazırıq
+                        nodes.push(new Paragraph({
+                            spacing: { after: 0 },
+                            children: [
+                                new TextRun({ text: '• ', bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY }),
+                                new TextRun({ text: taskText, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })
+                            ]
+                        }));
+
+                        var ownEntries = [];
+
+                        // Əgər ana tapşırığın ÖZ statusu filterə uyğundursa (məsələn, Özü "Həll edilib"dirsə)
+                        if (isOwnDone) {
+                            // 1. Ana tapşırığın öz mərhələlərini götürürük
+                            var parentEntries = getRawPhaseEntries(t, periodStart, periodEnd);
+                            if (parentEntries.length > 0) {
+                                ownEntries = ownEntries.concat(parentEntries);
+                            }
+
+                            // 2. Bütün alt tapşırıqların mərhələlərini yoxlayırıq
+                            var subtasks = t.fields.subtasks || [];
+                            subtasks.forEach(function(sub) {
+                                var subIssue = issueIndex[sub.key] || sub;
+                                var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
+                                if (subEntries.length > 0) {
+                                    ownEntries = ownEntries.concat(subEntries);
+                                } else if (filterFn(subIssue)) {
+                                    // Əgər alt tapşırığın mərhələsi yoxdursa və özü də həll olunubsa, onun adını əlavə edirik
+                                    ownEntries.push({ date: null, text: subIssue.fields.summary });
+                                }
+                            });
+
+                            // 3. Əlaqəli (Linked) alt tapşırıqları da yoxlayırıq
+                            if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
+                                t.fields.issuelinks.forEach(function(link) {
+                                    var linkedIssue = link.outwardIssue || link.inwardIssue;
+                                    if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
+                                        var lType = normalizeStr(linkedIssue.fields.issuetype.name);
+                                        if (lType.includes('alt') || lType.includes('sub')) {
+                                            var subIssue = issueIndex[linkedIssue.key] || linkedIssue;
+                                            var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
+                                            if (subEntries.length > 0) {
+                                                ownEntries = ownEntries.concat(subEntries);
+                                            } else if (filterFn(subIssue)) {
+                                                ownEntries.push({ date: null, text: subIssue.fields.summary });
+                                            }
+                                        }
+                                    }
+                                });
+                            }
+                        } else {
+                            // Əgər ana tapşırığın özü uyğun deyilsə (bitməyibsə), yalnız uyğun gələn (həll olunmuş) alt tapşırıqları götürürük
+                            var subtasks = t.fields.subtasks || [];
+                            subtasks.forEach(function(sub) {
+                                var subIssue = issueIndex[sub.key] || sub;
+                                if (filterFn(subIssue)) {
+                                    var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
+                                    if (subEntries.length > 0) {
+                                        // Mərhələsi varsa, yalnız mərhələni götürürük
+                                        ownEntries = ownEntries.concat(subEntries);
+                                    } else {
+                                        // Mərhələsi yoxdursa, alt tapşırığın öz adını götürürük
+                                        ownEntries.push({ date: null, text: subIssue.fields.summary });
+                                    }
+                                }
+                            });
+                            
+                            if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
+                                t.fields.issuelinks.forEach(function(link) {
+                                    var linkedIssue = link.outwardIssue || link.inwardIssue;
+                                    if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
+                                        var lType = normalizeStr(linkedIssue.fields.issuetype.name);
+                                        if (lType.includes('alt') || lType.includes('sub')) {
+                                            var subIssue = issueIndex[linkedIssue.key] || linkedIssue;
+                                            if (filterFn(subIssue)) {
+                                var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
+                                if (subEntries.length > 0) {
+                                    ownEntries = ownEntries.concat(subEntries);
+                                } else {
+                                    ownEntries.push({ date: null, text: subIssue.fields.summary });
+                                }
+                            }
+                                        }
+                                    }
+                                });
+                            }
+                        }
+
+                                       // Bütün mərhələləri və adları tarixə görə sıralayıb alt sətirdə yazırıq
+                        ownEntries.sort(function(a, b) { 
+                            var timeA = a.date ? a.date.getTime() : 0;
+                            var timeB = b.date ? b.date.getTime() : 0;
+                            return timeA - timeB; 
+                        });
+                        
+                        // Mərhələləri və alt tapşırıqları axıcı şəkildə birləşdiririk
+                        var phaseText2 = ownEntries.map(function(e) {
+                            if (!e.date) {
+                                // Tarix yoxdursa, bu alt tapşırığın adıdır
+                                return e.text;
+                            } else {
+                                // Tarix varsa: 24.08.2026 tarixində [mətn]
+                                return formatDateObj(e.date) + ' tarixində ' + e.text;
+                            }
+                        }).join('. '); // Hər mərhələnin sonuna nöqtə qoyuruq ki, aydın ayrılsın
+                        
+                        if (phaseText2) {
+                            // Əgər mətn bitibsə artıq nöqtə var, yoxdursa əlavə edirik
+                            if (!phaseText2.endsWith('.')) phaseText2 += '.';
+                            
+                            nodes.push(new Paragraph({
+                                spacing: { after: 60 },
+                                indent: { left: 360 },
+                                children: [
+                                    new TextRun({ text: phaseText2, italics: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })
+                                ]
+                            }));
+                        } else {
+                            nodes.push(new Paragraph({ spacing: { after: 60 }, children: [] }));
+                        }
+                    });
+                });
+                return nodes;
+            }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   
+            function hasDiffDash(t) {
+                var g = getStatusGroup(t.fields.status.name);
+                var diff = hasValidDifficulty(t);
+                return diff && g !== 'done' && g !== 'rejected';
+            }
+
+            var dashDueWeek = reportUnits.filter(function(t) {
+                var g = getStatusGroup(t.fields.status.name);
+                return g !== 'done' && g !== 'rejected' && !hasDiffDash(t) && isDueThisWeek(t);
+            }).length;
+            var dashBlocked = reportUnits.filter(function(t) {
+                var g = getStatusGroup(t.fields.status.name);
+                return g === 'blocked' || hasDiffDash(t);
+            }).length;
+            var dashDone = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }).length;
+            var dashPlanned = reportUnits.filter(function(t) {
+                var g = getStatusGroup(t.fields.status.name);
+                return g === 'planned' && !hasDiffDash(t);
+            }).length;
+
+            var totalTasksCount = reportUnits.length;
+            var doneOnTimeCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done' && isDueThisWeek(t); }).length;
+            var rejectedCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'rejected'; }).length;
+            var notDoneDueWeekCount = reportUnits.filter(function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+            }).length;
+
+            var summaryText = 'Bu həftə ərzində ümumilikdə ' + totalTasksCount + ' tapşırıq üzərində iş aparılıb, onlardan ' +
+                dashDone + ' tapşırıq tamamlanıb (bunlardan ' + doneOnTimeCount + '-i məhz bu həftə bitməli idi). ' +
+                'Bu həftə bitməli olub, lakin tamamlanmayan ' + notDoneDueWeekCount + ' tapşırıq var. ' +
+                'Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, ' + rejectedCount +
+                ' tapşırıqdan isə imtina edilib. Növbəti həftəyə ' + dashPlanned + ' tapşırıq planlaşdırılıb.';
+
+            function statCell(numberText, labelText) {
+                return new TableCell({
+                    width: { size: 25, type: WidthType.PERCENTAGE },
+                    verticalAlign: VerticalAlign.CENTER,
+                    shading: { fill: FILL_CARD, type: ShadingType.CLEAR, color: 'auto' },
+                    margins: { top: 140, bottom: 140, left: 160, right: 160 },
+                    borders: {
+                        top: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
+                        bottom: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
+                        right: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
+                        left: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' }
+                    },
+                    children: [
+                        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 30 },
+                            children: [new TextRun({ text: String(numberText), bold: true, font: REPORT_FONT, size: FONT_SIZE + 14, color: COL_NAVY })] }),
+                        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 },
+                            children: [new TextRun({ text: labelText, font: REPORT_FONT, size: FONT_SIZE - 6, color: '595959' })] })
+                    ]
+                });
+            }
+
+            var statsTable = new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [ new TableRow({ children: [
+                    statCell(dashDueWeek, 'Bu həftə bitməli olan tapşırıqlar'),
+                    statCell(dashBlocked, 'Mövcud çətinliklər'),
+                    statCell(dashDone, 'Tamamlanan tapşırıqlar'),
+                    statCell(dashPlanned, 'Növbəti həftəyə planlaşdırılanlar')
+                ] }) ]
+            });
+
+            function sectionHeading(num, t, desc) {
+                var out = [new Paragraph({
+                    heading: HeadingLevel.HEADING_1,
+                    spacing: { before: 320, after: 60 },
+                    children: [new TextRun({ text: num + '. ' + t, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })]
+                })];
+                if (desc) out.push(new Paragraph({
+                    spacing: { after: 120 },
+                    children: [new TextRun({ text: desc, italics: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })]
+                }));
+                return out;
+            }
+
+            function sectionDivider() {
+                return new Paragraph({
+                    spacing: { before: 160, after: 0 },
+                    border: {
+                        bottom: { style: BorderStyle.SINGLE, size: 4, color: 'BFBFBF', space: 4 }
+                    },
+                    children: []
+                });
+            }
+
+            var children = [];
+
+            children.push(new Paragraph({
+                heading: HeadingLevel.TITLE,
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 40 },
+                children: [new TextRun({ text: 'Həftəlik İcra Hesabatı', bold: true, font: REPORT_FONT, size: FONT_SIZE + 8, color: COL_NAVY })]
+            }));
+            children.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 260 },
+                border: {
+                    bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BFBFBF', space: 8 }
+                },
+                children: [new TextRun({ text: 'Əhatə olunan dövr: ' + periodText, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })]
+            }));
+
+            children.push(new Table({
+                width: { size: 100, type: WidthType.PERCENTAGE },
+                rows: [ new TableRow({ children: [
+                    new TableCell({
+                        width: { size: 100, type: WidthType.PERCENTAGE },
+                        shading: { fill: FILL_CARD, type: ShadingType.CLEAR, color: 'auto' },
+                        margins: { top: 160, bottom: 160, left: 200, right: 200 },
+                        borders: {
+                            top: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
+                            bottom: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
+                            left: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
+                            right: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' }
+                        },
+                        children: [
+                            new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: 'Hesabatın icmalı', bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })] }),
+                            new Paragraph({ spacing: { after: 0 }, children: [new TextRun({ text: summaryText, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_SLATE })] })
+                        ]
+                    })
+                ] }) ]
+            }));
+            children.push(new Paragraph({ text: '', spacing: { after: 220 } }));
+            children.push(statsTable);
+
+            // 1. Görülən işlər
+            var doneTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; });
+            children.push.apply(children, sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'));
+            children.push.apply(children, buildSection(doneTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }));
+            children.push(sectionDivider());
+
+            // 2. Nəyi edə bilmədik
+            var notDoneDueTasksPrint = getPrintTasks(function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+            });
+            children.push.apply(children, sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'));
+            children.push.apply(children, buildSection(notDoneDueTasksPrint, false, periodStart, periodEnd, function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+            }));
+            children.push(sectionDivider());
+
+            // 3. İcra mərhələsində olan və yarımçıq qalanlar
+            var progressTasksPrint = getPrintTasks(function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
+            });
+            children.push.apply(children, sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'));
+            children.push.apply(children, buildSection(progressTasksPrint, false, periodStart, periodEnd, function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
+            }));
+            children.push(sectionDivider());
+
+            // 4. Mövcud çətinliklər
+            var problemTasksPrint = getPrintTasks(function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
+            });
+            children.push.apply(children, sectionHeading('4', 'Mövcud çətinliklər', 'İcra prosesində qarşılaşılan çətinliklər, bloklanan və imtina edilmiş işlər.'));
+            children.push.apply(children, buildSection(problemTasksPrint, true, periodStart, periodEnd, function(t) { 
+                var g = getStatusGroup(t.fields.status.name);
+                return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
+            }));
+            children.push(sectionDivider());
+
+            // 5. Gələn həftə ərzində planlaşdırılanlar
+            var plannedTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
+            children.push.apply(children, sectionHeading('5', 'Gələn həftə ərzində planlaşdırılanlar', 'Növbəti həftə üçün əsas iş istiqamətləri və tapşırıqlar.'));
+            children.push.apply(children, buildSection(plannedTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }));
+
+            var doc = new Document({
+                sections: [{ properties: {}, children: children }],
+                styles: {
+                    default: {
+                        document: { run: { color: COL_SLATE, font: REPORT_FONT, size: FONT_SIZE } },
+                        title: { run: { font: REPORT_FONT, size: FONT_SIZE } },
+                        heading1: { run: { font: REPORT_FONT, size: FONT_SIZE } }
+                    }
+                }
+            });
+
+            try {
+                var blob = await Packer.toBlob(doc);
+                var url = URL.createObjectURL(blob);
+                var fileDownload = document.createElement('a');
+                document.body.appendChild(fileDownload);
+                fileDownload.href = url;
+                fileDownload.download = 'IRIA_Heftelik_Icra_Hesabati_' + dateStr.replace(/\//g, '_') + '.docx';
+                fileDownload.click();
+                document.body.removeChild(fileDownload);
+                URL.revokeObjectURL(url);
+                showToast('Hesabat (.docx) uğurla yükləndi!', 'success');
+            } catch (err) {
+                console.error(err);
+                showToast('Hesabat yaradılarkən xəta baş verdi: ' + err.message, 'error');
+            }
+        }
+
+        window.onload = function() {
+            var u = localStorage.getItem('jiraBaseUrl'), p = localStorage.getItem('jiraPat'), k = localStorage.getItem('jiraProjectKey');
+            if (u) document.getElementById('baseUrl').value = u;
+            if (p) document.getElementById('pat').value = p;
+            if (k) document.getElementById('projectKey').value = k;
+            if (u && p && k) fetchDashboardData();
+            else toggleSettings();
+        };
+    </script>
+</body>
+</html>
