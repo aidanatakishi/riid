@@ -1,31 +1,10 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getIssueTypeIcon, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintNames, getStatusGroup, hasValidDifficulty, isDueThisWeek } from './model.js';
+import { belongsToDept, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintNames, getStatusGroup, hasValidDifficulty, isDueThisWeek, isLeafWorkUnit } from './model.js';
 import { filterSprintComparison } from './filters.js';
 
 export function renderStats(tasks) {
-    // Alt tapşırığı olan (istər subtasks, istər issuelinks vasitəsilə) ana tapşırıqları siyahıdan çıxardırıq!
-    var units = tasks.filter(function(t) {
-        if (!t || !t.fields) return false;
-        
-        var subtasks = t.fields.subtasks || [];
-        if (subtasks.length > 0) return false;
-        
-        if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
-            for (var i = 0; i < t.fields.issuelinks.length; i++) {
-                var link = t.fields.issuelinks[i];
-                var linkedIssue = link.outwardIssue || link.inwardIssue;
-                if (!linkedIssue) continue;
-                if (linkedIssue.fields && linkedIssue.fields.issuetype) {
-                    var linkedType = normalizeStr(linkedIssue.fields.issuetype.name);
-                    if (linkedType.includes('alt') || linkedType.includes('sub')) {
-                        return false;
-                    }
-                }
-            }
-        }
-        return true;
-    });
+    var units = (tasks || []).filter(isLeafWorkUnit);
 
     var backlogTasks = units.filter(function(t) { 
         var st = normalizeStr(t.fields.status.name || '');
@@ -332,11 +311,18 @@ export function renderSprintComparison() {
     if (curName) state.sprintDisplayMap[curName] = 'Seçilmiş sprint';
     if (prevName) state.sprintDisplayMap[prevName] = 'Əvvəlki sprint';
 
-    var curTasks = map[curName] || [], prevTasks = prevName ? map[prevName] : [];
+    var useDateFilter = !!(document.getElementById('startDate').value || document.getElementById('endDate').value);
+    var curTasks;
+    if (useDateFilter || (sprintVal && sprintVal !== 'all' && curName === sprintVal)) {
+        curTasks = (state.sprintDateFiltered || []).slice();
+    } else {
+        curTasks = map[curName] || [];
+    }
+    var prevTasks = prevName ? (map[prevName] || []) : [];
 
     function card(jName, dName, tasks, coTitle, isPrev) {
         if (!jName || tasks.length === 0) return '<div class="text-slate-400 text-sm p-4 text-center">Məlumat yoxdur.</div>';
-        var validTasks = tasks.filter(function(t) {
+        var validTasks = tasks.filter(isLeafWorkUnit).filter(function(t) {
             var st = normalizeStr(t.fields.status.name);
             var isRejected = getStatusGroup(st) === 'rejected';
             var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
@@ -351,7 +337,7 @@ export function renderSprintComparison() {
         }).length;
         var co = total - done;
         
-        return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md"><h3 class="font-bold text-md text-slate-800 mb-3">' + dName + '</h3><div class="space-y-3"><div onclick="filterSprintComparison(\'' + jName + '\',\'all\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">Ümumi Tapşırıq</span><span class="font-bold text-slate-800">' + total + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'done\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-emerald-600">Tamamlanmış</span><span class="font-bold text-emerald-600">' + done + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'carryover\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">' + coTitle + '</span><span class="font-bold text-slate-800">' + co + '</span></div></div></div></div>';
+        return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md min-w-0"><h3 class="font-bold text-md text-slate-800 mb-3 break-words">' + dName + '</h3><div class="space-y-3"><div onclick="filterSprintComparison(\'' + jName + '\',\'all\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">Ümumi Tapşırıq</span><span class="font-bold text-slate-800">' + total + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'done\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-emerald-600">Tamamlanmış</span><span class="font-bold text-emerald-600">' + done + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'carryover\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">' + coTitle + '</span><span class="font-bold text-slate-800">' + co + '</span></div></div></div></div>';
     }
 
     document.getElementById('sprintComparison').innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">'

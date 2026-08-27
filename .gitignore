@@ -17,6 +17,13 @@ env/
 .env.*
 !.env.example
 
+# Jira dump-ları git-ə düşməsin
+data/*.json
+
+# Netlify
+site/
+.netlify/
+
 # IDE / OS
 .idea/
 .vscode/

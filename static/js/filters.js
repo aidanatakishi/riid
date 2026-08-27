@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleDropdown } from './utils.js';
-import { getDateStatus, getHistoricalStatus, getQurumName, getSprintNames, getStatusGroup, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
+import { getDateStatus, getHistoricalStatus, getQurumName, getSprintNames, getStatusGroup, hasValidDifficulty, isDueThisWeek, isLeafWorkUnit, resolveDirection } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 
@@ -395,7 +395,15 @@ export function filterQurumList() {
 }
 
 export function filterSprintComparison(sprintName, type) {
-    var sTasks = state.allTasks.filter(function(t) { return getSprintNames(t).includes(sprintName); });
+    var useDateFilter = !!(document.getElementById('startDate').value || document.getElementById('endDate').value);
+    var sprintVal = document.getElementById('sprintFilter').value;
+    var isSelectedSprint = state.sprintDisplayMap[sprintName] === 'Seçilmiş sprint' || state.sprintDisplayMap[sprintName] === 'Cari həftə';
+    var sTasks;
+    if (isSelectedSprint && (useDateFilter || (sprintVal && sprintVal !== 'all' && sprintVal === sprintName))) {
+        sTasks = (state.sprintDateFiltered || []).filter(isLeafWorkUnit);
+    } else {
+        sTasks = state.allTasks.filter(function(t) { return isLeafWorkUnit(t) && getSprintNames(t).includes(sprintName); });
+    }
     var validSTasks = sTasks.filter(function(t) {
         var st = normalizeStr(t.fields.status.name);
         var isRejected = getStatusGroup(st) === 'rejected';

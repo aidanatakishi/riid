@@ -1,0 +1,6 @@
+# Statik dashboard. Jira sorğuları brauzerdən gedir (hər kəs öz tokenini yazır).
+# Server-də JIRA_PAT lazım deyil.
+
+[build]
+  command = "python netlify/build.py"
+  publish = "site"

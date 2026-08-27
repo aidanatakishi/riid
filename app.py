@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, render_template
 
 from routes import api
@@ -20,4 +22,6 @@ def serve_dashboard():
 
 
 if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+    port = int(os.environ.get('PORT', 5000))
+    debug = os.environ.get('FLASK_DEBUG', 'true').lower() in ('1', 'true', 'yes')
+    app.run(host='0.0.0.0', port=port, debug=debug)

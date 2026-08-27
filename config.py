@@ -1,7 +1,32 @@
-# Jira bağlantısı — PAT-i buraya yazın. Token brauzerə göndərilmir.
-JIRA_BASE_URL = 'https://jira.idda.az'
-JIRA_PAT = ''
-JIRA_PROJECT_KEY = 'DGD'
+import os
+
+# Jira URL/layihə. Token saytın Token düyməsindən daxil edilir; git-ə yazmayın.
+
+
+def _load_dotenv():
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+    if not os.path.isfile(path):
+        return
+    with open(path, encoding='utf-8') as handle:
+        for raw in handle:
+            line = raw.strip()
+            if not line or line.startswith('#') or '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+
+
+_load_dotenv()
+
+# Boş saxlayın — hər kəs öz tokenini brauzerdə yazır.
+_JIRA_PAT_FALLBACK = ''
+
+JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', 'https://jira.idda.az').rstrip('/')
+JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
+JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
 
 SEARCH_FIELDS = (
     "summary,status,duedate,customfield_10807,customfield_10808,"

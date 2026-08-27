@@ -95,15 +95,14 @@ window.onload = async function() {
     if (u) document.getElementById('baseUrl').value = u;
     if (p) document.getElementById('pat').value = p;
     if (k) document.getElementById('projectKey').value = k;
-    var cfg = { hasToken: false };
     try {
-        cfg = await loadServerConfig();
+        await loadServerConfig();
     } catch (e) {
         console.error('Server konfiqi yüklənmədi:', e);
     }
     var baseUrl = document.getElementById('baseUrl').value;
     var pat = document.getElementById('pat').value;
     var projectKey = document.getElementById('projectKey').value;
-    if (baseUrl && projectKey && (pat || cfg.hasToken)) fetchDashboardData();
+    if (baseUrl && projectKey && pat) fetchDashboardData();
     else toggleSettings();
 };

@@ -5,21 +5,79 @@ import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter } fr
 import { renderTaskList, showUserActivity } from './render.js';
 
 export function renderStatusChart(tasks) {
-    var gN = { 'progress': 'İcradakı (ESD & Rəy)', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'done': 'Tamamlanmış', 'planned': 'Planlaşdırılıb', 'paused': 'Dayandırılıb', 'other': 'Digər' };
-    var gC = { 'progress': '#3b82f6', 'blocked': '#ef4444', 'rejected': '#e11d48', 'done': '#10b981', 'planned': '#f59e0b', 'paused': '#f59e0b', 'other': '#cbd5e1' };
+    var gN = { 'done': 'Tamamlanmış', 'progress': 'İcradakı', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
+    var gC = { 'done': '#10b981', 'progress': '#3b82f6', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
+    var order = ['done', 'progress', 'planned', 'blocked', 'rejected', 'paused', 'other'];
     var counts = {};
-    tasks.forEach(function(t) { var n = gN[getStatusGroup(t.fields.status.name)]; if (n) counts[n] = (counts[n] || 0) + 1; });
-    var labels = Object.keys(counts), data = Object.values(counts);
-    var colors = labels.map(function(l) { return gC[Object.keys(gN).find(function(k) { return gN[k] === l; })] || '#94a3b8'; });
-    drawChart('statusChart', 'doughnut', labels, data, colors, function(e, c) {
-        if (c.length > 0) {
-            var k = Object.keys(gN).find(function(kk) { return gN[kk] === labels[c[0].index]; });
-            if (k) {
-                renderTaskList(state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), labels[c[0].index] + ' - Tapşırıqları');
+    tasks.forEach(function(t) {
+        var k = getStatusGroup(t.fields.status.name);
+        if (!gN[k]) return;
+        counts[k] = (counts[k] || 0) + 1;
+    });
+    var keys = order.filter(function(k) { return counts[k] > 0; });
+    var labels = keys.map(function(k) { return gN[k]; });
+    var data = keys.map(function(k) { return counts[k]; });
+    var colors = keys.map(function(k) { return gC[k]; });
+    var canvas = document.getElementById('statusChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    var total = data.reduce(function(a, b) { return a + b; }, 0);
+    var centerTextPlugin = {
+        id: 'statusCenterText',
+        afterDraw: function(chart) {
+            var area = chart.chartArea;
+            var c = chart.ctx;
+            c.save();
+            c.font = '700 22px Inter';
+            c.fillStyle = '#1e293b';
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.fillText(String(total), area.left + area.width / 2, area.top + area.height / 2 - 8);
+            c.font = '500 12px Inter';
+            c.fillStyle = '#64748b';
+            c.fillText('tapşırıq', area.left + area.width / 2, area.top + area.height / 2 + 10);
+            c.restore();
+        }
+    };
+    state.statusChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 2, borderColor: '#ffffff', hoverOffset: 3 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '70%',
+            layout: { padding: { top: 4, bottom: 0, left: 4, right: 4 } },
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { usePointStyle: true, padding: 10, font: { family: 'Inter', size: 12 }, boxWidth: 8, color: '#475569' }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    titleFont: { family: 'Inter', size: 12, weight: 'bold' },
+                    bodyFont: { family: 'Inter', size: 11 },
+                    callbacks: {
+                        label: function(ctx2) {
+                            var n = ctx2.parsed || 0;
+                            var pct = total ? Math.round((n / total) * 100) : 0;
+                            return ' ' + n + ' tapşırıq (' + pct + '%)';
+                        }
+                    }
+                }
+            },
+            onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
+            onClick: function(e, c) {
+                if (!c.length) return;
+                var k = keys[c[0].index];
+                renderTaskList(state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), gN[k] + ' - Tapşırıqları');
                 toggleDropdown('taskListContent');
                 document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
             }
-        }
+        },
+        plugins: [centerTextPlugin]
     });
 }
 
@@ -30,7 +88,7 @@ export function renderAssigneeChart(tasks) {
     var PALETTE = ['#4c1d95', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2'];
     var colors = labels.map(function(_, i) { return PALETTE[i % PALETTE.length]; });
     var click = function(e, c) { if (c.length > 0) { state.currentAssigneeFilter = labels[c[0].index]; applyFilters(); toggleDropdown('taskListContent'); } };
-    drawChart('assigneeChart', 'bar', labels, data, colors, click, click);
+    drawChart('assigneeChart', 'bar', labels, data, colors, click, click, false);
 }
 
 export function renderEpicChart(tasks) {
@@ -47,21 +105,42 @@ export function renderEpicChart(tasks) {
         var total = (tasksByDir[key] || []).length;
         if (total > 0) counts[name] = total;
     });
-    var labels = Object.keys(counts), data = Object.values(counts);
+    var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
     var PALETTE = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2', '#c026d3', '#65a30d', '#e11d48', '#4f46e5', '#0d9488', '#b45309'];
-    var colors = labels.map(function(label, i) {
-        var dirObj = state.allDirections.find(function(d) { return d.fields.summary === label; });
-        if (dirObj && dirObj.key === state.currentDirectionFilter) return '#f59e0b';
-        return PALETTE[i % PALETTE.length];
-    });
-    drawChart('epicChart', 'bar', labels, data, colors, function(e, c) {
-        if (c.length > 0) {
-            var n = labels[c[0].index];
-            var newDir = dirKeysMap[n];
-            if (newDir === state.currentDirectionFilter) { state.currentDirectionFilter = null; } else { state.currentDirectionFilter = newDir; }
+    var list = document.getElementById('epicChartList');
+    if (!list) return;
+    var oldCanvas = document.getElementById('epicChart');
+    if (oldCanvas && typeof Chart !== 'undefined') {
+        var existing = Chart.getChart(oldCanvas);
+        if (existing) existing.destroy();
+    }
+    if (labels.length === 0) {
+        list.innerHTML = '<p class="text-slate-400 text-sm text-center py-8">Bu dövr üçün istiqamət məlumatı yoxdur.</p>';
+        return;
+    }
+    var max = 1;
+    labels.forEach(function(name) { if (counts[name] > max) max = counts[name]; });
+    list.innerHTML = '';
+    labels.forEach(function(name, i) {
+        var key = dirKeysMap[name];
+        var isActive = key === state.currentDirectionFilter;
+        var color = isActive ? '#f59e0b' : PALETTE[i % PALETTE.length];
+        var pct = Math.max(8, Math.round((counts[name] / max) * 100));
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'direction-row' + (isActive ? ' is-active' : '');
+        btn.innerHTML = '<span class="direction-dot" style="background-color:' + color + '"></span>'
+            + '<span class="direction-name"></span>'
+            + '<span class="direction-track"><span class="direction-bar" style="width:' + pct + '%;background-color:' + color + '"></span></span>'
+            + '<span class="direction-count">' + counts[name] + '</span>';
+        btn.querySelector('.direction-name').textContent = name;
+        btn.addEventListener('click', function() {
+            if (key === state.currentDirectionFilter) state.currentDirectionFilter = null;
+            else state.currentDirectionFilter = key;
             applyFilters();
-        }
-    }, null, true);
+        });
+        list.appendChild(btn);
+    });
 }
 
 export function renderQurumChart(tasks) {
@@ -92,7 +171,7 @@ export function renderQurumChart(tasks) {
             var isActive = qName === state.currentQurumFilter;
             var tr = document.createElement('tr');
             tr.className = 'transition ' + (isActive ? 'bg-amber-50 ring-2 ring-amber-300' : 'hover:bg-indigo-50/50');
-            tr.innerHTML = '<td class="py-3 px-4 font-medium text-slate-700 cursor-pointer hover:bg-indigo-100/50 rounded-l-lg transition ' + (isActive ? 'text-amber-700' : '') + '" onclick="setQurumFilter(\'' + safeName + '\')"><div class="flex items-center gap-2"><span class="w-2.5 h-2.5 rounded-full" style="background-color: ' + color + '"></span>' + qName + (isActive ? '<span class="text-[9px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full ml-1">AKTİV</span>' : '') + '</div></td><td class="py-3 px-2 text-center font-bold text-slate-800 cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'all\')">' + d.total + '</td><td class="py-3 px-2 text-center text-orange-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'planned\')">' + d.planned + '</td><td class="py-3 px-2 text-center text-blue-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'progress\')">' + d.inProgress + '</td><td class="py-3 px-2 text-center cursor-pointer hover:bg-indigo-100/50 rounded-r-lg transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'done\')"><div class="flex items-center justify-center gap-2"><span class="text-emerald-600 font-medium">' + d.done + '</span><div class="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block"><div class="h-full bg-emerald-500 rounded-full" style="width: ' + donePercent + '%"></div></div></div></td>';
+            tr.innerHTML = '<td class="py-3 px-4 font-medium text-slate-700 cursor-pointer hover:bg-indigo-100/50 rounded-l-lg transition ' + (isActive ? 'text-amber-700' : '') + '" onclick="setQurumFilter(\'' + safeName + '\')"><div class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ' + color + '"></span><span class="break-words">' + qName + '</span>' + (isActive ? '<span class="text-[9px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full ml-1 shrink-0">AKTİV</span>' : '') + '</div></td><td class="py-3 px-2 text-center font-bold text-slate-800 cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'all\')">' + d.total + '</td><td class="py-3 px-2 text-center text-orange-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'planned\')">' + d.planned + '</td><td class="py-3 px-2 text-center text-blue-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'progress\')">' + d.inProgress + '</td><td class="py-3 px-2 text-center cursor-pointer hover:bg-indigo-100/50 rounded-r-lg transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'done\')"><div class="flex items-center justify-center gap-2"><span class="text-emerald-600 font-medium">' + d.done + '</span><div class="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block"><div class="h-full bg-emerald-500 rounded-full" style="width: ' + donePercent + '%"></div></div></div></td>';
             tbody.appendChild(tr);
         });
     }
@@ -190,29 +269,156 @@ export function renderLabelChart() {
     drawStackedChart('labelChart', 'bar', directionLabels, datasets, onClickCB, true, legendCB);
 }
 
-export function drawChart(id, type, labels, data, colors, onClickCB, legendCB, isHorizontal) {
-    onClickCB = onClickCB || null; legendCB = legendCB || null; isHorizontal = isHorizontal || false;
-    var ctx = document.getElementById(id).getContext('2d');
-    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
-    new Chart(ctx, {
-        type: type,
-        data: { labels: labels, datasets: [{ label: 'Tapşırıq Sayı', data: data, backgroundColor: colors, borderWidth: 0, hoverOffset: 12, borderRadius: 6 }] },
-        options: {
-            responsive: true, maintainAspectRatio: false, indexAxis: isHorizontal ? 'y' : 'x',
-            onClick: onClickCB, onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
-            plugins: {
-                legend: { display: !isHorizontal, position: 'bottom', labels: { usePointStyle: true, padding: 15, font: { family: 'Inter', size: 11 }, boxWidth: 8 }, onClick: legendCB },
-                tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 }, padding: 12, cornerRadius: 8, displayColors: true, boxPadding: 4 }
-            },
-            scales: isHorizontal ? {
-                x: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter' }, color: '#64748b' } },
-                y: { grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
-            } : {
-                x: { grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } },
-                y: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
+function wrapChartLabel(label, maxLen) {
+    var text = String(label || '').trim();
+    if (!text) return text;
+    if (text.length <= maxLen) return text;
+    var words = text.split(/\s+/);
+    var lines = [];
+    var current = '';
+    words.forEach(function(w) {
+        if (w.length > maxLen) {
+            if (current) { lines.push(current); current = ''; }
+            while (w.length > maxLen) {
+                lines.push(w.slice(0, maxLen));
+                w = w.slice(maxLen);
             }
+            current = w;
+            return;
+        }
+        var next = current ? (current + ' ' + w) : w;
+        if (next.length > maxLen && current) {
+            lines.push(current);
+            current = w;
+        } else {
+            current = next;
         }
     });
+    if (current) lines.push(current);
+    if (lines.length > 4) {
+        var rest = lines.slice(3).join(' ');
+        lines = [lines[0], lines[1], lines[2], rest.length > maxLen ? rest.slice(0, maxLen - 1) + '…' : rest];
+    }
+    return lines;
+}
+
+function chartYLabelChars() {
+    var w = window.innerWidth;
+    if (w < 640) return 16;
+    if (w < 1280) return 22;
+    return 18;
+}
+
+function chartXLabelChars() {
+    var w = window.innerWidth;
+    if (w < 640) return 8;
+    if (w < 1024) return 12;
+    return 16;
+}
+
+function yAxisMaxWidth() {
+    var w = window.innerWidth;
+    if (w < 640) return 148;
+    if (w < 1280) return 168;
+    return 150;
+}
+
+export function fitChartHeight(canvasId, barCount, horizontal) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas || !canvas.parentElement) return;
+    var box = canvas.parentElement;
+    if (!horizontal || !barCount) {
+        box.style.height = '';
+        box.style.minHeight = '';
+        return;
+    }
+    var row = 42;
+    var frame = box.parentElement;
+    var minH = frame && frame.clientHeight ? frame.clientHeight : 280;
+    var needed = Math.max(minH, barCount * row + 28);
+    box.style.height = needed + 'px';
+    box.style.minHeight = needed + 'px';
+}
+
+function rememberChart(id, chart) {
+    if (id === 'statusChart') state.statusChart = chart;
+    else if (id === 'assigneeChart') state.assigneeChart = chart;
+    else if (id === 'epicChart') state.epicChart = chart;
+    else if (id === 'labelChart') state.labelChart = chart;
+    else if (id === 'qurumChart') state.qurumChart = chart;
+}
+
+function categoryTickCallback(isHorizontal) {
+    return function(value) {
+        var label = this.getLabelForValue(value);
+        var s = String(label || '').replace(/\s+/g, ' ').trim();
+        var max = isHorizontal ? chartYLabelChars() : chartXLabelChars();
+        return s.length > max ? s.slice(0, max) + '…' : s;
+    };
+}
+
+function yAxisAfterFit(scale) {
+    var cap = yAxisMaxWidth();
+    if (scale.width > cap) scale.width = cap;
+}
+
+export function drawChart(id, type, labels, data, colors, onClickCB, legendCB, isHorizontal) {
+    onClickCB = onClickCB || null; legendCB = legendCB || null; isHorizontal = isHorizontal || false;
+    var canvas = document.getElementById(id);
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    if (isHorizontal) fitChartHeight(id, (labels || []).length, true);
+    else fitChartHeight(id, 0, false);
+    var chart = new Chart(ctx, {
+        type: type,
+        data: { labels: labels, datasets: [{ label: 'Tapşırıq Sayı', data: data, backgroundColor: colors, borderWidth: 0, hoverOffset: 6, borderRadius: 4, barPercentage: 0.6, categoryPercentage: 0.7 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            resizeDelay: 80,
+            indexAxis: isHorizontal ? 'y' : 'x',
+            layout: { padding: { top: 2, right: 4, bottom: 2, left: 2 } },
+            onClick: onClickCB, onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
+            plugins: {
+                legend: {
+                    display: type === 'doughnut' || type === 'pie',
+                    position: window.innerWidth < 640 ? 'bottom' : 'right',
+                    labels: {
+                        usePointStyle: true,
+                        padding: 8,
+                        font: { family: 'Inter', size: 10 },
+                        boxWidth: 6,
+                        color: '#475569'
+                    },
+                    onClick: legendCB
+                },
+                tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 }, padding: 12, cornerRadius: 8, displayColors: true, boxPadding: 4 }
+            },
+            scales: type === 'doughnut' || type === 'pie' ? {} : (isHorizontal ? {
+                x: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 10 }, color: '#64748b' } },
+                y: {
+                    grid: { display: false, drawBorder: false },
+                    ticks: {
+                        font: { family: 'Inter', size: 11 },
+                        color: '#475569',
+                        autoSkip: false,
+                        padding: 8,
+                        callback: categoryTickCallback(true)
+                    },
+                    afterFit: yAxisAfterFit
+                }
+            } : {
+                x: {
+                    grid: { display: false, drawBorder: false },
+                    ticks: { font: { family: 'Inter', size: 12 }, color: '#64748b', maxRotation: 30, minRotation: 0, autoSkip: true, callback: categoryTickCallback(false) }
+                },
+                y: { beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 12 }, color: '#64748b' } }
+            })
+        }
+    });
+    rememberChart(id, chart);
+    return chart;
 }
 
 const totalLabelsPlugin = {
@@ -232,7 +438,12 @@ const totalLabelsPlugin = {
                 var dMeta = chart.getDatasetMeta(di);
                 if (dMeta.data[i] && !dMeta.hidden && dataset.data[i] > 0) { total += dataset.data[i]; if (dMeta.data[i].x > maxX) maxX = dMeta.data[i].x; }
             });
-            if (total > 0 && meta.data[i]) { var yPos = meta.data[i].y; ctx.fillText(total, maxX + 8, yPos + 4); }
+            if (total > 0 && meta.data[i]) {
+                var yPos = meta.data[i].y;
+                var xPos = maxX + 8;
+                if (xPos > chart.chartArea.right - 16) xPos = chart.chartArea.right - 16;
+                ctx.fillText(total, xPos, yPos + 4);
+            }
         });
         ctx.restore();
     }
@@ -240,27 +451,39 @@ const totalLabelsPlugin = {
 
 export function drawStackedChart(id, type, labels, datasets, onClickCB, isHorizontal, legendCB) {
     onClickCB = onClickCB || null; isHorizontal = isHorizontal || false; legendCB = legendCB || null;
-    var ctx = document.getElementById(id).getContext('2d');
+    var canvas = document.getElementById(id);
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
     var ex = Chart.getChart(ctx); if (ex) ex.destroy();
-    new Chart(ctx, {
+    if (isHorizontal) fitChartHeight(id, (labels || []).length, true);
+    else fitChartHeight(id, 0, false);
+    var chart = new Chart(ctx, {
         type: type, data: { labels: labels, datasets: datasets },
         options: {
-            responsive: true, maintainAspectRatio: false, indexAxis: isHorizontal ? 'y' : 'x',
+            responsive: true, maintainAspectRatio: false, resizeDelay: 80, indexAxis: isHorizontal ? 'y' : 'x',
+            layout: { padding: { top: 4, right: 16, bottom: 4, left: 4 } },
             onClick: onClickCB, onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
             plugins: {
-                legend: { display: true, position: 'bottom', labels: { usePointStyle: true, padding: 15, font: { family: 'Inter', size: 11 }, boxWidth: 8, color: '#475569' }, onClick: legendCB },
+                legend: { display: true, position: 'bottom', labels: { usePointStyle: true, padding: window.innerWidth < 640 ? 10 : 15, font: { family: 'Inter', size: window.innerWidth < 640 ? 10 : 11 }, boxWidth: 8, color: '#475569' }, onClick: legendCB },
                 tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 }, padding: 12, cornerRadius: 8, boxPadding: 4 }
             },
             scales: isHorizontal ? {
-                x: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } },
-                y: { stacked: true, grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
+                x: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 10 }, color: '#64748b' } },
+                y: {
+                    stacked: true,
+                    grid: { display: false, drawBorder: false },
+                    ticks: { font: { family: 'Inter', size: 11 }, color: '#475569', autoSkip: false, padding: 8, callback: categoryTickCallback(true) },
+                    afterFit: yAxisAfterFit
+                }
             } : {
-                x: { stacked: true, grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } },
+                x: { stacked: true, grid: { display: false, drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b', maxRotation: 40, minRotation: 0, autoSkip: true } },
                 y: { stacked: true, beginAtZero: true, grid: { color: '#f1f5f9', drawBorder: false }, ticks: { font: { family: 'Inter', size: 11 }, color: '#64748b' } }
             }
         },
         plugins: [totalLabelsPlugin]
     });
+    rememberChart(id, chart);
+    return chart;
 }
 
 export function renderDailyProgress() {
@@ -375,3 +598,35 @@ export function renderDailyProgress() {
     if (userGroups[selectedUser]) { showUserActivity(selectedUser, userGroups[selectedUser]); }
     else if (sortedUsers.length > 0) { showUserActivity(sortedUsers[0], userGroups[sortedUsers[0]]); }
 }
+
+var lastNarrowLayout = window.innerWidth < 768;
+var chartResizeTimer = null;
+
+export function resizeDashboardCharts() {
+    var narrow = window.innerWidth < 768;
+    if (narrow !== lastNarrowLayout) {
+        lastNarrowLayout = narrow;
+        if (state.filteredTasks && state.filteredTasks.length) {
+            renderStatusChart(state.filteredTasks);
+            renderAssigneeChart(state.filteredTasks);
+        }
+        if (state.epicChartTasks) renderEpicChart(state.epicChartTasks);
+        if (state.qurumChartTasks) renderQurumChart(state.qurumChartTasks);
+        var labelEl = document.getElementById('labelChartContent');
+        if (labelEl && !labelEl.classList.contains('hidden')) renderLabelChart();
+        return;
+    }
+    ['statusChart', 'assigneeChart', 'epicChart', 'labelChart', 'qurumChart'].forEach(function(id) {
+        var ch = typeof Chart !== 'undefined' ? Chart.getChart(id) : null;
+        if (!ch) return;
+        var horizontal = ch.options && ch.options.indexAxis === 'y';
+        var n = (ch.data.labels || []).length;
+        if (horizontal) fitChartHeight(id, n, true);
+        ch.resize();
+    });
+}
+
+window.addEventListener('resize', function() {
+    clearTimeout(chartResizeTimer);
+    chartResizeTimer = setTimeout(resizeDashboardCharts, 180);
+});

@@ -1,6 +1,24 @@
 import { state } from './state.js';
 import { normalizeStr } from './utils.js';
 
+export function isLeafWorkUnit(t) {
+    if (!t || !t.fields) return false;
+    var subtasks = t.fields.subtasks || [];
+    if (subtasks.length > 0) return false;
+    if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
+        for (var i = 0; i < t.fields.issuelinks.length; i++) {
+            var link = t.fields.issuelinks[i];
+            var linkedIssue = link.outwardIssue || link.inwardIssue;
+            if (!linkedIssue) continue;
+            if (linkedIssue.fields && linkedIssue.fields.issuetype) {
+                var linkedType = normalizeStr(linkedIssue.fields.issuetype.name);
+                if (linkedType.includes('alt') || linkedType.includes('sub')) return false;
+            }
+        }
+    }
+    return true;
+}
+
 export function getParentIssue(t) {
     if (!t) return null;
     if (state.parentCache.hasOwnProperty(t.key)) return state.parentCache[t.key];
@@ -379,25 +397,33 @@ export function hasPhaseText(t) {
     return false;
 }
 
+function isUsableDate(d) {
+    return d instanceof Date && !isNaN(d.getTime());
+}
+
+function dateKey(d) {
+    return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
 export function isDateInReportPeriod(dateObj, periodStart, periodEnd) {
-    if (!dateObj) return false;
-    var n = dateObj.getFullYear() * 10000 + (dateObj.getMonth() + 1) * 100 + dateObj.getDate();
-    if (periodStart) {
-        var s = periodStart.getFullYear() * 10000 + (periodStart.getMonth() + 1) * 100 + periodStart.getDate();
-        if (n < s) return false;
+    if (!isUsableDate(dateObj)) return false;
+    var n = dateKey(dateObj);
+    var hasBound = false;
+    if (isUsableDate(periodStart)) {
+        hasBound = true;
+        if (n < dateKey(periodStart)) return false;
     }
-    if (periodEnd) {
-        var e = periodEnd.getFullYear() * 10000 + (periodEnd.getMonth() + 1) * 100 + periodEnd.getDate();
-        if (n > e) return false;
+    if (isUsableDate(periodEnd)) {
+        hasBound = true;
+        if (n > dateKey(periodEnd)) return false;
     }
+    if (!hasBound) return false;
     return true;
 }
 
 function isDateBeforeReportPeriod(dateObj, periodStart) {
-    if (!dateObj || !periodStart) return false;
-    var n = dateObj.getFullYear() * 10000 + (dateObj.getMonth() + 1) * 100 + dateObj.getDate();
-    var s = periodStart.getFullYear() * 10000 + (periodStart.getMonth() + 1) * 100 + periodStart.getDate();
-    return n < s;
+    if (!isUsableDate(dateObj) || !isUsableDate(periodStart)) return false;
+    return dateKey(dateObj) < dateKey(periodStart);
 }
 
 export function getRawPhaseEntries(t, periodStart, periodEnd) {
@@ -424,6 +450,37 @@ export function getRawPhaseEntries(t, periodStart, periodEnd) {
     return entries;
 }
 
+export function parsePhaseEntriesFromText(text, fallbackDate) {
+    var raw = String(text || '').trim();
+    if (!raw) return [];
+    var re = /(\d{1,2}[./]\d{1,2}[./]\d{4})(?:\s*tarixində)?/gi;
+    var hits = [];
+    var m;
+    while ((m = re.exec(raw)) !== null) {
+        var d = parsePhaseDate(m[1]);
+        if (!d) continue;
+        hits.push({ index: m.index, end: m.index + m[0].length, date: d });
+    }
+    if (hits.length === 0) {
+        if (!isUsableDate(fallbackDate)) return [];
+        return [{ date: fallbackDate, text: raw }];
+    }
+    var preamble = raw.slice(0, hits[0].index).trim();
+    var entries = [];
+    for (var i = 0; i < hits.length; i++) {
+        var from = hits[i].end;
+        var to = i + 1 < hits.length ? hits[i + 1].index : raw.length;
+        var chunk = raw.slice(from, to).replace(/^[\s,;:\-–—]+/, '').replace(/[\s,;:\-–—]+$/, '').trim();
+        if (i === 0 && preamble) chunk = (chunk ? preamble + ' ' + chunk : preamble).trim();
+        if (!chunk) continue;
+        entries.push({ date: hits[i].date, text: chunk });
+    }
+    if (entries.length === 0 && isUsableDate(fallbackDate)) {
+        return [{ date: fallbackDate, text: raw }];
+    }
+    return entries;
+}
+
 export function getDatedPhaseEntries(t) {
     if (!t || !t.fields) return [];
     var entries = [];
@@ -431,29 +488,38 @@ export function getDatedPhaseEntries(t) {
         var textStr = getPhaseFieldText(t, pf.text);
         if (!textStr) return;
         var ownDate = parsePhaseDate(t.fields[pf.date]);
-        if (!ownDate) return;
-        entries.push({ date: ownDate, text: textStr });
+        var parts = parsePhaseEntriesFromText(textStr, ownDate);
+        for (var i = 0; i < parts.length; i++) entries.push(parts[i]);
     });
     return entries;
 }
 
 export function selectPhasesForReport(entries, periodStart, periodEnd) {
+    var dated = [];
+    (entries || []).forEach(function(e) {
+        if (!e || !e.text || !isUsableDate(e.date)) return;
+        dated.push(e);
+    });
+    if (dated.length === 0) return [];
+    dated.sort(function(a, b) { return a.date - b.date; });
+
+    var startOk = isUsableDate(periodStart);
+    var endOk = isUsableDate(periodEnd);
+    if (!startOk && !endOk) {
+        return [dated[dated.length - 1]];
+    }
+
     var inPeriod = [];
     var previous = [];
-    (entries || []).forEach(function(e) {
-        if (!e || !e.text || !e.date) return;
+    dated.forEach(function(e) {
         if (isDateInReportPeriod(e.date, periodStart, periodEnd)) {
             inPeriod.push(e);
             return;
         }
-        if (isDateBeforeReportPeriod(e.date, periodStart)) previous.push(e);
+        if (!startOk || isDateBeforeReportPeriod(e.date, periodStart)) previous.push(e);
     });
-    if (inPeriod.length > 0) {
-        inPeriod.sort(function(a, b) { return a.date - b.date; });
-        return inPeriod;
-    }
+    if (inPeriod.length > 0) return inPeriod;
     if (previous.length === 0) return [];
-    previous.sort(function(a, b) { return a.date - b.date; });
     return [previous[previous.length - 1]];
 }
 

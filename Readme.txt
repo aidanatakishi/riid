@@ -24,7 +24,7 @@ text
     ├── state.js           # Paylaşılan vəziyyət
     ├── utils.js
     ├── model.js           # Issue/istiqamət/sprint helper-ləri
-    ├── api.js             # /api/jira çağırışları
+    ├── api.js             # Jira sorğuları (brauzer tokeni)
     ├── filters.js
     ├── charts.js
     ├── render.js
@@ -60,14 +60,7 @@ text
 
 http://127.0.0.1:5000
 Addım 4: Jira tokenini yazmaq
-config.py faylında JIRA_PAT sətrinə Personal Access Token-i yazın:
-
-JIRA_BASE_URL = 'https://jira.idda.az'
-JIRA_PAT = 'sizin-token'
-JIRA_PROJECT_KEY = 'DGD'
-
-Serveri yenidən başladın. Token brauzerə göndərilmir; dashboard avtomatik yüklənir.
-Token panelində başqa PAT daxil etsəniz, o config-dəki tokeni əvəz edir.
+Saytın yuxarısındakı Token düyməsinə basın və öz PAT-inizi yazın. Hər kəs öz tokeni ilə daxil olur.
 
 🔧 Dəyişiklik Edilməsi Üçün Təlimat
 1. Yeni qrafik (chart) əlavə etmək istəyirsinizsə:
@@ -78,4 +71,10 @@ config.py: SEARCH_FIELDS / HIERARCHY_FIELDS siyahısına yeni customfield_XXXXX 
 static/js: t.fields['customfield_XXXXX'] çağıraraq datanı oxuyun və kartlara əlavə edin.
 3. Filtrləri (Sprint və Tarix) dəyişdirmək:
 Filtr məntiqi static/js/filters.js içindəki applyFilters() funksiyasında yerləşir. state.filteredTasks massivi üzərində .filter() istifadə edərək istənilən şərti əlavə edib taskları süzgəcdən keçirə bilərsiniz.
-Qeyd: Sistem localhost-da işləyir. Əgər şəbəkədən (başqa komputerlərdən) daxil olunmasını istəsəniz, app.py faylının ən sonundakı app.run(port=5000, debug=True) sətrini app.run(host='0.0.0.0', port=5000, debug=True) kimi dəyişdirin.
+Qeyd: Server artıq host='0.0.0.0' ilə açılır — eyni ofis şəbəkəsindəki kompüterlər http://SİZİN-IP:5000 ünvanına daxil ola bilər.
+
+🌐 Netlify (statik sayt)
+Dashboard statik fayldır. Jira sorğuları brauzerdən gedir — hər kəs yuxarıdakı Token düyməsindən öz PAT-ini yazır. Server-də / Netlify-də token saxlanılmır.
+
+jira.idda.az ofis/VPN daxilindədir. Saytı açan şəxs ofis şəbəkəsində və ya VPN-də olmalıdır; Netlify buludunun Jira-ya çıxışı lazım deyil.
+

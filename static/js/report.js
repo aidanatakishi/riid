@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, selectPhasesForReport, getSprintDateRange, getStatusGroup, hasPhaseText, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, hasPhaseText, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -24,15 +24,25 @@ export async function exportTasksToWord(title) {
         return;
     }
     var { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-          HeadingLevel, AlignmentType, WidthType, ShadingType, BorderStyle, VerticalAlign } = docxLib;
+          HeadingLevel, AlignmentType, WidthType, ShadingType, BorderStyle, VerticalAlign,
+          Header, Footer, PageNumber } = docxLib;
 
-    var COL_NAVY = '000000';    
-    var COL_SLATE = '000000';   
-    var COL_GREY = '000000';    
-    var FILL_CARD = 'F2F2F2';   
-    var BORDER_CARD = '1E3A8A'; 
-    var REPORT_FONT = 'Arial';  
-    var FONT_SIZE = 24;         
+    var COL_INK = '1A1A1A';
+    var COL_BODY = '2F2F2F';
+    var COL_MUTED = '6A6A6A';
+    var COL_LINE = 'D0D0D0';
+    var COL_LINE_SOFT = 'E4E4E4';
+    var FILL_SOFT = 'F6F6F6';
+    var FILL_ROW = 'FAFAFA';
+    var REPORT_FONT = 'Arial';
+    var FONT_TITLE = 32;
+    var FONT_H1 = 24;
+    var FONT_SIZE = 24;
+    var FONT_SMALL = 24;
+    var FONT_PHASE = 24;
+
+    var noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+    var hairBorder = { style: BorderStyle.SINGLE, size: 4, color: COL_LINE_SOFT }; 
 
     var dateStr = new Date().toLocaleDateString('az-AZ');
 
@@ -168,19 +178,37 @@ export async function exportTasksToWord(title) {
         return issues;
     }
 
-    function groupPhaseEntries(issues, periodStart, periodEnd) {
+    function groupPhaseEntries(t, issues, periodStart, periodEnd, restrictToPeriod) {
         var allDated = [];
         (issues || []).forEach(function(issue) {
             allDated = allDated.concat(getDatedPhaseEntries(issue));
         });
+        if (!restrictToPeriod) {
+            (issues || []).forEach(function(subIssue) {
+                if (!subIssue || subIssue.key === t.key) return;
+                if (hasPhaseText(subIssue)) return;
+                var name = (subIssue.fields && subIssue.fields.summary) ? subIssue.fields.summary : subIssue.key;
+                if (!name) return;
+                var fallback = getIssueFallbackDate(subIssue);
+                var fromText = parsePhaseEntriesFromText(name, fallback);
+                if (fromText.length > 0) {
+                    allDated = allDated.concat(fromText);
+                    return;
+                }
+                if (fallback) allDated.push({ date: fallback, text: name });
+            });
+        }
         return selectPhasesForReport(allDated, periodStart, periodEnd);
     }
 
     function formatEntryLine(entry) {
         if (!entry) return '';
-        var text = entry.date
-            ? (formatDateObj(entry.date) + ' tarixində ' + (entry.text || ''))
-            : (entry.text || '');
+        var body = (entry.text || '').trim();
+        if (!body) return '';
+        var alreadyDated = /^\d{1,2}[./]\d{1,2}[./]\d{4}/.test(body);
+        var text = alreadyDated || !entry.date
+            ? body
+            : (formatDateObj(entry.date) + ' tarixində ' + body);
         if (text && !text.endsWith('.')) text += '.';
         return text;
     }
@@ -269,14 +297,15 @@ export async function exportTasksToWord(title) {
 
                 if (isProblemSection) appendProblemReason(childLines, t);
                 var groupIssues = phaseIssuesForGroup(t, childIssues, isOwnDone, restrictToPeriod, filterFn);
-                appendEntryLines(childLines, groupPhaseEntries(groupIssues, periodStart, periodEnd));
+                appendEntryLines(childLines, groupPhaseEntries(t, groupIssues, periodStart, periodEnd, restrictToPeriod));
                 if (!restrictToPeriod) {
                     groupIssues.forEach(function(subIssue) {
                         if (subIssue.key === t.key) return;
                         if (hasPhaseText(subIssue)) return;
+                        if (getIssueFallbackDate(subIssue)) return;
                         if (isProblemSection && issueMatches(subIssue, filterFn)) appendProblemReason(childLines, subIssue);
                         var name = (subIssue.fields && subIssue.fields.summary) ? subIssue.fields.summary : subIssue.key;
-                        appendEntryLines(childLines, [{ date: getIssueFallbackDate(subIssue), text: name }]);
+                        if (name) childLines.push(name.endsWith('.') ? name : name + '.');
                     });
                 }
                 childIssues.forEach(function(subIssue) {
@@ -291,31 +320,36 @@ export async function exportTasksToWord(title) {
                 }
 
                 dirNodes.push(new Paragraph({
-                    spacing: { after: 0 },
+                    spacing: { before: 80, after: 40 },
                     children: [
-                        new TextRun({ text: '• ', bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY }),
-                        new TextRun({ text: taskText, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })
+                        new TextRun({ text: '–  ', font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED }),
+                        new TextRun({ text: taskText, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_INK })
                     ]
                 }));
 
                 if (childLines.length > 0) {
                     childLines.forEach(function(line, lineIdx) {
                         dirNodes.push(new Paragraph({
-                            spacing: { after: lineIdx === childLines.length - 1 ? 60 : 20 },
-                            indent: { left: 360 },
+                            spacing: { after: lineIdx === childLines.length - 1 ? 140 : 40, line: 276 },
+                            indent: { left: 400 },
                             children: [
-                                new TextRun({ text: line, italics: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })
+                                new TextRun({ text: line, font: REPORT_FONT, size: FONT_PHASE, color: COL_MUTED })
                             ]
                         }));
                     });
                 } else {
-                    dirNodes.push(new Paragraph({ spacing: { after: 60 }, children: [] }));
+                    dirNodes.push(new Paragraph({ spacing: { after: 80 }, children: [] }));
                 }
             });
             if (dirNodes.length === 0) return;
             nodes.push(new Paragraph({
-                spacing: { before: 240, after: 100 },
-                children: [new TextRun({ text: dirName.toLocaleUpperCase('az'), bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })]
+                spacing: { before: 200, after: 80 },
+                shading: { fill: FILL_SOFT, type: ShadingType.CLEAR, color: 'auto' },
+                border: {
+                    left: { style: BorderStyle.SINGLE, size: 16, color: COL_INK, space: 8 }
+                },
+                indent: { left: 80 },
+                children: [new TextRun({ text: dirName.toLocaleUpperCase('az'), bold: true, font: REPORT_FONT, size: FONT_SMALL, color: COL_INK })]
             }));
             nodes.push.apply(nodes, dirNodes);
         });
@@ -389,23 +423,23 @@ export async function exportTasksToWord(title) {
 
     var summaryText = summaryParts.join(' ');
 
-    function statCell(numberText, labelText) {
+    function statCell(numberText, labelText, isLast) {
         return new TableCell({
             width: { size: 25, type: WidthType.PERCENTAGE },
             verticalAlign: VerticalAlign.CENTER,
-            shading: { fill: FILL_CARD, type: ShadingType.CLEAR, color: 'auto' },
-            margins: { top: 140, bottom: 140, left: 160, right: 160 },
+            shading: { fill: FILL_ROW, type: ShadingType.CLEAR, color: 'auto' },
+            margins: { top: 160, bottom: 160, left: 140, right: 140 },
             borders: {
-                top: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
-                bottom: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
-                right: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
-                left: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' }
+                top: { style: BorderStyle.SINGLE, size: 12, color: COL_INK },
+                bottom: hairBorder,
+                right: isLast ? noBorder : hairBorder,
+                left: noBorder
             },
             children: [
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 30 },
-                    children: [new TextRun({ text: String(numberText), bold: true, font: REPORT_FONT, size: FONT_SIZE + 14, color: COL_NAVY })] }),
-                new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 0 },
-                    children: [new TextRun({ text: labelText, font: REPORT_FONT, size: FONT_SIZE - 6, color: '595959' })] })
+                new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 40 },
+                    children: [new TextRun({ text: String(numberText), bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_INK })] }),
+                new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 0 },
+                    children: [new TextRun({ text: labelText, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })] })
             ]
         });
     }
@@ -413,32 +447,51 @@ export async function exportTasksToWord(title) {
     var statsTable = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [ new TableRow({ children: [
-            statCell(dashDueWeek, 'Bu həftə bitməli olan tapşırıqlar'),
-            statCell(dashBlocked, 'Mövcud çətinliklər'),
-            statCell(dashDone, 'Tamamlanan tapşırıqlar'),
-            statCell(dashPlanned, 'Növbəti həftəyə planlaşdırılanlar')
+            statCell(dashDueWeek, 'Bu həftə bitməli', false),
+            statCell(dashBlocked, 'Mövcud çətinliklər', false),
+            statCell(dashDone, 'Tamamlananlar', false),
+            statCell(dashPlanned, 'Növbəti həftə', true)
         ] }) ]
     });
 
     function sectionHeading(num, t, desc) {
         var out = [new Paragraph({
             heading: HeadingLevel.HEADING_1,
-            spacing: { before: 320, after: 60 },
-            children: [new TextRun({ text: num + '. ' + t, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })]
+            spacing: { before: 360, after: 40 },
+            border: {
+                bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 }
+            },
+            children: [
+                new TextRun({ text: num + '  ', font: REPORT_FONT, size: FONT_H1, color: COL_MUTED }),
+                new TextRun({ text: t, bold: true, font: REPORT_FONT, size: FONT_H1, color: COL_INK })
+            ]
         })];
         if (desc) out.push(new Paragraph({
-            spacing: { after: 120 },
-            children: [new TextRun({ text: desc, italics: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })]
+            spacing: { before: 80, after: 140 },
+            children: [new TextRun({ text: desc, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })]
         }));
         return out;
     }
 
+    function emptySectionNote(text) {
+        return new Paragraph({
+            spacing: { before: 80, after: 120 },
+            children: [new TextRun({ text: text, font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED })]
+        });
+    }
+
+    function appendReportSection(headingNodes, sectionNodes, emptyText) {
+        children.push.apply(children, headingNodes);
+        if (!sectionNodes || sectionNodes.length === 0) {
+            children.push(emptySectionNote(emptyText));
+        } else {
+            children.push.apply(children, sectionNodes);
+        }
+    }
+
     function sectionDivider() {
         return new Paragraph({
-            spacing: { before: 160, after: 0 },
-            border: {
-                bottom: { style: BorderStyle.SINGLE, size: 4, color: 'BFBFBF', space: 4 }
-            },
+            spacing: { before: 80, after: 40 },
             children: []
         });
     }
@@ -446,18 +499,23 @@ export async function exportTasksToWord(title) {
     var children = [];
 
     children.push(new Paragraph({
+        alignment: AlignmentType.CENTER,
+        spacing: { after: 20 },
+        children: [new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsi', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })]
+    }));
+    children.push(new Paragraph({
         heading: HeadingLevel.TITLE,
         alignment: AlignmentType.CENTER,
         spacing: { after: 40 },
-        children: [new TextRun({ text: 'Həftəlik İcra Hesabatı', bold: true, font: REPORT_FONT, size: FONT_SIZE + 8, color: COL_NAVY })]
+        children: [new TextRun({ text: 'Həftəlik İcra Hesabatı', bold: true, font: REPORT_FONT, size: FONT_TITLE, color: COL_INK })]
     }));
     children.push(new Paragraph({
         alignment: AlignmentType.CENTER,
-        spacing: { after: 260 },
+        spacing: { after: 280 },
         border: {
-            bottom: { style: BorderStyle.SINGLE, size: 6, color: 'BFBFBF', space: 8 }
+            bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 10 }
         },
-        children: [new TextRun({ text: 'Əhatə olunan dövr: ' + periodText, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })]
+        children: [new TextRun({ text: 'Əhatə olunan dövr  ·  ' + periodText, font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED })]
     }));
 
     children.push(new Table({
@@ -465,28 +523,31 @@ export async function exportTasksToWord(title) {
         rows: [ new TableRow({ children: [
             new TableCell({
                 width: { size: 100, type: WidthType.PERCENTAGE },
-                shading: { fill: FILL_CARD, type: ShadingType.CLEAR, color: 'auto' },
-                margins: { top: 160, bottom: 160, left: 200, right: 200 },
+                shading: { fill: FILL_SOFT, type: ShadingType.CLEAR, color: 'auto' },
+                margins: { top: 180, bottom: 180, left: 220, right: 220 },
                 borders: {
-                    top: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
-                    bottom: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
-                    left: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' },
-                    right: { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' }
+                    top: noBorder,
+                    bottom: noBorder,
+                    left: { style: BorderStyle.SINGLE, size: 24, color: COL_INK },
+                    right: noBorder
                 },
                 children: [
-                    new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: 'Hesabatın icmalı', bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })] }),
-                    new Paragraph({ spacing: { after: 0 }, children: [new TextRun({ text: summaryText, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_SLATE })] })
+                    new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: 'HESABATIN İCMALI', bold: true, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })] }),
+                    new Paragraph({ spacing: { after: 0, line: 300 }, children: [new TextRun({ text: summaryText, font: REPORT_FONT, size: FONT_SIZE, color: COL_BODY })] })
                 ]
             })
         ] }) ]
     }));
-    children.push(new Paragraph({ text: '', spacing: { after: 220 } }));
+    children.push(new Paragraph({ text: '', spacing: { after: 200 } }));
     children.push(statsTable);
 
     // 1. Görülən işlər
     var doneTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; });
-    children.push.apply(children, sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'));
-    children.push.apply(children, buildSection(doneTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }, true));
+    appendReportSection(
+        sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'),
+        buildSection(doneTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }, true),
+        'Bu həftə tamamlanmış iş qeydə alınmayıb.'
+    );
     children.push(sectionDivider());
 
     // 2. Nəyi edə bilmədik
@@ -494,11 +555,14 @@ export async function exportTasksToWord(title) {
         var g = getStatusGroup(t.fields.status.name);
         return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
     });
-    children.push.apply(children, sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'));
-    children.push.apply(children, buildSection(notDoneDueTasksPrint, false, periodStart, periodEnd, function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
-    }));
+    appendReportSection(
+        sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'),
+        buildSection(notDoneDueTasksPrint, false, periodStart, periodEnd, function(t) { 
+            var g = getStatusGroup(t.fields.status.name);
+            return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+        }),
+        'Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.'
+    );
     children.push(sectionDivider());
 
     // 3. İcra mərhələsində olan və yarımçıq qalanlar
@@ -506,11 +570,14 @@ export async function exportTasksToWord(title) {
         var g = getStatusGroup(t.fields.status.name);
         return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
     });
-    children.push.apply(children, sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'));
-    children.push.apply(children, buildSection(progressTasksPrint, false, periodStart, periodEnd, function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
-    }));
+    appendReportSection(
+        sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'),
+        buildSection(progressTasksPrint, false, periodStart, periodEnd, function(t) { 
+            var g = getStatusGroup(t.fields.status.name);
+            return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
+        }),
+        'İcra mərhələsində yarımçıq qalan tapşırıq yoxdur.'
+    );
     children.push(sectionDivider());
 
     // 4. Mövcud çətinliklər
@@ -518,25 +585,72 @@ export async function exportTasksToWord(title) {
         var g = getStatusGroup(t.fields.status.name);
         return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
     });
-    children.push.apply(children, sectionHeading('4', 'Mövcud çətinliklər', 'İcra prosesində qarşılaşılan çətinliklər, bloklanan və imtina edilmiş işlər.'));
-    children.push.apply(children, buildSection(problemTasksPrint, true, periodStart, periodEnd, function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
-    }));
+    appendReportSection(
+        sectionHeading('4', 'Mövcud çətinliklər', 'İcra prosesində qarşılaşılan çətinliklər, bloklanan və imtina edilmiş işlər.'),
+        buildSection(problemTasksPrint, true, periodStart, periodEnd, function(t) { 
+            var g = getStatusGroup(t.fields.status.name);
+            return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
+        }),
+        'Bu həftə mövcud çətinlik yaşanmamışdır.'
+    );
     children.push(sectionDivider());
 
     // 5. Gələn həftə ərzində planlaşdırılanlar
     var plannedTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
-    children.push.apply(children, sectionHeading('5', 'Gələn həftə ərzində planlaşdırılanlar', 'Növbəti həftə üçün əsas iş istiqamətləri və tapşırıqlar.'));
-    children.push.apply(children, buildSection(plannedTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }));
+    appendReportSection(
+        sectionHeading('5', 'Gələn həftə ərzində planlaşdırılanlar', 'Növbəti həftə üçün əsas iş istiqamətləri və tapşırıqlar.'),
+        buildSection(plannedTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }),
+        'Növbəti həftəyə planlaşdırılan tapşırıq yoxdur.'
+    );
 
     var doc = new Document({
-        sections: [{ properties: {}, children: children }],
+        sections: [{
+            properties: {
+                titlePage: true,
+                page: {
+                    margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 }
+                }
+            },
+            headers: {
+                first: new Header({ children: [new Paragraph({ children: [] })] }),
+                default: new Header({
+                    children: [
+                        new Paragraph({
+                            border: {
+                                bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 }
+                            },
+                            spacing: { after: 80 },
+                            children: [
+                                new TextRun({ text: 'Həftəlik İcra Hesabatı', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED }),
+                                new TextRun({ text: '   ·   ' + periodText, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })
+                            ]
+                        })
+                    ]
+                })
+            },
+            footers: {
+                default: new Footer({
+                    children: [
+                        new Paragraph({
+                            border: {
+                                top: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 8 }
+                            },
+                            spacing: { before: 60 },
+                            children: [
+                                new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsi  ·  səhifə ', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED }),
+                                new TextRun({ children: [PageNumber.CURRENT], font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })
+                            ]
+                        })
+                    ]
+                })
+            },
+            children: children
+        }],
         styles: {
             default: {
-                document: { run: { color: COL_SLATE, font: REPORT_FONT, size: FONT_SIZE } },
-                title: { run: { font: REPORT_FONT, size: FONT_SIZE } },
-                heading1: { run: { font: REPORT_FONT, size: FONT_SIZE } }
+                document: { run: { color: COL_BODY, font: REPORT_FONT, size: FONT_SIZE } },
+                title: { run: { font: REPORT_FONT, size: FONT_TITLE, color: COL_INK } },
+                heading1: { run: { font: REPORT_FONT, size: FONT_H1, color: COL_INK } }
             }
         }
     });
