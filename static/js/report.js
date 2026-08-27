@@ -170,7 +170,7 @@ export async function exportTasksToWord(title) {
 
     function phaseIssuesForGroup(t, childIssues, isOwnDone, restrictToPeriod, filterFn) {
         var issues = [];
-        if (isOwnDone || !restrictToPeriod) issues.push(t);
+        if (t) issues.push(t);
         (childIssues || []).forEach(function(subIssue) {
             if (restrictToPeriod && !isOwnDone && !issueMatches(subIssue, filterFn)) return;
             issues.push(subIssue);
@@ -401,7 +401,7 @@ export async function exportTasksToWord(title) {
         } else if (doneOnTimeCount === 0) {
             doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb';
         } else {
-            doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb (bunlardan ' + doneOnTimeCount + '-i məhz bu həftə bitməli idi)';
+            doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb (bunlardan ' + doneOnTimeCount + '-i məhz bu həftə olanlardır)';
         }
         summaryParts.push('Bu həftə ərzində ümumilikdə ' + totalTasksCount + ' tapşırıq üzərində iş aparılıb, ' + doneClause + '.');
     }
@@ -422,10 +422,12 @@ export async function exportTasksToWord(title) {
         summaryParts.push('Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, ' + rejectedCount + ' tapşırıqdan isə imtina edilib.');
     }
 
-    if (dashPlanned === 0) {
-        summaryParts.push('Növbəti həftəyə planlaşdırılan tapşırıq yoxdur.');
+    var carryoverCount = totalTasksCount - dashDone;
+    if (carryoverCount < 0) carryoverCount = 0;
+    if (carryoverCount === 0) {
+        summaryParts.push('Növbəti həftəyə keçid edəcək tapşırıq yoxdur.');
     } else {
-        summaryParts.push('Növbəti həftəyə ' + dashPlanned + ' tapşırıq planlaşdırılıb.');
+        summaryParts.push('Növbəti həftəyə ' + carryoverCount + ' tapşırıq keçid edəcək.');
     }
 
     var summaryText = summaryParts.join(' ');
@@ -454,10 +456,10 @@ export async function exportTasksToWord(title) {
     var statsTable = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: [ new TableRow({ children: [
-            statCell(dashDueWeek, 'Bu həftə bitməli', false),
+            statCell(dashDueWeek, 'İcrası bu həftə tamamlanmalı', false),
             statCell(dashBlocked, 'Mövcud çətinliklər', false),
-            statCell(dashDone, 'Tamamlananlar', false),
-            statCell(dashPlanned, 'Növbəti həftə', true)
+            statCell(dashDone, 'Ümumi tamamlanan tapşırıq sayı', false),
+            statCell(dashPlanned, 'Növbəti həftəyə tamamlanan olmalıdır', true)
         ] }) ]
     });
 

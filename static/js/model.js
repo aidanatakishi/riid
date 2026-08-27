@@ -487,8 +487,15 @@ export function getDatedPhaseEntries(t) {
     PHASE_FIELDS.forEach(function(pf) {
         var textStr = getPhaseFieldText(t, pf.text);
         if (!textStr) return;
-        var ownDate = parsePhaseDate(t.fields[pf.date]);
-        var parts = parsePhaseEntriesFromText(textStr, ownDate);
+        var fieldDate = parsePhaseDate(t.fields[pf.date]);
+        if (isUsableDate(fieldDate)) {
+            entries.push({
+                date: fieldDate,
+                text: textStr.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?\s*/i, '').trim() || textStr
+            });
+            return;
+        }
+        var parts = parsePhaseEntriesFromText(textStr, null);
         for (var i = 0; i < parts.length; i++) entries.push(parts[i]);
     });
     return entries;
