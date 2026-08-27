@@ -51,15 +51,9 @@ input[type="date"] { min-height: 38px; }
 @keyframes slideInRight { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 .chart-box { position: relative; width: 100%; min-width: 0; overflow: hidden; }
-.chart-box canvas { max-width: 100% !important; }
-.status-doughnut {
-    position: relative;
-    width: 78%;
-    max-width: 200px;
-    height: 88%;
-}
-.status-doughnut canvas {
+.chart-box canvas {
     display: block !important;
+    max-width: 100% !important;
     width: 100% !important;
     height: 100% !important;
 }

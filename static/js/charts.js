@@ -46,12 +46,12 @@ export function renderStatusChart(tasks) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '70%',
-            layout: { padding: { top: 4, bottom: 0, left: 4, right: 4 } },
+            cutout: '68%',
+            layout: { padding: { top: 4, bottom: 4, left: 2, right: 8 } },
             plugins: {
                 legend: {
-                    position: 'bottom',
-                    labels: { usePointStyle: true, padding: 10, font: { family: 'Inter', size: 12 }, boxWidth: 8, color: '#475569' }
+                    position: 'right',
+                    labels: { usePointStyle: true, padding: 12, font: { family: 'Inter', size: 12 }, boxWidth: 8, color: '#475569' }
                 },
                 tooltip: {
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
