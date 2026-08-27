@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getDifficultyField, getRawPhaseEntries, getSprintDateRange, getStatusGroup, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, selectPhasesForReport, getSprintDateRange, getStatusGroup, hasPhaseText, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -60,6 +60,8 @@ export async function exportTasksToWord(title) {
         if (sprintRange) {
             periodStart = sprintRange.start;
             periodEnd = sprintRange.end;
+            if (periodStart) periodStart.setHours(0, 0, 0, 0);
+            if (periodEnd) periodEnd.setHours(23, 59, 59, 999);
             periodText = sprintRange.start.toLocaleDateString('az-AZ') + ' - ' + sprintRange.end.toLocaleDateString('az-AZ');
         } else periodText = sprintVal.replace(/sprint/i, '').trim();
     } else periodText = 'Bütün dövr';
@@ -109,78 +111,186 @@ export async function exportTasksToWord(title) {
         }
     });
 
-    // Word-a yazılacaq list üçün taskları və ya alt tapşırıqları götürürük
-                function getPrintTasks(filterFn) {
+    function isSubtaskType(t) {
+        if (!t || !t.fields || !t.fields.issuetype) return false;
+        var n = normalizeStr(t.fields.issuetype.name);
+        return n.includes('alt') || n.includes('sub');
+    }
+
+    function isPausedTask(t) {
+        if (!t || !t.fields || !t.fields.status) return false;
+        var st = normalizeStr(t.fields.status.name);
+        return st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+    }
+
+    function resolveIssue(issue) {
+        if (!issue || !issue.key) return issue;
+        if (state.issueIndex[issue.key]) return state.issueIndex[issue.key];
+        var found = state.allTasks.find(function(at) { return at.key === issue.key; });
+        if (found) {
+            state.issueIndex[found.key] = found;
+            return found;
+        }
+        return issue;
+    }
+
+    function collectChildIssues(t) {
+        var children = [];
+        var seen = {};
+        function addChild(issue) {
+            if (!issue || !issue.key || seen[issue.key] || (t && issue.key === t.key)) return;
+            var full = resolveIssue(issue);
+            if (isPausedTask(full)) return;
+            seen[issue.key] = true;
+            children.push(full);
+        }
+        if (!t || !t.fields) return children;
+        (t.fields.subtasks || []).forEach(addChild);
+        (t.fields.issuelinks || []).forEach(function(link) {
+            var linked = link.outwardIssue || link.inwardIssue;
+            if (linked && isSubtaskType(linked)) addChild(linked);
+        });
+        state.allTasks.forEach(function(issue) {
+            if (!isSubtaskType(issue)) return;
+            var parent = getParentIssue(issue);
+            if (parent && parent.key === t.key) addChild(issue);
+        });
+        return children;
+    }
+
+    function phaseIssuesForGroup(t, childIssues, isOwnDone, restrictToPeriod, filterFn) {
+        var issues = [];
+        if (isOwnDone || !restrictToPeriod) issues.push(t);
+        (childIssues || []).forEach(function(subIssue) {
+            if (restrictToPeriod && !isOwnDone && !issueMatches(subIssue, filterFn)) return;
+            issues.push(subIssue);
+        });
+        return issues;
+    }
+
+    function groupPhaseEntries(issues, periodStart, periodEnd) {
+        var allDated = [];
+        (issues || []).forEach(function(issue) {
+            allDated = allDated.concat(getDatedPhaseEntries(issue));
+        });
+        return selectPhasesForReport(allDated, periodStart, periodEnd);
+    }
+
+    function formatEntryLine(entry) {
+        if (!entry) return '';
+        var text = entry.date
+            ? (formatDateObj(entry.date) + ' tarixində ' + (entry.text || ''))
+            : (entry.text || '');
+        if (text && !text.endsWith('.')) text += '.';
+        return text;
+    }
+
+    function appendEntryLines(childLines, entries) {
+        (entries || []).forEach(function(entry) {
+            var line = formatEntryLine(entry);
+            if (line) childLines.push(line);
+        });
+    }
+
+    function appendProblemReason(childLines, issue) {
+        if (!issue || !issue.fields || !issue.fields.status) return;
+        var g = getStatusGroup(issue.fields.status.name);
+        if (g === 'blocked') {
+            var reason = getBlockReason(issue);
+            if (reason) childLines.push('Bloklanma səbəbi: ' + reason + '.');
+            return;
+        }
+        if (hasValidDifficulty(issue)) {
+            childLines.push('Qarşılanan çətinlik: ' + getDifficultyField(issue) + '.');
+        }
+    }
+
+    function issueMatches(t, filterFn) {
+        if (!t || !t.fields || !t.fields.status) return false;
+        if (isPausedTask(t)) return false;
+        return filterFn(t);
+    }
+
+    function getPrintTasks(filterFn) {
         var printList = [];
+        var seen = {};
+        function addParent(t) {
+            if (!t || !t.key || seen[t.key] || isPausedTask(t)) return;
+            if (isSubtaskType(t)) return;
+            seen[t.key] = true;
+            printList.push(t);
+        }
         state.filteredTasks.forEach(function(t) {
-            var st = normalizeStr(t.fields.status.name);
-            var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
-            if (isPaused) return;
-
-            var typeNameSub = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
-            if (typeNameSub.includes('alt') || typeNameSub.includes('sub')) return;
-
-            // Əgər ana tapşırığın ÖZ statusu filterə uyğundursa, onu birbaça götürürük
-            if (filterFn(t)) {
-                printList.push(t);
-            } else {
-                // Əgər ana tapşırıq filterə uyğun deyilsə, alt tapşırıqlarını yoxlayırıq
-                var hasMatchingChild = false;
-                var subtasks = t.fields.subtasks || [];
-                subtasks.forEach(function(sub) {
-                    var subIssue = state.issueIndex[sub.key] || sub;
-                    if (filterFn(subIssue)) hasMatchingChild = true;
-                });
-
-                if (!hasMatchingChild && t.fields.issuelinks && t.fields.issuelinks.length > 0) {
-                    for (var i = 0; i < t.fields.issuelinks.length; i++) {
-                        var linkedIssue = t.fields.issuelinks[i].outwardIssue || t.fields.issuelinks[i].inwardIssue;
-                        if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
-                            var lType = normalizeStr(linkedIssue.fields.issuetype.name);
-                            if (lType.includes('alt') || lType.includes('sub')) {
-                                var subIssue = state.issueIndex[linkedIssue.key] || linkedIssue;
-                                if (filterFn(subIssue)) {
-                                    hasMatchingChild = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Əgər uyğun gələn alt tapşırığı varsa, ana tapşırığı siyahıya əlavə edirik ki, onun altında mərhələləri toplayaq
-                if (hasMatchingChild) {
-                    printList.push(t);
+            if (isPausedTask(t)) return;
+            if (isSubtaskType(t)) {
+                if (issueMatches(t, filterFn)) addParent(getParentIssue(t));
+                return;
+            }
+            if (issueMatches(t, filterFn)) {
+                addParent(t);
+                return;
+            }
+            var kids = collectChildIssues(t);
+            for (var i = 0; i < kids.length; i++) {
+                if (issueMatches(kids[i], filterFn)) {
+                    addParent(t);
+                    return;
                 }
             }
         });
         return printList;
     }
 
-    function buildSection(tasks, isProblemSection, periodStart, periodEnd, filterFn) {
+    function buildSection(tasks, isProblemSection, periodStart, periodEnd, filterFn, restrictToPeriod) {
         var nodes = [];
         var groups = groupByDirection(tasks);
         var dirNames = Object.keys(groups);
-        dirNames.forEach(function(dirName, dirIdx) {
-            nodes.push(new Paragraph({
-                spacing: { before: 240, after: 100 },
-                children: [new TextRun({ text: dirName.toLocaleUpperCase('az'), bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })]
-            }));
-            
+        dirNames.forEach(function(dirName) {
+            var dirNodes = [];
             groups[dirName].forEach(function(t) {
                 var taskText = t.fields.summary;
-                var isOwnDone = filterFn(t);
+                var isOwnDone = issueMatches(t, filterFn);
+                var childIssues = collectChildIssues(t);
 
                 if (isProblemSection) {
                     var g = getStatusGroup(t.fields.status.name);
                     var diff = getDifficultyField(t);
+                    var blockReason = getBlockReason(t);
                     if (g === 'rejected') taskText += ' — imtina';
-                    else if (g === 'blocked') taskText += ' — bloklanıb';
-                    else if (diff) taskText += ' — qarşılanan çətinlik: ' + diff;
+                    else if (g === 'blocked') {
+                        taskText += ' — bloklanıb';
+                        if (blockReason) taskText += ' — bloklanma səbəbi: ' + blockReason;
+                    } else if (hasValidDifficulty(t)) {
+                        taskText += ' — qarşılanan çətinlik: ' + diff;
+                    }
                 }
 
-                // Ana tapşırığın başlığını yazırıq
-                nodes.push(new Paragraph({
+                var childLines = [];
+
+                if (isProblemSection) appendProblemReason(childLines, t);
+                var groupIssues = phaseIssuesForGroup(t, childIssues, isOwnDone, restrictToPeriod, filterFn);
+                appendEntryLines(childLines, groupPhaseEntries(groupIssues, periodStart, periodEnd));
+                if (!restrictToPeriod) {
+                    groupIssues.forEach(function(subIssue) {
+                        if (subIssue.key === t.key) return;
+                        if (hasPhaseText(subIssue)) return;
+                        if (isProblemSection && issueMatches(subIssue, filterFn)) appendProblemReason(childLines, subIssue);
+                        var name = (subIssue.fields && subIssue.fields.summary) ? subIssue.fields.summary : subIssue.key;
+                        appendEntryLines(childLines, [{ date: getIssueFallbackDate(subIssue), text: name }]);
+                    });
+                }
+                childIssues.forEach(function(subIssue) {
+                    if (restrictToPeriod && !isOwnDone && !issueMatches(subIssue, filterFn)) return;
+                    if (isProblemSection && issueMatches(subIssue, filterFn) && hasPhaseText(subIssue)) {
+                        appendProblemReason(childLines, subIssue);
+                    }
+                });
+
+                if (childLines.length === 0) {
+                    if (restrictToPeriod || !isOwnDone) return;
+                }
+
+                dirNodes.push(new Paragraph({
                     spacing: { after: 0 },
                     children: [
                         new TextRun({ text: '• ', bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY }),
@@ -188,155 +298,30 @@ export async function exportTasksToWord(title) {
                     ]
                 }));
 
-                var ownEntries = [];
-
-                // Əgər ana tapşırığın ÖZ statusu filterə uyğundursa (məsələn, Özü "Həll edilib"dirsə)
-                if (isOwnDone) {
-                    // 1. Ana tapşırığın öz mərhələlərini götürürük
-                    var parentEntries = getRawPhaseEntries(t, periodStart, periodEnd);
-                    if (parentEntries.length > 0) {
-                        ownEntries = ownEntries.concat(parentEntries);
-                    }
-
-                    // 2. Bütün alt tapşırıqların mərhələlərini yoxlayırıq
-                    var subtasks = t.fields.subtasks || [];
-                    subtasks.forEach(function(sub) {
-                        var subIssue = state.issueIndex[sub.key] || sub;
-                        var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
-                        if (subEntries.length > 0) {
-                            ownEntries = ownEntries.concat(subEntries);
-                        } else if (filterFn(subIssue)) {
-                            // Əgər alt tapşırığın mərhələsi yoxdursa və özü də həll olunubsa, onun adını əlavə edirik
-                            ownEntries.push({ date: null, text: subIssue.fields.summary });
-                        }
+                if (childLines.length > 0) {
+                    childLines.forEach(function(line, lineIdx) {
+                        dirNodes.push(new Paragraph({
+                            spacing: { after: lineIdx === childLines.length - 1 ? 60 : 20 },
+                            indent: { left: 360 },
+                            children: [
+                                new TextRun({ text: line, italics: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })
+                            ]
+                        }));
                     });
-
-                    // 3. Əlaqəli (Linked) alt tapşırıqları da yoxlayırıq
-                    if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
-                        t.fields.issuelinks.forEach(function(link) {
-                            var linkedIssue = link.outwardIssue || link.inwardIssue;
-                            if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
-                                var lType = normalizeStr(linkedIssue.fields.issuetype.name);
-                                if (lType.includes('alt') || lType.includes('sub')) {
-                                    var subIssue = state.issueIndex[linkedIssue.key] || linkedIssue;
-                                    var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
-                                    if (subEntries.length > 0) {
-                                        ownEntries = ownEntries.concat(subEntries);
-                                    } else if (filterFn(subIssue)) {
-                                        ownEntries.push({ date: null, text: subIssue.fields.summary });
-                                    }
-                                }
-                            }
-                        });
-                    }
                 } else {
-                    // Əgər ana tapşırığın özü uyğun deyilsə (bitməyibsə), yalnız uyğun gələn (həll olunmuş) alt tapşırıqları götürürük
-                    var subtasks = t.fields.subtasks || [];
-                    subtasks.forEach(function(sub) {
-                        var subIssue = state.issueIndex[sub.key] || sub;
-                        if (filterFn(subIssue)) {
-                            var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
-                            if (subEntries.length > 0) {
-                                // Mərhələsi varsa, yalnız mərhələni götürürük
-                                ownEntries = ownEntries.concat(subEntries);
-                            } else {
-                                // Mərhələsi yoxdursa, alt tapşırığın öz adını götürürük
-                                ownEntries.push({ date: null, text: subIssue.fields.summary });
-                            }
-                        }
-                    });
-                    
-                    if (t.fields.issuelinks && t.fields.issuelinks.length > 0) {
-                        t.fields.issuelinks.forEach(function(link) {
-                            var linkedIssue = link.outwardIssue || link.inwardIssue;
-                            if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
-                                var lType = normalizeStr(linkedIssue.fields.issuetype.name);
-                                if (lType.includes('alt') || lType.includes('sub')) {
-                                    var subIssue = state.issueIndex[linkedIssue.key] || linkedIssue;
-                                    if (filterFn(subIssue)) {
-                        var subEntries = getRawPhaseEntries(subIssue, periodStart, periodEnd);
-                        if (subEntries.length > 0) {
-                            ownEntries = ownEntries.concat(subEntries);
-                        } else {
-                            ownEntries.push({ date: null, text: subIssue.fields.summary });
-                        }
-                    }
-                                }
-                            }
-                        });
-                    }
-                }
-
-                               // Bütün mərhələləri və adları tarixə görə sıralayıb alt sətirdə yazırıq
-                ownEntries.sort(function(a, b) { 
-                    var timeA = a.date ? a.date.getTime() : 0;
-                    var timeB = b.date ? b.date.getTime() : 0;
-                    return timeA - timeB; 
-                });
-                
-                // Mərhələləri və alt tapşırıqları axıcı şəkildə birləşdiririk
-                var phaseText2 = ownEntries.map(function(e) {
-                    if (!e.date) {
-                        // Tarix yoxdursa, bu alt tapşırığın adıdır
-                        return e.text;
-                    } else {
-                        // Tarix varsa: 24.08.2026 tarixində [mətn]
-                        return formatDateObj(e.date) + ' tarixində ' + e.text;
-                    }
-                }).join('. '); // Hər mərhələnin sonuna nöqtə qoyuruq ki, aydın ayrılsın
-                
-                if (phaseText2) {
-                    // Əgər mətn bitibsə artıq nöqtə var, yoxdursa əlavə edirik
-                    if (!phaseText2.endsWith('.')) phaseText2 += '.';
-                    
-                    nodes.push(new Paragraph({
-                        spacing: { after: 60 },
-                        indent: { left: 360 },
-                        children: [
-                            new TextRun({ text: phaseText2, italics: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_GREY })
-                        ]
-                    }));
-                } else {
-                    nodes.push(new Paragraph({ spacing: { after: 60 }, children: [] }));
+                    dirNodes.push(new Paragraph({ spacing: { after: 60 }, children: [] }));
                 }
             });
+            if (dirNodes.length === 0) return;
+            nodes.push(new Paragraph({
+                spacing: { before: 240, after: 100 },
+                children: [new TextRun({ text: dirName.toLocaleUpperCase('az'), bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_NAVY })]
+            }));
+            nodes.push.apply(nodes, dirNodes);
         });
         return nodes;
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-           
     function hasDiffDash(t) {
         var g = getStatusGroup(t.fields.status.name);
         var diff = hasValidDifficulty(t);
@@ -365,11 +350,44 @@ export async function exportTasksToWord(title) {
         return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
     }).length;
 
-    var summaryText = 'Bu həftə ərzində ümumilikdə ' + totalTasksCount + ' tapşırıq üzərində iş aparılıb, onlardan ' +
-        dashDone + ' tapşırıq tamamlanıb (bunlardan ' + doneOnTimeCount + '-i məhz bu həftə bitməli idi). ' +
-        'Bu həftə bitməli olub, lakin tamamlanmayan ' + notDoneDueWeekCount + ' tapşırıq var. ' +
-        'Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, ' + rejectedCount +
-        ' tapşırıqdan isə imtina edilib. Növbəti həftəyə ' + dashPlanned + ' tapşırıq planlaşdırılıb.';
+    var summaryParts = [];
+    if (totalTasksCount === 0) {
+        summaryParts.push('Bu həftə ərzində icra olunan tapşırıq qeydə alınmayıb.');
+    } else {
+        var doneClause = '';
+        if (dashDone === 0) {
+            doneClause = 'onlardan heç biri tamamlanmayıb';
+        } else if (doneOnTimeCount === 0) {
+            doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb';
+        } else {
+            doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb (bunlardan ' + doneOnTimeCount + '-i məhz bu həftə bitməli idi)';
+        }
+        summaryParts.push('Bu həftə ərzində ümumilikdə ' + totalTasksCount + ' tapşırıq üzərində iş aparılıb, ' + doneClause + '.');
+    }
+
+    if (notDoneDueWeekCount === 0) {
+        summaryParts.push('Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.');
+    } else {
+        summaryParts.push('Bu həftə bitməli olub, lakin tamamlanmayan ' + notDoneDueWeekCount + ' tapşırıq var.');
+    }
+
+    if (dashBlocked === 0 && rejectedCount === 0) {
+        summaryParts.push('Hazırda çətinlik mövcud deyil və imtina edilən tapşırıq yoxdur.');
+    } else if (dashBlocked === 0) {
+        summaryParts.push('Hazırda çətinlik mövcud deyil, ' + rejectedCount + ' tapşırıqdan isə imtina edilib.');
+    } else if (rejectedCount === 0) {
+        summaryParts.push('Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, imtina edilən tapşırıq isə yoxdur.');
+    } else {
+        summaryParts.push('Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, ' + rejectedCount + ' tapşırıqdan isə imtina edilib.');
+    }
+
+    if (dashPlanned === 0) {
+        summaryParts.push('Növbəti həftəyə planlaşdırılan tapşırıq yoxdur.');
+    } else {
+        summaryParts.push('Növbəti həftəyə ' + dashPlanned + ' tapşırıq planlaşdırılıb.');
+    }
+
+    var summaryText = summaryParts.join(' ');
 
     function statCell(numberText, labelText) {
         return new TableCell({
@@ -468,7 +486,7 @@ export async function exportTasksToWord(title) {
     // 1. Görülən işlər
     var doneTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; });
     children.push.apply(children, sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'));
-    children.push.apply(children, buildSection(doneTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }));
+    children.push.apply(children, buildSection(doneTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }, true));
     children.push(sectionDivider());
 
     // 2. Nəyi edə bilmədik

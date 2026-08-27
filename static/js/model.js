@@ -226,6 +226,50 @@ export function hasValidDifficulty(t) {
     return normDiff !== 'none' && normDiff !== 'qeyd edilməyib' && normDiff !== 'qeyd edilmeyib' && normDiff !== 'null' && normDiff !== '';
 }
 
+function fieldValueText(val) {
+    if (val == null || val === '') return null;
+    if (typeof val === 'string') return val.trim() || null;
+    if (Array.isArray(val)) {
+        var parts = val.map(fieldValueText).filter(Boolean);
+        return parts.length ? parts.join(', ') : null;
+    }
+    if (typeof val === 'object') {
+        if (val.value) return fieldValueText(val.value);
+        if (val.name) return String(val.name).trim() || null;
+        if (val.comment) return String(val.comment).trim() || null;
+        if (val.body) return String(val.body).trim() || null;
+    }
+    return null;
+}
+
+export function getBlockReason(t) {
+    if (!t || !t.fields) return null;
+    var namedKey = null;
+    for (var key in state.jiraFieldNames) {
+        var fieldName = normalizeStr(state.jiraFieldNames[key]);
+        if (fieldName.includes('bloklanma səbəb') || fieldName.includes('bloklanma sebeb') || fieldName.includes('block reason') || fieldName.includes('blocked reason')) {
+            namedKey = key;
+            break;
+        }
+        if (!namedKey && (fieldName.includes('bloklanma') || fieldName === 'blok' || fieldName.includes('block'))) {
+            namedKey = key;
+        }
+    }
+    if (namedKey) {
+        var namedVal = fieldValueText(t.fields[namedKey]);
+        if (namedVal) return namedVal;
+    }
+    for (var key2 in t.fields) {
+        var lowerKey = key2.toLowerCase();
+        if (lowerKey.includes('blok') || lowerKey.includes('blockreason') || lowerKey.includes('block_reason')) {
+            var keyVal = fieldValueText(t.fields[key2]);
+            if (keyVal) return keyVal;
+        }
+    }
+    if (hasValidDifficulty(t)) return getDifficultyField(t);
+    return null;
+}
+
 const PHASE_FIELDS = [
     { date: 'customfield_15611', text: 'customfield_15612' }, 
     { date: 'customfield_15613', text: 'customfield_15614' }, 
@@ -234,41 +278,68 @@ const PHASE_FIELDS = [
     { date: 'customfield_15619', text: 'customfield_15620' }  
 ];
 
-// Tarixi müqayisə/sıralama üçün Date obyektinə çevirir (həm YYYY-MM-DD, həm də DD/Mon/YYYY formatlarını dəstəkləyir)
 export function parsePhaseDate(raw) {
-    if (!raw) return null;
+    if (raw == null || raw === '') return null;
     try {
-        var rawStr = String(raw);
-        if (typeof raw === 'object' && raw.value) rawStr = String(raw.value);
-        var datePart = rawStr.split('T')[0].trim();
-        
-        // Format 1: YYYY-MM-DD (məsələn, 2026-08-24)
-        if (datePart.indexOf('-') !== -1) {
-            var p = datePart.split('-');
-            if (p.length !== 3) return null;
-            var year = parseInt(p[0], 10), month = parseInt(p[1], 10), day = parseInt(p[2], 10);
-            if (!year || !month || !day || month < 1 || month > 12) return null;
-            var d = new Date(year, month - 1, day);
-            d.setHours(12, 0, 0, 0);
-            return d;
+        if (typeof raw === 'number' && isFinite(raw)) {
+            var dn = new Date(raw > 1e12 ? raw : raw * 1000);
+            if (isNaN(dn.getTime())) return null;
+            dn.setHours(12, 0, 0, 0);
+            return dn;
         }
-        
-        // Format 2: DD/Mon/YYYY (məsələn, 24/Aug/2026)
-        if (datePart.indexOf('/') !== -1) {
-            var p2 = datePart.split('/');
-            if (p2.length !== 3) return null;
-            var day2 = parseInt(p2[0], 10);
-            var year2 = parseInt(p2[2], 10);
-            var monthsArr = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-            var month2 = monthsArr.indexOf(p2[1]) + 1;
-            if (!year2 || !month2 || !day2) return null;
-            var d2 = new Date(year2, month2 - 1, day2);
-            d2.setHours(12, 0, 0, 0);
-            return d2;
+        if (typeof raw === 'object') {
+            return parsePhaseDate(raw.value || raw.date || raw.formatted || raw.iso || raw.start || null);
         }
-        
+        var rawStr = String(raw).trim();
+        if (!rawStr) return null;
+
+        var iso = rawStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (iso) {
+            var dIso = new Date(parseInt(iso[1], 10), parseInt(iso[2], 10) - 1, parseInt(iso[3], 10));
+            dIso.setHours(12, 0, 0, 0);
+            return dIso;
+        }
+
+        var dmy = rawStr.match(/^(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+        if (dmy && parseInt(dmy[2], 10) >= 1 && parseInt(dmy[2], 10) <= 12) {
+            var yearDmy = parseInt(dmy[3], 10);
+            if (yearDmy < 100) yearDmy += 2000;
+            var dDmy = new Date(yearDmy, parseInt(dmy[2], 10) - 1, parseInt(dmy[1], 10));
+            dDmy.setHours(12, 0, 0, 0);
+            return dDmy;
+        }
+
+        var dmon = rawStr.match(/^(\d{1,2})\/([A-Za-z]{3})\/(\d{2,4})/);
+        if (dmon) {
+            var monthsArr = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            var monName = dmon[2].charAt(0).toUpperCase() + dmon[2].slice(1).toLowerCase();
+            var monthIdx = monthsArr.indexOf(monName);
+            if (monthIdx >= 0) {
+                var yearMon = parseInt(dmon[3], 10);
+                if (yearMon < 100) yearMon += 2000;
+                var dMon = new Date(yearMon, monthIdx, parseInt(dmon[1], 10));
+                dMon.setHours(12, 0, 0, 0);
+                return dMon;
+            }
+        }
+
+        var parsed = new Date(rawStr);
+        if (isNaN(parsed.getTime())) return null;
+        parsed.setHours(12, 0, 0, 0);
+        return parsed;
+    } catch (e) {
         return null;
-    } catch(e) { return null; }
+    }
+}
+
+export function getIssueFallbackDate(t) {
+    if (!t || !t.fields) return null;
+    var f = t.fields;
+    return parsePhaseDate(f.resolutiondate)
+        || parsePhaseDate(f['customfield_10808'])
+        || parsePhaseDate(f.updated)
+        || parsePhaseDate(f.created)
+        || null;
 }
 
 export function formatDateObj(d) {
@@ -281,31 +352,119 @@ export function formatDateObj(d) {
 
 export function getPhaseFieldText(t, fieldKey) {
     if (!t.fields) return '';
-    var val = t.fields[fieldKey];
-    if (!val) return '';
-    if (typeof val === 'object' && val.value) return String(val.value).trim();
+    return extractPhaseText(t.fields[fieldKey]);
+}
+
+function extractPhaseText(val) {
+    if (val == null || val === '') return '';
     if (typeof val === 'string') return val.trim();
-    return String(val).trim();
+    if (typeof val === 'number') return String(val);
+    if (Array.isArray(val)) {
+        return val.map(extractPhaseText).filter(Boolean).join('. ');
+    }
+    if (typeof val === 'object') {
+        if (val.value) return extractPhaseText(val.value);
+        if (val.text) return String(val.text).trim();
+        if (val.name) return String(val.name).trim();
+        if (val.content) return extractPhaseText(val.content);
+    }
+    return '';
+}
+
+export function hasPhaseText(t) {
+    if (!t || !t.fields) return false;
+    for (var i = 0; i < PHASE_FIELDS.length; i++) {
+        if (getPhaseFieldText(t, PHASE_FIELDS[i].text)) return true;
+    }
+    return false;
+}
+
+export function isDateInReportPeriod(dateObj, periodStart, periodEnd) {
+    if (!dateObj) return false;
+    var n = dateObj.getFullYear() * 10000 + (dateObj.getMonth() + 1) * 100 + dateObj.getDate();
+    if (periodStart) {
+        var s = periodStart.getFullYear() * 10000 + (periodStart.getMonth() + 1) * 100 + periodStart.getDate();
+        if (n < s) return false;
+    }
+    if (periodEnd) {
+        var e = periodEnd.getFullYear() * 10000 + (periodEnd.getMonth() + 1) * 100 + periodEnd.getDate();
+        if (n > e) return false;
+    }
+    return true;
+}
+
+function isDateBeforeReportPeriod(dateObj, periodStart) {
+    if (!dateObj || !periodStart) return false;
+    var n = dateObj.getFullYear() * 10000 + (dateObj.getMonth() + 1) * 100 + dateObj.getDate();
+    var s = periodStart.getFullYear() * 10000 + (periodStart.getMonth() + 1) * 100 + periodStart.getDate();
+    return n < s;
 }
 
 export function getRawPhaseEntries(t, periodStart, periodEnd) {
     if (!t || !t.fields) return [];
+    var hasPeriod = !!(periodStart || periodEnd);
+    var fallback = hasPeriod ? null : getIssueFallbackDate(t);
     var entries = [];
     PHASE_FIELDS.forEach(function(pf) {
-        var dateObj = parsePhaseDate(t.fields[pf.date]);
         var textStr = getPhaseFieldText(t, pf.text);
-        if (!dateObj || !textStr) return;
-        if (periodStart && dateObj < periodStart) return;
-        if (periodEnd && dateObj > periodEnd) return;
-        entries.push({ date: dateObj, text: textStr });
+        if (!textStr) return;
+        var ownDate = parsePhaseDate(t.fields[pf.date]);
+        if (hasPeriod) {
+            if (!isDateInReportPeriod(ownDate, periodStart, periodEnd)) return;
+            entries.push({ date: ownDate, text: textStr });
+            return;
+        }
+        entries.push({ date: ownDate || fallback, text: textStr });
     });
-    entries.sort(function(a, b) { return a.date - b.date; });
+    entries.sort(function(a, b) {
+        var ta = a.date ? a.date.getTime() : 0;
+        var tb = b.date ? b.date.getTime() : 0;
+        return ta - tb;
+    });
     return entries;
+}
+
+export function getDatedPhaseEntries(t) {
+    if (!t || !t.fields) return [];
+    var entries = [];
+    PHASE_FIELDS.forEach(function(pf) {
+        var textStr = getPhaseFieldText(t, pf.text);
+        if (!textStr) return;
+        var ownDate = parsePhaseDate(t.fields[pf.date]);
+        if (!ownDate) return;
+        entries.push({ date: ownDate, text: textStr });
+    });
+    return entries;
+}
+
+export function selectPhasesForReport(entries, periodStart, periodEnd) {
+    var inPeriod = [];
+    var previous = [];
+    (entries || []).forEach(function(e) {
+        if (!e || !e.text || !e.date) return;
+        if (isDateInReportPeriod(e.date, periodStart, periodEnd)) {
+            inPeriod.push(e);
+            return;
+        }
+        if (isDateBeforeReportPeriod(e.date, periodStart)) previous.push(e);
+    });
+    if (inPeriod.length > 0) {
+        inPeriod.sort(function(a, b) { return a.date - b.date; });
+        return inPeriod;
+    }
+    if (previous.length === 0) return [];
+    previous.sort(function(a, b) { return a.date - b.date; });
+    return [previous[previous.length - 1]];
+}
+
+export function getReportPhaseEntries(t, periodStart, periodEnd) {
+    return selectPhasesForReport(getDatedPhaseEntries(t), periodStart, periodEnd);
 }
 
 export function formatPhaseEntriesText(entries) {
     return entries.map(function(e) {
-        return formatDateObj(e.date) + ' tarixində ' + e.text;
+        if (e.date) return formatDateObj(e.date) + ' tarixində ' + e.text;
+        return e.text;
     }).join(' ');
 }
 
