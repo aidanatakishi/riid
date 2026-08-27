@@ -5,12 +5,30 @@ import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelC
 import { renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 
 var historicalChangelogLoading = false;
+var defaultSprintApplied = false;
+
+function latestSprintValue(sprintSelect) {
+    if (!sprintSelect || sprintSelect.options.length < 2) return '';
+    return sprintSelect.options[1].value;
+}
+
+function selectSprintByOffset(offset) {
+    var sprintSelect = document.getElementById('sprintFilter');
+    clearDateRangeInputs();
+    if (!sprintSelect || sprintSelect.options.length < 2 + offset) return false;
+    sprintSelect.selectedIndex = 1 + offset;
+    updateSprintFilterState();
+    return true;
+}
 
 export function populateSprintFilter() {
     var sprintSet = new Set();
     state.allTasks.forEach(function(t) { getSprintNames(t).forEach(function(n) { sprintSet.add(n); }); });
     var sprintSelect = document.getElementById('sprintFilter');
-    var previousVal = sprintSelect.value; 
+    var previousVal = sprintSelect.value;
+    var startStr = document.getElementById('startDate') && document.getElementById('startDate').value;
+    var endStr = document.getElementById('endDate') && document.getElementById('endDate').value;
+    var usingDates = !!(startStr || endStr);
     
     sprintSelect.innerHTML = '<option value="all">Bütün Sprintlər</option>';
     var sortedSprints = Array.from(sprintSet).sort(function(a, b) {
@@ -23,15 +41,20 @@ export function populateSprintFilter() {
         opt.value = s; opt.innerText = s;
         sprintSelect.appendChild(opt);
     });
-    
-    var optionExists = Array.from(sprintSelect.options).some(opt => opt.value === previousVal);
-    if (optionExists) {
-        sprintSelect.value = previousVal;
-    } else if (sortedSprints.length > 0) {
-        sprintSelect.value = sortedSprints[0];
-    } else {
-        sprintSelect.value = 'all';
+
+    if (usingDates) {
+        updateSprintFilterState();
+        return;
     }
+
+    var optionExists = Array.from(sprintSelect.options).some(function(opt) { return opt.value === previousVal; });
+    if (!defaultSprintApplied || !previousVal || previousVal === 'all' || !optionExists) {
+        sprintSelect.value = latestSprintValue(sprintSelect) || 'all';
+        defaultSprintApplied = true;
+    } else {
+        sprintSelect.value = previousVal;
+    }
+    updateSprintFilterState();
 }
 
 export function clearDateRangeInputs() {
@@ -46,31 +69,27 @@ export function updateSprintFilterState() {
     var sprintSelect = document.getElementById('sprintFilter');
     if (!sprintSelect) return;
     if (startStr || endStr) {
-        sprintSelect.disabled = true;
-        sprintSelect.classList.add('opacity-50', 'cursor-not-allowed');
-    } else {
         sprintSelect.disabled = false;
+        sprintSelect.classList.add('opacity-50');
+        sprintSelect.title = 'Tarix aralığı aktivdir. Sprint seçsəniz, yalnız sprintə görə filter olunacaq.';
+    } else {
         sprintSelect.classList.remove('opacity-50', 'cursor-not-allowed');
+        sprintSelect.title = '';
     }
 }
 
 export function selectLatestSprint() {
-    var sprintSelect = document.getElementById('sprintFilter');
-    if (sprintSelect.options.length > 1) {
-        clearDateRangeInputs();
-        sprintSelect.selectedIndex = 1;
-        applyFilters();
-    }
+    if (selectSprintByOffset(0)) applyFilters();
 }
 
 export function selectPreviousSprint() {
-    var sprintSelect = document.getElementById('sprintFilter');
-    if (sprintSelect.options.length > 2) {
-        clearDateRangeInputs();
-        sprintSelect.selectedIndex = 2;
-        applyFilters();
-    }
-    else { showToast('Əvvəlki həftə tapılmadı!', 'error'); }
+    if (selectSprintByOffset(1)) applyFilters();
+    else showToast('Əvvəlki həftə tapılmadı!', 'error');
+}
+
+export function onDateRangeChange() {
+    updateSprintFilterState();
+    applyFilters();
 }
 
 export function onSprintDropdownChange() {
@@ -79,11 +98,7 @@ export function onSprintDropdownChange() {
 }
 
 export function resetAllFilters() {
-    var sprintSelect = document.getElementById('sprintFilter');
-    if (sprintSelect.options.length > 1) { sprintSelect.selectedIndex = 1; } 
-    else { sprintSelect.selectedIndex = 0; }
-    document.getElementById('startDate').value = '';
-    document.getElementById('endDate').value = '';
+    selectSprintByOffset(0);
     var qurumSearch = document.getElementById('qurumSearch');
     if (qurumSearch) qurumSearch.value = '';
     state.currentAssigneeFilter = null;
@@ -312,14 +327,6 @@ export function saveFiltersToStorage() {
 }
 
 export function loadFiltersFromStorage() {
-    var savedSprint = localStorage.getItem('dgd_filter_sprint');
-    if (savedSprint) {
-        var sprintSelect = document.getElementById('sprintFilter');
-        var optionExists = Array.from(sprintSelect.options).some(opt => opt.value === savedSprint);
-        if (optionExists) sprintSelect.value = savedSprint;
-    }
-    document.getElementById('startDate').value = localStorage.getItem('dgd_filter_startDate') || '';
-    document.getElementById('endDate').value = localStorage.getItem('dgd_filter_endDate') || '';
     state.currentAssigneeFilter = localStorage.getItem('dgd_filter_assignee') || null;
     state.currentDirectionFilter = localStorage.getItem('dgd_filter_direction') || null;
     state.currentQurumFilter = localStorage.getItem('dgd_filter_qurum') || null;

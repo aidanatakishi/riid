@@ -10,12 +10,13 @@ export function showToast(message, type) {
     toast.innerText = message;
     toast.onclick = function() { toast.remove(); };
     container.appendChild(toast);
+    var ttl = type === 'error' ? 14000 : 4000;
     setTimeout(function() {
         toast.style.transition = 'all 0.4s ease';
         toast.style.opacity = '0';
         toast.style.transform = 'translateX(120%)';
         setTimeout(function() { toast.remove(); }, 400);
-    }, 4000);
+    }, ttl);
 }
 
 export function animateValue(id, start, end, duration) {

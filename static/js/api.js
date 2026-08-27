@@ -18,15 +18,25 @@ var SEARCH_FIELDS = [
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ].join(',');
 
+var CORS_BLOCK_MSG = 'riid.netlify.app internetdədir, Jira isə ofis daxilindədir (10.252.21.15). Netlify serveri ora çatmır; brauzerdən birbaşa çağırış da CORS və daxili şəbəkə qadağasına görə bloklanır. Canlı data üçün python app.py açın: http://127.0.0.1:5000. İctimai link üçün lokal Flask-ı cloudflared tunnel ilə paylaşın və tunnel ünvanını Proxy sahəsinə yazın.';
+var NETWORK_BLOCK_MSG = 'Jira-ya qoşulmaq mümkün olmadı. Ofis şəbəkəsi və ya VPN açıq olmalıdır.';
+
 function useFlaskProxy() {
-    var host = location.hostname;
-    return host === 'localhost' || host === '127.0.0.1' || location.port === '5000';
+    return location.port === '5000';
+}
+
+function readProxyInput() {
+    var el = document.getElementById('proxyUrl');
+    return el ? String(el.value || '').trim().replace(/\/+$/, '') : '';
 }
 
 function saveClientCredentials(baseUrl, pat, projectKey) {
     if (baseUrl) localStorage.setItem('jiraBaseUrl', baseUrl);
     if (pat) localStorage.setItem('jiraPat', pat);
     if (projectKey) localStorage.setItem('jiraProjectKey', projectKey);
+    var proxy = readProxyInput();
+    if (proxy) localStorage.setItem('jiraProxyUrl', proxy);
+    else localStorage.removeItem('jiraProxyUrl');
 }
 
 export async function loadServerConfig() {
@@ -45,9 +55,26 @@ export async function loadServerConfig() {
     }
     var baseEl = document.getElementById('baseUrl');
     var projectEl = document.getElementById('projectKey');
+    var proxyEl = document.getElementById('proxyUrl');
+    var savedProxy = localStorage.getItem('jiraProxyUrl');
     if (cfg.baseUrl && baseEl && !baseEl.value) baseEl.value = cfg.baseUrl;
     if (cfg.projectKey && projectEl && !projectEl.value) projectEl.value = cfg.projectKey;
+    if (proxyEl && savedProxy && !proxyEl.value) proxyEl.value = savedProxy;
     return cfg;
+}
+
+async function pickTransport() {
+    if (useFlaskProxy()) return { type: 'proxy', root: '' };
+    var saved = readProxyInput() || (localStorage.getItem('jiraProxyUrl') || '').replace(/\/+$/, '');
+    if (saved) return { type: 'proxy', root: saved };
+    return { type: 'direct' };
+}
+
+async function describeDirectFailure() {
+    if (location.hostname.indexOf('netlify.app') !== -1 || location.protocol === 'https:') {
+        return CORS_BLOCK_MSG;
+    }
+    return NETWORK_BLOCK_MSG;
 }
 
 async function parseJiraError(res, text) {
@@ -100,14 +127,20 @@ async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
     return { issues: allIssues, total: allIssues.length, names: names };
 }
 
-async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog) {
+async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
     var body = { baseUrl: baseUrl, jql: jql, pat: pat };
     if (expandChangelog) body.expandChangelog = true;
-    var res = await fetch('/api/jira', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
+    var url = (proxyRoot || '') + '/api/jira';
+    var res;
+    try {
+        res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+    } catch (err) {
+        throw new Error('Lokal proxy-ə qoşulmaq mümkün olmadı (' + (proxyRoot || '/api/jira') + '). python app.py işləyirmi?');
+    }
     var text = await res.text();
     try {
         var data = JSON.parse(text);
@@ -121,9 +154,19 @@ async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog) {
 
 export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
     if (!pat) throw new Error('Yuxarıdakı Token düyməsindən PAT daxil edin.');
-    var data = useFlaskProxy()
-        ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog)
-        : await fetchJiraDirect(baseUrl, pat, jql, expandChangelog);
+    var transport = await pickTransport();
+    var data;
+    try {
+        data = transport.type === 'proxy'
+            ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog, transport.root)
+            : await fetchJiraDirect(baseUrl, pat, jql, expandChangelog);
+    } catch (err) {
+        var msg = err && err.message ? err.message : '';
+        if (transport.type === 'direct' && msg.indexOf('qoşulmaq mümkün olmadı') !== -1) {
+            throw new Error(await describeDirectFailure());
+        }
+        throw err;
+    }
     if (data.names) state.jiraFieldNames = data.names;
     return data;
 }

@@ -84,11 +84,83 @@ export function renderStatusChart(tasks) {
 export function renderAssigneeChart(tasks) {
     var counts = {};
     tasks.forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
-    var labels = Object.keys(counts), data = Object.values(counts);
+    var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
+    var data = labels.map(function(n) { return counts[n]; });
     var PALETTE = ['#4c1d95', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2'];
     var colors = labels.map(function(_, i) { return PALETTE[i % PALETTE.length]; });
-    var click = function(e, c) { if (c.length > 0) { state.currentAssigneeFilter = labels[c[0].index]; applyFilters(); toggleDropdown('taskListContent'); } };
-    drawChart('assigneeChart', 'bar', labels, data, colors, click, click, false);
+    var canvas = document.getElementById('assigneeChart');
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    var barValuesPlugin = {
+        id: 'assigneeBarValues',
+        afterDatasetsDraw: function(chart) {
+            var c = chart.ctx;
+            var meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data) return;
+            c.save();
+            c.font = '600 12px Inter';
+            c.textBaseline = 'middle';
+            meta.data.forEach(function(bar, i) {
+                var n = data[i];
+                if (n == null) return;
+                var inside = bar.x > chart.chartArea.left + 28;
+                var x = inside ? bar.x - 8 : bar.x + 6;
+                c.textAlign = inside ? 'right' : 'left';
+                c.fillStyle = inside ? '#ffffff' : '#475569';
+                c.fillText(String(n), x, bar.y);
+            });
+            c.restore();
+        }
+    };
+    state.assigneeChart = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 0, borderRadius: 5, barPercentage: 0.88, categoryPercentage: 0.9 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            layout: { padding: { top: 4, right: 14, bottom: 4, left: 0 } },
+            onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
+            onClick: function(e, c) {
+                if (!c.length) return;
+                state.currentAssigneeFilter = labels[c[0].index];
+                applyFilters();
+                toggleDropdown('taskListContent');
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    titleFont: { family: 'Inter', size: 12, weight: 'bold' },
+                    bodyFont: { family: 'Inter', size: 11 },
+                    callbacks: {
+                        label: function(ctx2) { return ' ' + (ctx2.parsed.x || 0) + ' tapşırıq'; }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    grace: '10%',
+                    grid: { display: false, drawBorder: false },
+                    ticks: { display: false }
+                },
+                y: {
+                    grid: { display: false, drawBorder: false },
+                    ticks: {
+                        font: { family: 'Inter', size: 12 },
+                        color: '#475569',
+                        autoSkip: false,
+                        padding: 8
+                    }
+                }
+            }
+        },
+        plugins: [barValuesPlugin]
+    });
 }
 
 export function renderEpicChart(tasks) {

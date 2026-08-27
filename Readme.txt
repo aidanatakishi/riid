@@ -74,7 +74,13 @@ Filtr məntiqi static/js/filters.js içindəki applyFilters() funksiyasında yer
 Qeyd: Server artıq host='0.0.0.0' ilə açılır — eyni ofis şəbəkəsindəki kompüterlər http://SİZİN-IP:5000 ünvanına daxil ola bilər.
 
 🌐 Netlify (statik sayt)
-Dashboard statik fayldır. Jira sorğuları brauzerdən gedir — hər kəs yuxarıdakı Token düyməsindən öz PAT-ini yazır. Server-də / Netlify-də token saxlanılmır.
+https://riid.netlify.app menyunu göstərir, amma canlı Jira yükləyə bilməz:
+- jira.idda.az daxili IP-dir (10.252.21.15). Netlify serveri ora çatmır.
+- Brauzerdən birbaşa çağırış Jira CORS siyasətinə görə bloklanır.
 
-jira.idda.az ofis/VPN daxilindədir. Saytı açan şəxs ofis şəbəkəsində və ya VPN-də olmalıdır; Netlify buludunun Jira-ya çıxışı lazım deyil.
+Hər kəs Token düyməsindən öz PAT-ini yazır; Netlify-də token yoxdur.
+
+İşləyən yollar:
+1. Lokal: python app.py → http://127.0.0.1:5000 (ən etibarlı).
+2. İctimai canlı link: python app.py və cloudflared tunnel --url http://127.0.0.1:5000. Verilən https://….trycloudflare.com linkini açın (və ya riid.netlify.app Token panelində Proxy sahəsinə yazın). Python və tunnel açıq qalmalıdır.
 

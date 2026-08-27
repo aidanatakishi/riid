@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, hasPhaseText, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, hasPhaseText, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -206,9 +206,16 @@ export async function exportTasksToWord(title) {
         var body = (entry.text || '').trim();
         if (!body) return '';
         var alreadyDated = /^\d{1,2}[./]\d{1,2}[./]\d{4}/.test(body);
-        var text = alreadyDated || !entry.date
-            ? body
-            : (formatDateObj(entry.date) + ' tarixində ' + body);
+        var text;
+        if (alreadyDated) {
+            text = body.replace(/(tarixində\s+)([\s\S]+)/i, function(_, prefix, rest) {
+                return prefix + lowercasePhaseTextAfterDate(rest);
+            });
+        } else if (!entry.date) {
+            text = body;
+        } else {
+            text = formatDateObj(entry.date) + ' tarixində ' + lowercasePhaseTextAfterDate(body);
+        }
         if (text && !text.endsWith('.')) text += '.';
         return text;
     }

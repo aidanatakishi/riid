@@ -55,7 +55,9 @@
             <input id="baseUrl" type="text" value="https://jira.idda.az" placeholder="Jira URL" class="w-full md:w-64">
             <input id="pat" type="password" placeholder="Öz PAT tokeninizi yazın" class="w-full md:w-64">
             <input id="projectKey" type="text" value="DGD" placeholder="Layihə (DGD)" class="w-full md:w-32 uppercase">
+            <input id="proxyUrl" type="text" placeholder="Tunnel proxy (istəyə bağlı): https://….trycloudflare.com" class="w-full md:w-80">
             <button onclick="fetchDashboardData()" class="idda-btn text-white px-6 py-2.5 rounded-xl font-semibold text-sm transition w-full md:w-auto shadow-sm active:scale-95">Məlumatları Yüklə</button>
+            <p class="text-xs text-slate-500 w-full leading-relaxed">Netlify linki daxili Jira-ya çıxa bilməz. Lokal panel: <span class="font-semibold">python app.py</span> → http://127.0.0.1:5000. İctimai canlı link: Flask + <span class="font-semibold">cloudflared tunnel --url http://127.0.0.1:5000</span> — ya tunnel linkini açın, ya da buradakı Proxy sahəsinə yazın.</p>
         </div>
     </div>
 
@@ -95,9 +97,9 @@
             </div>
         </div>
         <div class="flex flex-wrap gap-2 items-center w-full md:w-auto">
-            <input type="date" id="startDate" max="9999-12-31" onchange="updateSprintFilterState()" class="flex-1 md:flex-none w-full md:w-auto">
+            <input type="date" id="startDate" max="9999-12-31" onchange="onDateRangeChange()" class="flex-1 md:flex-none w-full md:w-auto">
             <span class="text-slate-400 text-xs hidden md:block">-</span>
-            <input type="date" id="endDate" max="9999-12-31" onchange="updateSprintFilterState()" class="flex-1 md:flex-none w-full md:w-auto">
+            <input type="date" id="endDate" max="9999-12-31" onchange="onDateRangeChange()" class="flex-1 md:flex-none w-full md:w-auto">
             <button onclick="applyFilters()" class="bg-[#5b21b6] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-[#4c1d95] w-full md:w-auto transition active:scale-95 shadow-sm">Filtrlə</button>
             <button onclick="filterTasks('rejected')" class="bg-rose-500 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-rose-600 w-full md:w-auto transition active:scale-95 shadow-sm">İmtina edilənlər</button>
             <button onclick="resetAllFilters()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-xs font-semibold hover:bg-slate-300 w-full md:w-auto transition active:scale-95 shadow-sm flex items-center justify-center gap-1">

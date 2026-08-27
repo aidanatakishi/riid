@@ -47,16 +47,11 @@ input:focus {
 }
 input[type="date"] { min-height: 38px; }
 
-.toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 500; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); animation: slideInRight 0.4s ease-out; max-width: min(420px, calc(100vw - 24px)); }
+.toast { position: fixed; top: 20px; right: 20px; z-index: 9999; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 500; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); animation: slideInRight 0.4s ease-out; max-width: min(520px, calc(100vw - 24px)); white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
 @keyframes slideInRight { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
 .chart-box { position: relative; width: 100%; min-width: 0; overflow: hidden; }
-.chart-box canvas {
-    display: block !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    height: 100% !important;
-}
+.chart-box canvas { max-width: 100% !important; }
 .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100%; }
 .section-head { min-width: 0; }
 .section-head h2 { overflow-wrap: anywhere; word-break: break-word; }

@@ -527,10 +527,86 @@ export function getReportPhaseEntries(t, periodStart, periodEnd) {
     return selectPhasesForReport(getDatedPhaseEntries(t), periodStart, periodEnd);
 }
 
+var PHASE_PROPER_NOUNS = {
+    'azərbaycan': 1, 'bakı': 1, 'gəncə': 1, 'sumqayıt': 1, 'naxçıvan': 1,
+    'təbib': 1, 'medo': 1, 'idda': 1, 'iida': 1, 'dgd': 1, 'jira': 1
+};
+
+function azLowerChar(ch) {
+    var map = {
+        'A': 'a', 'B': 'b', 'C': 'c', 'Ç': 'ç', 'D': 'd', 'E': 'e', 'Ə': 'ə',
+        'F': 'f', 'G': 'g', 'Ğ': 'ğ', 'H': 'h', 'X': 'x', 'I': 'ı', 'İ': 'i',
+        'J': 'j', 'K': 'k', 'Q': 'q', 'L': 'l', 'M': 'm', 'N': 'n', 'O': 'o',
+        'Ö': 'ö', 'P': 'p', 'R': 'r', 'S': 's', 'Ş': 'ş', 'T': 't', 'U': 'u',
+        'Ü': 'ü', 'V': 'v', 'Y': 'y', 'Z': 'z'
+    };
+    return map[ch] != null ? map[ch] : ch.toLowerCase();
+}
+
+function azFold(s) {
+    return String(s || '').split('').map(azLowerChar).join('');
+}
+
+function isAzLetter(ch) {
+    return /[A-Za-zÇçƏəĞğIıİiÖöŞşÜü]/.test(ch);
+}
+
+function isAzUpperChar(ch) {
+    return isAzLetter(ch) && ch !== azLowerChar(ch);
+}
+
+function isAllCapsWord(word) {
+    var letters = '';
+    var i;
+    for (i = 0; i < word.length; i++) {
+        if (isAzLetter(word.charAt(i))) letters += word.charAt(i);
+    }
+    if (letters.length < 2) return false;
+    for (i = 0; i < letters.length; i++) {
+        if (!isAzUpperChar(letters.charAt(i))) return false;
+    }
+    return true;
+}
+
+function firstPhaseWord(text) {
+    var s = String(text || '');
+    var i = 0;
+    while (i < s.length && !isAzLetter(s.charAt(i)) && !/[0-9]/.test(s.charAt(i))) i++;
+    if (i >= s.length) return { start: i, word: '' };
+    var j = i;
+    while (j < s.length) {
+        var ch = s.charAt(j);
+        if (isAzLetter(ch) || /[0-9]/.test(ch)) { j++; continue; }
+        if ((ch === '-' || ch === '–' || ch === '—') && j + 1 < s.length && isAzLetter(s.charAt(j + 1))) {
+            j++;
+            continue;
+        }
+        break;
+    }
+    return { start: i, word: s.slice(i, j) };
+}
+
+function isPhaseProperNoun(word) {
+    if (!word) return false;
+    var stem = word.split(/[-–—]/)[0];
+    if (isAllCapsWord(stem) || isAllCapsWord(word)) return true;
+    return !!PHASE_PROPER_NOUNS[azFold(stem)];
+}
+
+export function lowercasePhaseTextAfterDate(text) {
+    var s = String(text || '').trim();
+    if (!s) return s;
+    var first = firstPhaseWord(s);
+    if (!first.word || isPhaseProperNoun(first.word)) return s;
+    var i = first.start;
+    return s.slice(0, i) + azLowerChar(s.charAt(i)) + s.slice(i + 1);
+}
+
 export function formatPhaseEntriesText(entries) {
     return entries.map(function(e) {
-        if (e.date) return formatDateObj(e.date) + ' tarixində ' + e.text;
-        return e.text;
+        var body = lowercasePhaseTextAfterDate(e.text);
+        if (e.date) return formatDateObj(e.date) + ' tarixində ' + body;
+        return body;
     }).join(' ');
 }
 
