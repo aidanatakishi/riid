@@ -170,6 +170,45 @@ export function isDueThisWeek(t) {
     }
 }
 
+export function getTaskDueDate(t) {
+    if (!t || !t.fields) return null;
+    var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
+    if (!dueDateRaw) return null;
+    try {
+        var dueStr = String(dueDateRaw).split('T')[0];
+        var parts = dueStr.split('-');
+        if (parts.length < 3) return null;
+        var dueDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
+        dueDate.setHours(0, 0, 0, 0);
+        return isNaN(dueDate.getTime()) ? null : dueDate;
+    } catch (e) {
+        return null;
+    }
+}
+
+export function isDueInDateRange(t, start, end) {
+    var due = getTaskDueDate(t);
+    if (!due) return false;
+    if (!start && !end) return false;
+    if (start) {
+        var s = new Date(start);
+        s.setHours(0, 0, 0, 0);
+        if (due < s) return false;
+    }
+    if (end) {
+        var e = new Date(end);
+        e.setHours(23, 59, 59, 999);
+        if (due > e) return false;
+    }
+    return true;
+}
+
+export function isDueInSprint(t, sprintName) {
+    var range = getSprintDateRange(sprintName);
+    if (!range) return false;
+    return isDueInDateRange(t, range.start, range.end);
+}
+
 export function getHistoricalStatus(t, latestSprint) {
     var taskSprints = getSprintNames(t);
     if (taskSprints.length <= 1) return t.fields.status.name;
@@ -603,6 +642,7 @@ function isPhaseProperNoun(word) {
 export function lowercasePhaseTextAfterDate(text) {
     var s = String(text || '').trim();
     if (!s) return s;
+    if (/^["«“„‟‹']/.test(s)) return s;
     var first = firstPhaseWord(s);
     if (!first.word || isPhaseProperNoun(first.word)) return s;
     var i = first.start;

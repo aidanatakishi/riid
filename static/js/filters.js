@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleDropdown } from './utils.js';
-import { getDateStatus, getHistoricalStatus, getQurumName, getSprintNames, getStatusGroup, hasValidDifficulty, isDueThisWeek, isLeafWorkUnit, resolveDirection } from './model.js';
+import { getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSprint, isDueThisWeek, isLeafWorkUnit, resolveDirection } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 
@@ -428,15 +428,40 @@ export function filterSprintComparison(sprintName, type) {
         if (state.sprintDisplayMap[key] === 'Əvvəlki sprint' || state.sprintDisplayMap[key] === 'Əvvəlki həftə') prevSprint = key;
     }
 
-    if (type === 'done') {
-        if (sprintName === prevSprint && curSprint) {
-            f = validSTasks.filter(function(t) {
-                return getStatusGroup(getHistoricalStatus(t, curSprint)) === 'done';
-            });
-        } else {
-            f = validSTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; });
+    function statusForCompare(t) {
+        if (sprintName === prevSprint && curSprint) return getHistoricalStatus(t, curSprint);
+        return t.fields.status.name;
+    }
+
+    function dueInComparedWeek(t) {
+        if (sprintName === prevSprint) {
+            return !!(getSprintDateRange(sprintName) && isDueInSprint(t, sprintName));
         }
+        return isDueThisWeek(t);
+    }
+
+    function hasOpenDiff(t, statusName) {
+        var g = getStatusGroup(statusName || '');
+        return hasValidDifficulty(t) && g !== 'done' && g !== 'rejected';
+    }
+
+    if (type === 'done') {
+        f = validSTasks.filter(function(t) { return getStatusGroup(statusForCompare(t)) === 'done'; });
         title += ' - Tamamlanmış';
+    }
+    else if (type === 'due') {
+        f = validSTasks.filter(function(t) {
+            var status = statusForCompare(t);
+            var g = getStatusGroup(status);
+            return dueInComparedWeek(t) && g !== 'done' && g !== 'rejected' && !hasOpenDiff(t, status);
+        });
+        title += ' - Həftə ərzində bitməli olan';
+    }
+    else if (type === 'dueDone') {
+        f = validSTasks.filter(function(t) {
+            return dueInComparedWeek(t) && getStatusGroup(statusForCompare(t)) === 'done';
+        });
+        title += ' - Edildi';
     }
     else if (type === 'carryover') {
         if (sprintName === prevSprint && curSprint) {

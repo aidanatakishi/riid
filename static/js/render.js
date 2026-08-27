@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getIssueTypeIcon, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintNames, getStatusGroup, hasValidDifficulty, isDueThisWeek, isLeafWorkUnit } from './model.js';
+import { belongsToDept, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSprint, isDueThisWeek, isLeafWorkUnit } from './model.js';
 import { filterSprintComparison } from './filters.js';
 
 export function renderStats(tasks) {
@@ -320,6 +320,19 @@ export function renderSprintComparison() {
     }
     var prevTasks = prevName ? (map[prevName] || []) : [];
 
+    function weekDueFn(jName, isPrev) {
+        if (isPrev) {
+            if (getSprintDateRange(jName)) return function(t) { return isDueInSprint(t, jName); };
+            return function() { return false; };
+        }
+        return isDueThisWeek;
+    }
+
+    function hasOpenDiff(t, statusName) {
+        var g = getStatusGroup(statusName || '');
+        return hasValidDifficulty(t) && g !== 'done' && g !== 'rejected';
+    }
+
     function card(jName, dName, tasks, coTitle, isPrev) {
         if (!jName || tasks.length === 0) return '<div class="text-slate-400 text-sm p-4 text-center">Məlumat yoxdur.</div>';
         var validTasks = tasks.filter(isLeafWorkUnit).filter(function(t) {
@@ -336,8 +349,28 @@ export function renderSprintComparison() {
             return getStatusGroup(status) === 'done';
         }).length;
         var co = total - done;
-        
-        return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md min-w-0"><h3 class="font-bold text-md text-slate-800 mb-3 break-words">' + dName + '</h3><div class="space-y-3"><div onclick="filterSprintComparison(\'' + jName + '\',\'all\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">Ümumi Tapşırıq</span><span class="font-bold text-slate-800">' + total + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'done\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-emerald-600">Tamamlanmış</span><span class="font-bold text-emerald-600">' + done + '</span></div></div><div onclick="filterSprintComparison(\'' + jName + '\',\'carryover\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm"><span class="text-slate-600">' + coTitle + '</span><span class="font-bold text-slate-800">' + co + '</span></div></div></div></div>';
+        var isDue = weekDueFn(jName, isPrev);
+        var dueCount = validTasks.filter(function(t) {
+            var status = isPrev ? getHistoricalStatus(t, curName) : t.fields.status.name;
+            var g = getStatusGroup(status);
+            return isDue(t) && g !== 'done' && g !== 'rejected' && !hasOpenDiff(t, status);
+        }).length;
+        var dueDone = validTasks.filter(function(t) {
+            var status = isPrev ? getHistoricalStatus(t, curName) : t.fields.status.name;
+            return isDue(t) && getStatusGroup(status) === 'done';
+        }).length;
+
+        function row(type, label, value, valueClass) {
+            return '<div onclick="filterSprintComparison(\'' + jName + '\',\'' + type + '\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm gap-2"><span class="text-slate-600 min-w-0">' + label + '</span><span class="font-bold ' + (valueClass || 'text-slate-800') + ' shrink-0">' + value + '</span></div></div>';
+        }
+
+        return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md min-w-0"><h3 class="font-bold text-md text-slate-800 mb-3 break-words">' + dName + '</h3><div class="space-y-3">'
+            + row('all', 'Ümumi Tapşırıq', total)
+            + row('done', 'Tamamlanmış', done, 'text-emerald-600')
+            + row('due', 'Həftə ərzində bitməli olan', dueCount)
+            + row('dueDone', 'Edildi', dueDone, 'text-emerald-600')
+            + row('carryover', coTitle, co)
+            + '</div></div>';
     }
 
     document.getElementById('sprintComparison').innerHTML = '<div class="grid grid-cols-1 md:grid-cols-2 gap-4">'
