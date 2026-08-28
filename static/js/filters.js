@@ -1,22 +1,285 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleDropdown } from './utils.js';
-import { getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSprint, isDueThisWeek, isLeafWorkUnit, resolveDirection } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, resolveDirection, sortSprintNames } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
+import { updateReportButtonLabel } from './report.js';
 
 var historicalChangelogLoading = false;
-var defaultSprintApplied = false;
+var userChoseSprint = false;
+var AZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun', 'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
+var dateDraft = { start: '', end: '', viewYear: 0, viewMonth: 0 };
 
-function latestSprintValue(sprintSelect) {
+function todayParts() {
+    var now = new Date();
+    return { y: now.getFullYear(), m: now.getMonth(), d: now.getDate() };
+}
+
+function toIsoDate(y, m, d) {
+    return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
+function isoToDate(iso) {
+    if (!iso) return null;
+    var p = String(iso).split('-');
+    if (p.length < 3) return null;
+    var dt = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    return isNaN(dt.getTime()) ? null : dt;
+}
+
+function formatChipDate(iso) {
+    var dt = isoToDate(iso);
+    return dt ? formatDateObj(dt) : '—';
+}
+
+function formatTriggerLabel(startIso, endIso) {
+    if (!startIso && !endIso) return 'Tarix';
+    var a = startIso ? formatChipDate(startIso).slice(0, 5) : '';
+    var b = endIso ? formatChipDate(endIso).slice(0, 5) : '';
+    if (startIso && endIso) return a + ' – ' + b;
+    if (startIso) return a + '-dən';
+    return b + '-dək';
+}
+
+function syncDateDraftFromInputs() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    dateDraft.start = startEl ? startEl.value : '';
+    dateDraft.end = endEl ? endEl.value : '';
+    var anchor = isoToDate(dateDraft.start || dateDraft.end);
+    if (!anchor) {
+        var t = todayParts();
+        dateDraft.viewYear = t.y;
+        dateDraft.viewMonth = t.m;
+        return;
+    }
+    dateDraft.viewYear = anchor.getFullYear();
+    dateDraft.viewMonth = anchor.getMonth();
+}
+
+function updateDateDraftChips() {
+    var startChip = document.getElementById('dateDraftStart');
+    var endChip = document.getElementById('dateDraftEnd');
+    if (startChip) startChip.textContent = formatChipDate(dateDraft.start);
+    if (endChip) endChip.textContent = formatChipDate(dateDraft.end);
+}
+
+export function updateDateTriggerLabel() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var startIso = startEl ? startEl.value : '';
+    var endIso = endEl ? endEl.value : '';
+    var label = document.getElementById('dateFilterLabel');
+    var btn = document.getElementById('dateFilterBtn');
+    if (label) label.textContent = formatTriggerLabel(startIso, endIso);
+    if (btn) {
+        if (startIso || endIso) btn.classList.add('is-active');
+        else btn.classList.remove('is-active');
+    }
+    updateReportButtonLabel();
+}
+
+function renderDateCalendar() {
+    var title = document.getElementById('dateCalTitle');
+    var grid = document.getElementById('dateCalGrid');
+    if (!grid) return;
+    if (title) title.textContent = AZ_MONTHS[dateDraft.viewMonth] + ' ' + dateDraft.viewYear;
+    var first = new Date(dateDraft.viewYear, dateDraft.viewMonth, 1);
+    var startOffset = (first.getDay() + 6) % 7;
+    var cursor = new Date(dateDraft.viewYear, dateDraft.viewMonth, 1 - startOffset);
+    var today = todayParts();
+    var todayIso = toIsoDate(today.y, today.m, today.d);
+    var startMs = isoToDate(dateDraft.start);
+    var endMs = isoToDate(dateDraft.end);
+    if (startMs) startMs.setHours(0, 0, 0, 0);
+    if (endMs) endMs.setHours(0, 0, 0, 0);
+    grid.innerHTML = '';
+    var i;
+    for (i = 0; i < 42; i++) {
+        var y = cursor.getFullYear();
+        var m = cursor.getMonth();
+        var d = cursor.getDate();
+        var iso = toIsoDate(y, m, d);
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'date-cal-day';
+        btn.textContent = String(d);
+        btn.setAttribute('data-iso', iso);
+        if (m !== dateDraft.viewMonth) btn.classList.add('is-muted');
+        if (iso === todayIso) btn.classList.add('is-today');
+        var cell = new Date(y, m, d);
+        cell.setHours(0, 0, 0, 0);
+        if (startMs && iso === dateDraft.start) btn.classList.add('is-start');
+        if (endMs && iso === dateDraft.end) btn.classList.add('is-end');
+        if (startMs && endMs && cell > startMs && cell < endMs) btn.classList.add('in-range');
+        grid.appendChild(btn);
+        cursor.setDate(cursor.getDate() + 1);
+    }
+}
+
+export function selectViewedMonth() {
+    var last = new Date(dateDraft.viewYear, dateDraft.viewMonth + 1, 0).getDate();
+    dateDraft.start = toIsoDate(dateDraft.viewYear, dateDraft.viewMonth, 1);
+    dateDraft.end = toIsoDate(dateDraft.viewYear, dateDraft.viewMonth, last);
+    updateDateDraftChips();
+    renderDateCalendar();
+    commitDateDraft();
+    updateDateTriggerLabel();
+    applyFilters();
+    closeDatePopover();
+}
+
+export function shiftDateCalendar(delta) {
+    dateDraft.viewMonth += delta;
+    if (dateDraft.viewMonth < 0) {
+        dateDraft.viewMonth = 11;
+        dateDraft.viewYear -= 1;
+    } else if (dateDraft.viewMonth > 11) {
+        dateDraft.viewMonth = 0;
+        dateDraft.viewYear += 1;
+    }
+    renderDateCalendar();
+}
+
+export function pickPopoverDate(iso) {
+    if (!iso) return;
+    if (!dateDraft.start || (dateDraft.start && dateDraft.end && dateDraft.start !== dateDraft.end)) {
+        dateDraft.start = iso;
+        dateDraft.end = '';
+    } else if (iso < dateDraft.start) {
+        dateDraft.end = dateDraft.start;
+        dateDraft.start = iso;
+    } else {
+        dateDraft.end = iso;
+    }
+    updateDateDraftChips();
+    renderDateCalendar();
+    commitDateDraft();
+    updateDateTriggerLabel();
+    applyFilters();
+}
+
+export function toggleDatePopover(ev) {
+    if (ev) ev.stopPropagation();
+    var pop = document.getElementById('datePopover');
+    if (pop && !pop.classList.contains('hidden')) {
+        closeDatePopover();
+        return;
+    }
+    openDatePopover();
+}
+
+export function openDatePopover() {
+    syncDateDraftFromInputs();
+    updateDateDraftChips();
+    renderDateCalendar();
+    var pop = document.getElementById('datePopover');
+    var overlay = document.getElementById('datePopoverOverlay');
+    var btn = document.getElementById('dateFilterBtn');
+    var wrap = document.querySelector('.date-filter-wrap');
+    if (pop) pop.classList.remove('hidden');
+    if (overlay) overlay.classList.remove('hidden');
+    if (btn) btn.classList.add('is-open');
+    if (wrap) wrap.classList.add('is-open');
+}
+
+export function closeDatePopover() {
+    var pop = document.getElementById('datePopover');
+    var overlay = document.getElementById('datePopoverOverlay');
+    var btn = document.getElementById('dateFilterBtn');
+    var wrap = document.querySelector('.date-filter-wrap');
+    if (pop) pop.classList.add('hidden');
+    if (overlay) overlay.classList.add('hidden');
+    if (btn) btn.classList.remove('is-open');
+    if (wrap) wrap.classList.remove('is-open');
+}
+
+function commitDateDraft() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    if (!startEl || !endEl) return;
+    var start = dateDraft.start || dateDraft.end || '';
+    var end = dateDraft.end || dateDraft.start || '';
+    dateDraft.start = start;
+    dateDraft.end = end;
+    startEl.value = start;
+    endEl.value = end;
+}
+
+export function applyDatePopover() {
+    commitDateDraft();
+    closeDatePopover();
+    updateDateTriggerLabel();
+    applyFilters();
+}
+
+export function onDateOverlayClick() {
+    if (dateDraft.start || dateDraft.end) applyDatePopover();
+    else closeDatePopover();
+}
+
+export function clearDatePopover() {
+    dateDraft.start = '';
+    dateDraft.end = '';
+    document.getElementById('startDate').value = '';
+    document.getElementById('endDate').value = '';
+    updateDateDraftChips();
+    renderDateCalendar();
+    closeDatePopover();
+    updateDateTriggerLabel();
+    applyFilters();
+}
+
+function tasksWithoutStartDate() {
+    var sprintVal = document.getElementById('sprintFilter') && document.getElementById('sprintFilter').value;
+    var useDateFilter = !!(document.getElementById('startDate').value || document.getElementById('endDate').value);
+    return state.allTasks.filter(function(t) {
+        if (!useDateFilter && sprintVal && sprintVal !== 'all') {
+            var sprints = getSprintNames(t);
+            if (!sprints.includes(sprintVal)) return false;
+        }
+        if (getTaskStartDate(t)) return false;
+        if (state.currentDirectionFilter) {
+            var dir = resolveDirection(t);
+            if (!dir || dir.key !== state.currentDirectionFilter) return false;
+        }
+        if (state.currentQurumFilter) {
+            var q = getQurumName(t) || 'Təyin edilməyib';
+            if (q !== state.currentQurumFilter) return false;
+        }
+        if (state.currentAssigneeFilter) {
+            if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
+        }
+        var st = normalizeStr(t.fields.status.name);
+        if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
+        if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
+        return true;
+    });
+}
+
+export function showNoStartDateTasks() {
+    closeDatePopover();
+    filterTasks('noStart');
+}
+
+function latestSprintValue(sprintSelect, sortedSprints) {
+    var current = currentSprintName(sortedSprints);
+    if (current && sprintSelect) {
+        for (var i = 0; i < sprintSelect.options.length; i++) {
+            if (sprintSelect.options[i].value === current) return current;
+        }
+    }
     if (!sprintSelect || sprintSelect.options.length < 2) return '';
     return sprintSelect.options[1].value;
 }
 
-function selectSprintByOffset(offset) {
+function selectSprintByName(name) {
     var sprintSelect = document.getElementById('sprintFilter');
     clearDateRangeInputs();
-    if (!sprintSelect || sprintSelect.options.length < 2 + offset) return false;
-    sprintSelect.selectedIndex = 1 + offset;
+    if (!sprintSelect || !name) return false;
+    var found = Array.from(sprintSelect.options).some(function(opt) { return opt.value === name; });
+    if (!found) return false;
+    sprintSelect.value = name;
     updateSprintFilterState();
     return true;
 }
@@ -29,13 +292,9 @@ export function populateSprintFilter() {
     var startStr = document.getElementById('startDate') && document.getElementById('startDate').value;
     var endStr = document.getElementById('endDate') && document.getElementById('endDate').value;
     var usingDates = !!(startStr || endStr);
-    
+
     sprintSelect.innerHTML = '<option value="all">Bütün Sprintlər</option>';
-    var sortedSprints = Array.from(sprintSet).sort(function(a, b) {
-        var numA = parseInt((a.match(/\d+/) || [0])[0]);
-        var numB = parseInt((b.match(/\d+/) || [0])[0]);
-        return numB - numA;
-    });
+    var sortedSprints = sortSprintNames(Array.from(sprintSet));
     sortedSprints.forEach(function(s) {
         var opt = document.createElement('option');
         opt.value = s; opt.innerText = s;
@@ -48,11 +307,10 @@ export function populateSprintFilter() {
     }
 
     var optionExists = Array.from(sprintSelect.options).some(function(opt) { return opt.value === previousVal; });
-    if (!defaultSprintApplied || !previousVal || previousVal === 'all' || !optionExists) {
-        sprintSelect.value = latestSprintValue(sprintSelect) || 'all';
-        defaultSprintApplied = true;
-    } else {
+    if (userChoseSprint && previousVal && previousVal !== 'all' && optionExists) {
         sprintSelect.value = previousVal;
+    } else {
+        sprintSelect.value = latestSprintValue(sprintSelect, sortedSprints) || 'all';
     }
     updateSprintFilterState();
 }
@@ -60,7 +318,10 @@ export function populateSprintFilter() {
 export function clearDateRangeInputs() {
     document.getElementById('startDate').value = '';
     document.getElementById('endDate').value = '';
+    dateDraft.start = '';
+    dateDraft.end = '';
     updateSprintFilterState();
+    updateDateTriggerLabel();
 }
 
 export function updateSprintFilterState() {
@@ -76,15 +337,26 @@ export function updateSprintFilterState() {
         sprintSelect.classList.remove('opacity-50', 'cursor-not-allowed');
         sprintSelect.title = '';
     }
+    updateDateTriggerLabel();
 }
 
 export function selectLatestSprint() {
-    if (selectSprintByOffset(0)) applyFilters();
+    userChoseSprint = false;
+    var sprintSelect = document.getElementById('sprintFilter');
+    var sorted = Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; });
+    if (selectSprintByName(latestSprintValue(sprintSelect, sorted))) applyFilters();
 }
 
 export function selectPreviousSprint() {
-    if (selectSprintByOffset(1)) applyFilters();
-    else showToast('Əvvəlki həftə tapılmadı!', 'error');
+    var sprintSelect = document.getElementById('sprintFilter');
+    var names = Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; });
+    var cur = latestSprintValue(sprintSelect, names);
+    var idx = names.indexOf(cur);
+    var prev = (idx >= 0 && idx + 1 < names.length) ? names[idx + 1] : names[1];
+    if (selectSprintByName(prev)) {
+        userChoseSprint = true;
+        applyFilters();
+    } else showToast('Əvvəlki həftə tapılmadı!', 'error');
 }
 
 export function onDateRangeChange() {
@@ -93,12 +365,16 @@ export function onDateRangeChange() {
 }
 
 export function onSprintDropdownChange() {
+    userChoseSprint = document.getElementById('sprintFilter').value !== 'all';
     clearDateRangeInputs();
     applyFilters();
 }
 
 export function resetAllFilters() {
-    selectSprintByOffset(0);
+    userChoseSprint = false;
+    var sprintSelect = document.getElementById('sprintFilter');
+    var sorted = sprintSelect ? Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; }) : [];
+    selectSprintByName(latestSprintValue(sprintSelect, sorted));
     var qurumSearch = document.getElementById('qurumSearch');
     if (qurumSearch) qurumSearch.value = '';
     state.currentAssigneeFilter = null;
@@ -122,6 +398,10 @@ export function resetAllFilters() {
 }
 
 export function applyFilters() {
+    if (dateDraft.start || dateDraft.end) {
+        commitDateDraft();
+        updateDateTriggerLabel();
+    }
     state.currentPage = 1;
     var sprintSelectEl = document.getElementById('sprintFilter');
     var sprintVal = sprintSelectEl.value;
@@ -151,13 +431,8 @@ export function applyFilters() {
             if (!sprints.includes(sprintVal)) return false;
         }
         if (useDateFilter) {
-            var taskDateRaw = t.fields['customfield_10808'];
-            if (!taskDateRaw) return false; 
-            var dStr = String(taskDateRaw).split('T')[0];
-            var dParts = dStr.split('-');
-            if (dParts.length < 3) return false;
-            var d = new Date(dParts[0], dParts[1] - 1, dParts[2]);
-            d.setHours(12, 0, 0, 0); 
+            var d = getTaskStartDate(t);
+            if (!d) return false;
             if (startDateObj && d < startDateObj) return false;
             if (endDateObj && d > endDateObj) return false;
         }
@@ -183,19 +458,15 @@ export function applyFilters() {
     });
 
     var sprintSelect = document.getElementById('sprintFilter');
-    var nextSprint = null;
-    if (sprintVal && sprintVal !== 'all') {
-        var selIdx = -1;
-        for (var i = 1; i < sprintSelect.options.length; i++) {
-            if (sprintSelect.options[i].value === sprintVal) { selIdx = i; break; }
-        }
-        if (selIdx > 1) nextSprint = sprintSelect.options[selIdx - 1].value;
-    }
-    var isHistorical = nextSprint !== null && !useDateFilter;
+    var sprintNames = sprintSelect ? Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; }) : [];
+    var currentSprint = currentSprintName(sprintNames);
+    var selIdx = sprintNames.indexOf(sprintVal);
+    var nextSprint = (selIdx > 0) ? sprintNames[selIdx - 1] : null;
+    var isHistorical = !useDateFilter && sprintVal && sprintVal !== 'all' && currentSprint && sprintVal !== currentSprint;
 
     if (isHistorical) {
         state.filteredTasks = state.filteredTasks.map(function(t) {
-            var histStatus = getHistoricalStatus(t, nextSprint);
+            var histStatus = getHistoricalStatus(t, nextSprint, sprintVal);
             if (histStatus !== t.fields.status.name) {
                 var newT = Object.assign({}, t);
                 newT.fields = Object.assign({}, t.fields);
@@ -411,8 +682,19 @@ export function filterSprintComparison(sprintName, type) {
     } else {
         sTasks = state.allTasks.filter(function(t) { return isLeafWorkUnit(t) && getSprintNames(t).includes(sprintName); });
     }
+    var curSprint = null, prevSprint = null;
+    for (var key in state.sprintDisplayMap) {
+        if (state.sprintDisplayMap[key] === 'Seçilmiş sprint' || state.sprintDisplayMap[key] === 'Cari həftə') curSprint = key;
+        if (state.sprintDisplayMap[key] === 'Əvvəlki sprint' || state.sprintDisplayMap[key] === 'Əvvəlki həftə') prevSprint = key;
+    }
+
+    function statusForCompare(t) {
+        if (sprintName === prevSprint && curSprint) return getHistoricalStatus(t, curSprint, prevSprint);
+        return t.fields.status.name;
+    }
+
     var validSTasks = sTasks.filter(function(t) {
-        var st = normalizeStr(t.fields.status.name);
+        var st = normalizeStr(statusForCompare(t));
         var isRejected = getStatusGroup(st) === 'rejected';
         var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
         var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
@@ -422,22 +704,10 @@ export function filterSprintComparison(sprintName, type) {
     var f = [];
     var title = (state.sprintDisplayMap[sprintName] || sprintName) + ' - Tapşırıqları';
 
-    var curSprint = null, prevSprint = null;
-    for (var key in state.sprintDisplayMap) {
-        if (state.sprintDisplayMap[key] === 'Seçilmiş sprint' || state.sprintDisplayMap[key] === 'Cari həftə') curSprint = key;
-        if (state.sprintDisplayMap[key] === 'Əvvəlki sprint' || state.sprintDisplayMap[key] === 'Əvvəlki həftə') prevSprint = key;
-    }
-
-    function statusForCompare(t) {
-        if (sprintName === prevSprint && curSprint) return getHistoricalStatus(t, curSprint);
-        return t.fields.status.name;
-    }
-
     function dueInComparedWeek(t) {
-        if (sprintName === prevSprint) {
-            return !!(getSprintDateRange(sprintName) && isDueInSprint(t, sprintName));
-        }
-        return isDueThisWeek(t);
+        if (getSprintDateRange(sprintName)) return isDueInSprint(t, sprintName);
+        if (sprintName === prevSprint) return false;
+        return isDueInSelectedWeek(t);
     }
 
     function hasOpenDiff(t, statusName) {
@@ -466,7 +736,7 @@ export function filterSprintComparison(sprintName, type) {
     else if (type === 'carryover') {
         if (sprintName === prevSprint && curSprint) {
             f = validSTasks.filter(function(t) {
-                return getStatusGroup(getHistoricalStatus(t, curSprint)) !== 'done';
+                return getStatusGroup(statusForCompare(t)) !== 'done';
             });
             title += ' - Növbəti sprintə keçən';
         } else {
@@ -530,16 +800,20 @@ export function showDifficulties() {
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+export function showDueThisWeekDoneTasks() {
+    var dueTasks = collectDueThisWeekDoneTasks();
+    if (dueTasks.length === 0) {
+        showToast('Bu həftə bitməli olub tamamlanan tapşırıq tapılmadı.', 'info');
+    }
+    renderTaskList(dueTasks, 'Bu həftə bitməli olub edilən tapşırıqlar');
+    var listEl = document.getElementById('taskListContent');
+    listEl.classList.remove('hidden');
+    listEl.classList.add('slide-down');
+    listEl.scrollIntoView({ behavior: 'smooth' });
+}
+
 export function showDueThisWeekTasks() {
-    var dueTasks = [];
-    state.filteredTasks.forEach(function(t) {
-        if (isDueThisWeek(t)) {
-            var g = getStatusGroup(t.fields.status.name);
-            if (g !== 'done' && g !== 'rejected') {
-                dueTasks.push(t);
-            }
-        }
-    });
+    var dueTasks = collectDueThisWeekTasks();
     if (dueTasks.length === 0) {
         showToast('Bu həftə bitməli olan task tapılmadı! (Tarix fields-i yoxlayın)', 'info');
     }
@@ -572,6 +846,11 @@ export function filterTasks(type) {
     }
     else if (type === 'rejected') { f = state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
     else if (type === 'other') { f = state.filteredTasks.filter(function(t) { var g = getStatusGroup(t.fields.status.name); return g === 'other' && !hasValidDifficulty(t); }); title = 'Digər Statusda Olan Tapşırıqlar'; }
+    else if (type === 'noStart') {
+        f = tasksWithoutStartDate();
+        title = 'Başlama tarixi boş olan tapşırıqlar';
+        if (f.length === 0) showToast('Başlama tarixi boş olan tapşırıq tapılmadı.', 'info');
+    }
     
     renderTaskList(f, title);
     renderQurumChart(f);
@@ -581,3 +860,18 @@ export function filterTasks(type) {
     listEl.classList.add('slide-down');
     listEl.scrollIntoView({ behavior: 'smooth' });
 }
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeDatePopover();
+});
+
+(function bindDateCalendar() {
+    var grid = document.getElementById('dateCalGrid');
+    if (grid) {
+        grid.addEventListener('click', function(e) {
+            var btn = e.target.closest('[data-iso]');
+            if (btn) pickPopoverDate(btn.getAttribute('data-iso'));
+        });
+    }
+    updateDateTriggerLabel();
+})();

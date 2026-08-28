@@ -45,7 +45,7 @@
             </button>
             <button onclick="exportTasksToWord('Hesabat')" class="bg-white text-[#5b21b6] hover:bg-slate-100 px-3 py-2 md:px-4 rounded-lg text-xs md:text-sm font-semibold flex items-center gap-2 transition shadow-sm w-full sm:w-auto justify-center active:scale-95">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                Hesabatı yüklə
+                <span id="reportDownloadLabel">Hesabatı yüklə</span>
             </button>
         </div>
     </header>
@@ -97,9 +97,55 @@
             </div>
         </div>
         <div class="flex flex-wrap gap-2 items-center w-full md:w-auto">
-            <input type="date" id="startDate" max="9999-12-31" onchange="onDateRangeChange()" class="flex-1 md:flex-none w-full md:w-auto">
-            <span class="text-slate-400 text-xs hidden md:block">-</span>
-            <input type="date" id="endDate" max="9999-12-31" onchange="onDateRangeChange()" class="flex-1 md:flex-none w-full md:w-auto">
+            <div class="date-filter-wrap">
+                <button type="button" id="dateFilterBtn" onclick="toggleDatePopover(event)" class="date-filter-btn" title="Başlama tarixinə görə">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                    <span id="dateFilterLabel">Tarix</span>
+                </button>
+                <input type="hidden" id="startDate" value="">
+                <input type="hidden" id="endDate" value="">
+                <div id="datePopover" class="date-popover hidden" role="dialog" aria-label="Tarix aralığı" onclick="event.stopPropagation()">
+                    <div class="date-popover-head">
+                        <div>
+                            <p class="date-popover-kicker">Başlama tarixi</p>
+                            <h3>Aralıq seçin</h3>
+                        </div>
+                        <button type="button" class="date-popover-close" onclick="closeDatePopover()" aria-label="Bağla">✕</button>
+                    </div>
+                    <div class="date-range-chips">
+                        <div class="date-chip">
+                            <span>Başlanğıc</span>
+                            <strong id="dateDraftStart">—</strong>
+                        </div>
+                        <span class="date-chip-dash"></span>
+                        <div class="date-chip">
+                            <span>Son</span>
+                            <strong id="dateDraftEnd">—</strong>
+                        </div>
+                    </div>
+                    <button type="button" class="date-popover-ghost" onclick="showNoStartDateTasks()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        Başlama tarixi yoxdur
+                    </button>
+                    <div class="date-cal-nav">
+                        <button type="button" class="date-cal-nav-btn" onclick="shiftDateCalendar(-1)" aria-label="Əvvəlki ay">‹</button>
+                        <span id="dateCalTitle">—</span>
+                        <button type="button" class="date-cal-nav-btn" onclick="shiftDateCalendar(1)" aria-label="Növbəti ay">›</button>
+                    </div>
+                    <div class="date-cal-weekdays"><span>Be</span><span>Ça</span><span>Çə</span><span>Ca</span><span>Cü</span><span>Şn</span><span>Bz</span></div>
+                    <div id="dateCalGrid" class="date-cal-grid"></div>
+                    <button type="button" class="date-popover-ghost is-month" onclick="selectViewedMonth()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        Bu ayı seç (aylıq hesabat)
+                    </button>
+                    <div class="date-popover-foot">
+                        <div class="date-popover-actions">
+                            <button type="button" class="date-popover-muted" onclick="clearDatePopover()">Təmizlə</button>
+                            <button type="button" class="date-popover-primary" onclick="applyDatePopover()">Tətbiq et</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <button onclick="applyFilters()" class="bg-[#5b21b6] text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-[#4c1d95] w-full md:w-auto transition active:scale-95 shadow-sm">Filtrlə</button>
             <button onclick="filterTasks('rejected')" class="bg-rose-500 text-white px-4 py-2 rounded-lg text-xs font-semibold hover:bg-rose-600 w-full md:w-auto transition active:scale-95 shadow-sm">İmtina edilənlər</button>
             <button onclick="resetAllFilters()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-xs font-semibold hover:bg-slate-300 w-full md:w-auto transition active:scale-95 shadow-sm flex items-center justify-center gap-1">
@@ -210,13 +256,18 @@
                     </div>
                 </div>
             </div>
-            <div onclick="event.stopPropagation(); showDueThisWeekTasks();" class="px-4 md:px-5 py-3 border-t-2 border-dashed border-slate-100 bg-cyan-50/50 hover:bg-cyan-100 transition cursor-pointer">
+            <div class="px-4 md:px-5 py-3 border-t-2 border-dashed border-slate-100 bg-slate-50/50">
                 <div class="stat-foot">
-                    <div class="flex items-center gap-2 min-w-0">
+                    <button type="button" onclick="event.stopPropagation(); showDueThisWeekTasks();" class="flex items-center gap-2 min-w-0 text-left">
                         <span class="w-2 h-2 rounded-full bg-cyan-500 shrink-0"></span>
-                        <span class="stat-foot-label text-cyan-700">Bu həftə bitməli</span>
+                        <span class="stat-foot-label">Bu həftə bitməli</span>
+                    </button>
+                    <div class="flex items-baseline gap-3 shrink-0">
+                        <button type="button" id="sprintTasksDueWeek" onclick="event.stopPropagation(); showDueThisWeekTasks();" class="stat-foot-value text-cyan-600">0</button>
+                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" class="text-[11px] font-bold text-emerald-600 hover:underline whitespace-nowrap">
+                            Edildi <span id="sprintTasksDueWeekDone">0</span>
+                        </button>
                     </div>
-                    <p id="sprintTasksDueWeek" class="stat-foot-value text-cyan-600">0</p>
                 </div>
             </div>
         </div>
@@ -441,6 +492,7 @@
         </div>
     </div>
 
+    <div id="datePopoverOverlay" class="date-popover-overlay hidden" onclick="onDateOverlayClick()"></div>
     <script type="module" src="/static/js/main.js"></script>
 
 </body>

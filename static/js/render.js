@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getIssueTypeIcon, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSprint, isDueThisWeek, isLeafWorkUnit } from './model.js';
+import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, sortSprintNames } from './model.js';
 import { filterSprintComparison } from './filters.js';
 
 export function renderStats(tasks) {
@@ -54,10 +54,9 @@ export function renderStats(tasks) {
     
     var sprintT = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'progress' && !hasDiff(t); }).length;
     
-    var sprintDueWeek = validTasks.filter(function(t) { 
-        var g = getStatusGroup(t.fields.status.name || '');
-        return g !== 'done' && g !== 'rejected' && !hasDiff(t) && isDueThisWeek(t); 
-    }).length;
+    var dueWeekTasks = collectDueThisWeekTasks();
+    var sprintDueWeek = dueWeekTasks.length;
+    var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
     
     var planned = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'planned' && !hasDiff(t); }).length;
     var other = validTasks.filter(function(t) {
@@ -83,6 +82,8 @@ export function renderStats(tasks) {
     
     var dueWeekEl = document.getElementById('sprintTasksDueWeek');
     if (dueWeekEl) dueWeekEl.innerText = sprintDueWeek;
+    var dueWeekDoneEl = document.getElementById('sprintTasksDueWeekDone');
+    if (dueWeekDoneEl) dueWeekDoneEl.innerText = sprintDueWeekDone;
 
     var blockedCard = document.getElementById('blockedCard');
     if (blocked > 0 || rejected > 0) blockedCard.classList.add('pulse-danger');
@@ -287,7 +288,7 @@ export function renderPausedTasks() {
 export function renderSprintComparison() {
     var map = {};
     state.allTasks.forEach(function(t) { getSprintNames(t).forEach(function(n) { if (!map[n]) map[n] = []; if (!map[n].includes(t)) map[n].push(t); }); });
-    var names = Object.keys(map).sort(function(a, b) { return (parseInt((b.match(/\d+/) || [0])[0])) - (parseInt((a.match(/\d+/) || [0])[0])); });
+    var names = sortSprintNames(Object.keys(map));
     if (names.length === 0) { document.getElementById('sprintComparison').innerHTML = '<p class="text-slate-400 text-sm text-center py-4">Sprint məlumatı yoxdur.</p>'; return; }
 
     var sprintVal = document.getElementById('sprintFilter').value;
@@ -321,11 +322,9 @@ export function renderSprintComparison() {
     var prevTasks = prevName ? (map[prevName] || []) : [];
 
     function weekDueFn(jName, isPrev) {
-        if (isPrev) {
-            if (getSprintDateRange(jName)) return function(t) { return isDueInSprint(t, jName); };
-            return function() { return false; };
-        }
-        return isDueThisWeek;
+        if (getSprintDateRange(jName)) return function(t) { return isDueInSprint(t, jName); };
+        if (isPrev) return function() { return false; };
+        return isDueInSelectedWeek;
     }
 
     function hasOpenDiff(t, statusName) {
@@ -335,8 +334,11 @@ export function renderSprintComparison() {
 
     function card(jName, dName, tasks, coTitle, isPrev) {
         if (!jName || tasks.length === 0) return '<div class="text-slate-400 text-sm p-4 text-center">Məlumat yoxdur.</div>';
+        function statusForCard(t) {
+            return isPrev ? getHistoricalStatus(t, curName, jName) : t.fields.status.name;
+        }
         var validTasks = tasks.filter(isLeafWorkUnit).filter(function(t) {
-            var st = normalizeStr(t.fields.status.name);
+            var st = normalizeStr(statusForCard(t));
             var isRejected = getStatusGroup(st) === 'rejected';
             var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
             var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
@@ -345,26 +347,24 @@ export function renderSprintComparison() {
 
         var total = validTasks.length;
         var done = validTasks.filter(function(t) {
-            var status = isPrev ? getHistoricalStatus(t, curName) : t.fields.status.name;
-            return getStatusGroup(status) === 'done';
+            return getStatusGroup(statusForCard(t)) === 'done';
         }).length;
         var co = total - done;
         var isDue = weekDueFn(jName, isPrev);
         var dueCount = validTasks.filter(function(t) {
-            var status = isPrev ? getHistoricalStatus(t, curName) : t.fields.status.name;
+            var status = statusForCard(t);
             var g = getStatusGroup(status);
             return isDue(t) && g !== 'done' && g !== 'rejected' && !hasOpenDiff(t, status);
         }).length;
         var dueDone = validTasks.filter(function(t) {
-            var status = isPrev ? getHistoricalStatus(t, curName) : t.fields.status.name;
-            return isDue(t) && getStatusGroup(status) === 'done';
+            return isDue(t) && getStatusGroup(statusForCard(t)) === 'done';
         }).length;
 
         function row(type, label, value, valueClass) {
             return '<div onclick="filterSprintComparison(\'' + jName + '\',\'' + type + '\')" class="cursor-pointer hover:bg-white p-2 rounded-lg transition active:scale-95 border border-transparent hover:border-slate-200"><div class="flex justify-between items-center text-sm gap-2"><span class="text-slate-600 min-w-0">' + label + '</span><span class="font-bold ' + (valueClass || 'text-slate-800') + ' shrink-0">' + value + '</span></div></div>';
         }
 
-        return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md min-w-0"><h3 class="font-bold text-md text-slate-800 mb-3 break-words">' + dName + '</h3><div class="space-y-3">'
+        return '<div class="bg-slate-50 p-4 rounded-xl border border-slate-100 transition hover:shadow-md min-w-0"><h3 class="font-bold text-md text-slate-800 break-words">' + dName + '</h3><p class="text-xs text-slate-400 mb-3 break-words">' + jName + '</p><div class="space-y-3">'
             + row('all', 'Ümumi Tapşırıq', total)
             + row('done', 'Tamamlanmış', done, 'text-emerald-600')
             + row('due', 'Həftə ərzində bitməli olan', dueCount)

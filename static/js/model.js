@@ -170,6 +170,27 @@ export function isDueThisWeek(t) {
     }
 }
 
+export function getTaskStartDate(t) {
+    if (!t || !t.fields) return null;
+    var candidates = [];
+    for (var key in state.jiraFieldNames) {
+        var fieldName = normalizeStr(state.jiraFieldNames[key]);
+        if (!fieldName) continue;
+        if (fieldName.includes('bitmə') || fieldName.includes('bitme') || fieldName.includes('due') || fieldName.includes('son tarix') || fieldName.includes('bitiş') || fieldName.includes('bitis')) continue;
+        if (fieldName.includes('end') && !fieldName.includes('start')) continue;
+        if (fieldName.includes('başlama') || fieldName.includes('baslama') || fieldName.includes('start') || fieldName.includes('hədəf başla') || fieldName.includes('hedef basla')) {
+            candidates.push(key);
+        }
+    }
+    var i;
+    for (i = 0; i < candidates.length; i++) {
+        var namedDate = parsePhaseDate(t.fields[candidates[i]]);
+        if (namedDate) return namedDate;
+    }
+    return parsePhaseDate(t.fields['customfield_10015'])
+        || parsePhaseDate(t.fields['customfield_10808']);
+}
+
 export function getTaskDueDate(t) {
     if (!t || !t.fields) return null;
     var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
@@ -191,61 +212,178 @@ export function isDueInDateRange(t, start, end) {
     if (!due) return false;
     if (!start && !end) return false;
     if (start) {
-        var s = new Date(start);
-        s.setHours(0, 0, 0, 0);
-        if (due < s) return false;
+        var s = parseLocalDay(start);
+        if (s && due < s) return false;
     }
     if (end) {
-        var e = new Date(end);
-        e.setHours(23, 59, 59, 999);
-        if (due > e) return false;
+        var e = parseLocalDay(end);
+        if (e) {
+            e.setHours(23, 59, 59, 999);
+            if (due > e) return false;
+        }
     }
     return true;
 }
 
+function parseLocalDay(raw) {
+    if (!raw) return null;
+    if (raw instanceof Date) {
+        if (isNaN(raw.getTime())) return null;
+        var fromDate = new Date(raw.getFullYear(), raw.getMonth(), raw.getDate());
+        fromDate.setHours(0, 0, 0, 0);
+        return fromDate;
+    }
+    var str = String(raw).split('T')[0].trim();
+    var p = str.split('-');
+    if (p.length < 3) return null;
+    var dt = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    dt.setHours(0, 0, 0, 0);
+    return isNaN(dt.getTime()) ? null : dt;
+}
+
 export function isDueInSprint(t, sprintName) {
+    if (!sprintName || sprintName === 'all') return false;
+    if (!getTaskDueDate(t)) return false;
+    if (getSprintNames(t).indexOf(sprintName) === -1) return false;
     var range = getSprintDateRange(sprintName);
-    if (!range) return false;
+    if (!range || !range.start || !range.end) return false;
     return isDueInDateRange(t, range.start, range.end);
 }
 
-export function getHistoricalStatus(t, latestSprint) {
-    var taskSprints = getSprintNames(t);
-    if (taskSprints.length <= 1) return t.fields.status.name;
-    if (!latestSprint) return t.fields.status.name;
-    if (t.changelog && t.changelog.histories) {
-        var sprintChangeDate = null;
-        t.changelog.histories.forEach(function(h) {
-            if (h.items) {
-                h.items.forEach(function(item) {
-                    if (item.field && item.field.toLowerCase().indexOf('sprint') !== -1) {
-                        var toString = item.toString || '';
-                        if (toString.indexOf(latestSprint) !== -1) {
-                            var d = new Date(h.created);
-                            if (!sprintChangeDate || d > sprintChangeDate) sprintChangeDate = d;
-                        }
-                    }
-                });
+export function getSelectedSprintName() {
+    var el = document.getElementById('sprintFilter');
+    var val = el && el.value;
+    if (!val || val === 'all') return null;
+    return val;
+}
+
+export function isDueInSelectedWeek(t) {
+    var sprintName = getSelectedSprintName();
+    if (sprintName) return isDueInSprint(t, sprintName);
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var start = startEl && startEl.value;
+    var end = endEl && endEl.value;
+    if (start || end) return isDueInDateRange(t, start, end);
+    return isDueThisWeek(t);
+}
+
+function dueInRangePool() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var start = startEl && startEl.value;
+    var end = endEl && endEl.value;
+    var useDateRange = !!(start || end);
+    var source = useDateRange ? (state.allTasks || []) : (state.filteredTasks || []);
+    return source.filter(function(t) {
+        if (!t || !t.fields) return false;
+        if (!isLeafWorkUnit(t)) return false;
+        var st = normalizeStr(t.fields.status.name || '');
+        var g = getStatusGroup(st);
+        if (g === 'rejected') return false;
+        if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
+        if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
+        if (useDateRange) {
+            if (state.currentDirectionFilter) {
+                var dir = resolveDirection(t);
+                if (!dir || dir.key !== state.currentDirectionFilter) return false;
+            }
+            if (state.currentQurumFilter) {
+                var q = getQurumName(t) || 'Təyin edilməyib';
+                if (q !== state.currentQurumFilter) return false;
+            }
+            if (state.currentAssigneeFilter) {
+                if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
+            }
+            return isDueInDateRange(t, start, end);
+        }
+        return isDueThisWeek(t);
+    });
+}
+
+export function collectDueThisWeekTasks() {
+    return dueInRangePool().filter(function(t) {
+        var g = getStatusGroup(t.fields.status.name || '');
+        return g !== 'done' && !hasValidDifficulty(t);
+    });
+}
+
+export function collectDueThisWeekDoneTasks() {
+    return dueInRangePool().filter(function(t) {
+        return getStatusGroup(t.fields.status.name || '') === 'done';
+    });
+}
+
+export function getHistoricalStatus(t, latestSprint, thisSprint) {
+    var current = (t.fields && t.fields.status && t.fields.status.name) || '';
+    var histories = (t.changelog && t.changelog.histories) ? t.changelog.histories.slice() : [];
+    histories.sort(function(a, b) { return new Date(a.created) - new Date(b.created); });
+
+    var sprintChangeDate = findSprintBoundaryDate(histories, latestSprint, thisSprint);
+    if (!sprintChangeDate && thisSprint) {
+        var range = getSprintDateRange(thisSprint);
+        if (range && range.end) sprintChangeDate = range.end;
+    }
+    if (!sprintChangeDate) return current;
+
+    var lastBeforeTo = null;
+    var firstAfterFrom = null;
+    histories.forEach(function(h) {
+        var d = new Date(h.created);
+        if (!h.items) return;
+        h.items.forEach(function(item) {
+            if (!item.field || item.field.toLowerCase() !== 'status') return;
+            if (d <= sprintChangeDate) {
+                if (item.toString) lastBeforeTo = item.toString;
+            } else if (!firstAfterFrom && item.fromString) {
+                firstAfterFrom = item.fromString;
             }
         });
-        if (sprintChangeDate) {
-            var lastStatus = t.fields.status.name;
-            t.changelog.histories.forEach(function(h) {
-                var d = new Date(h.created);
-                if (d <= sprintChangeDate) {
-                    if (h.items) {
-                        h.items.forEach(function(item) {
-                            if (item.field && item.field.toLowerCase() === 'status') {
-                                lastStatus = item.toString;
-                            }
-                        });
-                    }
-                }
-            });
-            return lastStatus;
-        }
-    }
-    return t.fields.status.name;
+    });
+    return lastBeforeTo || firstAfterFrom || current;
+}
+
+function findSprintBoundaryDate(histories, latestSprint, thisSprint) {
+    var addedToLatest = null;
+    var leftThis = null;
+    (histories || []).forEach(function(h) {
+        if (!h.items) return;
+        var d = new Date(h.created);
+        if (isNaN(d.getTime())) return;
+        h.items.forEach(function(item) {
+            if (!item.field || item.field.toLowerCase().indexOf('sprint') === -1) return;
+            var toHasLatest = sprintChangeContains(item.toString, latestSprint);
+            var fromHasLatest = sprintChangeContains(item.fromString, latestSprint);
+            if (toHasLatest && !fromHasLatest) {
+                if (!addedToLatest || d > addedToLatest) addedToLatest = d;
+            }
+            if (!thisSprint) return;
+            var fromHasThis = sprintChangeContains(item.fromString, thisSprint);
+            var toHasThis = sprintChangeContains(item.toString, thisSprint);
+            if (fromHasThis && !toHasThis) {
+                if (!leftThis || d > leftThis) leftThis = d;
+            }
+        });
+    });
+    return addedToLatest || leftThis || null;
+}
+
+function sprintChangeContains(raw, sprintName) {
+    if (!raw || !sprintName) return false;
+    return sprintNamesFromChange(raw).indexOf(sprintName) !== -1;
+}
+
+function sprintNamesFromChange(raw) {
+    var str = String(raw || '');
+    var names = [];
+    var re = /name=([^,\]]+)/g;
+    var m;
+    while ((m = re.exec(str))) names.push(m[1].trim());
+    if (names.length) return names;
+    var jsonRe = /"name"\s*:\s*"([^"]+)"/g;
+    while ((m = jsonRe.exec(str))) names.push(m[1].trim());
+    if (names.length) return names;
+    return str.split(/\s*,\s*/).map(function(part) { return part.trim(); }).filter(Boolean);
 }
 
 export function getDifficultyField(t) {
@@ -706,35 +844,115 @@ export function getDateStatus(t) {
     }
 }
 
-export function getSprintDateRange(sprintName) {
+function parseSprintItem(item) {
+    if (!item) return null;
+    if (typeof item === 'object' && !Array.isArray(item) && item.name) {
+        var objStart = item.startDate && String(item.startDate) !== '<null>' ? new Date(item.startDate) : null;
+        var objEnd = item.endDate && String(item.endDate) !== '<null>' ? new Date(item.endDate) : null;
+        return {
+            name: item.name,
+            start: objStart && !isNaN(objStart.getTime()) ? objStart : null,
+            end: objEnd && !isNaN(objEnd.getTime()) ? objEnd : null,
+            state: item.state || null,
+            id: item.id != null ? Number(item.id) : 0
+        };
+    }
+    var s = typeof item === 'string' ? item : JSON.stringify(item);
+    var nameMatch = s.match(/name=([^,\]]+)/) || s.match(/"name"\s*:\s*"([^"]+)"/);
+    if (!nameMatch) return null;
+    var startMatch = s.match(/startDate=([^,\]]+)/) || s.match(/"startDate"\s*:\s*"([^"]+)"/);
+    var endMatch = s.match(/endDate=([^,\]]+)/) || s.match(/"endDate"\s*:\s*"([^"]+)"/);
+    var stateMatch = s.match(/state=([^,\]]+)/) || s.match(/"state"\s*:\s*"([^"]+)"/);
+    var idMatch = s.match(/(?:^|[,\[{])id=(\d+)/) || s.match(/"id"\s*:\s*(\d+)/);
+    var startRaw = startMatch && startMatch[1] !== '<null>' ? startMatch[1] : null;
+    var endRaw = endMatch && endMatch[1] !== '<null>' ? endMatch[1] : null;
+    var start = startRaw ? new Date(startRaw) : null;
+    var end = endRaw ? new Date(endRaw) : null;
+    return {
+        name: nameMatch[1],
+        start: start && !isNaN(start.getTime()) ? start : null,
+        end: end && !isNaN(end.getTime()) ? end : null,
+        state: stateMatch ? stateMatch[1] : null,
+        id: idMatch ? parseInt(idMatch[1], 10) : 0
+    };
+}
+
+export function getSprintMeta(sprintName) {
     if (!sprintName || sprintName === 'all') return null;
+    var best = null;
     for (var i = 0; i < state.allTasks.length; i++) {
         var t = state.allTasks[i];
-        var f = t.fields.customfield_10101;
+        var f = t.fields && t.fields.customfield_10101;
         if (!f) continue;
         var sprints = Array.isArray(f) ? f : [f];
         for (var j = 0; j < sprints.length; j++) {
-            var s = typeof sprints[j] === 'string' ? sprints[j] : JSON.stringify(sprints[j]);
-            if (s.indexOf(sprintName) !== -1) {
-                var startMatch = s.match(/startDate=([^,]+)/);
-                var endMatch = s.match(/endDate=([^,]+)/);
-                if (startMatch && endMatch) {
-                    return {
-                        start: new Date(startMatch[1]),
-                        end: new Date(endMatch[1])
-                    };
-                }
+            var parsed = parseSprintItem(sprints[j]);
+            if (!parsed || parsed.name !== sprintName) continue;
+            if (!best) {
+                best = parsed;
+                continue;
             }
+            if (!best.start && parsed.start) best.start = parsed.start;
+            if (!best.end && parsed.end) best.end = parsed.end;
+            if (parsed.id && parsed.id > (best.id || 0)) best.id = parsed.id;
+            if (parsed.state && (!best.state || String(parsed.state).toUpperCase() === 'ACTIVE')) best.state = parsed.state;
         }
     }
-    return null;
+    return best;
+}
+
+export function getSprintDateRange(sprintName) {
+    var meta = getSprintMeta(sprintName);
+    if (!meta || !meta.start || !meta.end) return null;
+    return { start: meta.start, end: meta.end };
 }
 
 export function getSprintNames(t) {
-    var f = t.fields.customfield_10101;
+    var f = t.fields && t.fields.customfield_10101;
     if (!f) return [];
     return (Array.isArray(f) ? f : [f]).map(function(s) {
-        var m = (typeof s === 'string' ? s : JSON.stringify(s)).match(/name=([^,]+)/);
-        return m ? m[1] : null;
+        var parsed = parseSprintItem(s);
+        return parsed ? parsed.name : null;
     }).filter(Boolean);
+}
+
+export function sprintSequenceNumber(name) {
+    var m = String(name || '').match(/(\d+)\s*$/);
+    if (!m) m = String(name || '').match(/\d+/);
+    return m ? parseInt(m[1], 10) : 0;
+}
+
+export function sortSprintNames(names) {
+    var metas = {};
+    (names || []).forEach(function(n) { metas[n] = getSprintMeta(n); });
+    return (names || []).slice().sort(function(a, b) {
+        var numA = sprintSequenceNumber(a);
+        var numB = sprintSequenceNumber(b);
+        if (numA !== numB) return numB - numA;
+        var ea = metas[a] && metas[a].end;
+        var eb = metas[b] && metas[b].end;
+        if (ea && eb) return eb.getTime() - ea.getTime();
+        var idA = (metas[a] && metas[a].id) || 0;
+        var idB = (metas[b] && metas[b].id) || 0;
+        if (idA !== idB) return idB - idA;
+        return String(b).localeCompare(String(a));
+    });
+}
+
+export function currentSprintName(names) {
+    var list = (names && names.length) ? names : sortSprintNames(collectAllSprintNames());
+    var i;
+    for (i = 0; i < list.length; i++) {
+        var meta = getSprintMeta(list[i]);
+        if (meta && String(meta.state || '').toUpperCase() === 'ACTIVE') return list[i];
+    }
+    return list[0] || '';
+}
+
+function collectAllSprintNames() {
+    var set = {};
+    (state.allTasks || []).forEach(function(t) {
+        getSprintNames(t).forEach(function(n) { set[n] = true; });
+    });
+    return Object.keys(set);
 }

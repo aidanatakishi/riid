@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, toggleDropdown } from './utils.js';
-import { getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, resolveDirection } from './model.js';
+import { currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter } from './filters.js';
 import { renderTaskList, showUserActivity } from './render.js';
 
@@ -566,7 +566,8 @@ export function renderDailyProgress() {
 
     var sprintVal = document.getElementById('sprintFilter').value;
     var sprintSelect = document.getElementById('sprintFilter');
-    var latestSprint = (sprintSelect.options.length > 1) ? sprintSelect.options[1].value : null;
+    var sprintNames = sprintSelect ? Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; }) : [];
+    var latestSprint = currentSprintName(sprintNames);
     var isHistorical = sprintVal && sprintVal !== 'all' && latestSprint && sprintVal !== latestSprint;
 
     var rangeStart, rangeEnd, rangeLabel;

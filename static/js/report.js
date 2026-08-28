@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, hasPhaseText, hasValidDifficulty, isDueThisWeek, resolveDirection } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getTaskStartDate, hasPhaseText, hasValidDifficulty, isDateInReportPeriod, isDueInSelectedWeek, resolveDirection } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -12,6 +12,100 @@ export function loadDocxLib() {
         });
     }
     return _docxLibPromise;
+}
+
+var AZ_MONTHS_LOWER = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avqust', 'sentyabr', 'oktyabr', 'noyabr', 'dekabr'];
+var AZ_MONTHS_FILE = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
+
+function parseReportIsoDate(iso) {
+    if (!iso) return null;
+    var p = String(iso).split('-');
+    if (p.length < 3) return null;
+    var dt = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10));
+    if (isNaN(dt.getTime())) return null;
+    dt.setHours(0, 0, 0, 0);
+    return dt;
+}
+
+function azYearMark(year) {
+    var n = year % 100;
+    var d = year % 10;
+    if (n === 11 || n === 12 || n === 13) return year + '-cü';
+    if (d === 3 || d === 4) return year + '-cü';
+    if (d === 6) return year + '-cı';
+    if (d === 9 || d === 0) return year + '-cu';
+    return year + '-ci';
+}
+
+export function getMonthRangeInfo(startIso, endIso) {
+    var start = parseReportIsoDate(startIso);
+    var end = parseReportIsoDate(endIso);
+    if (!start || !end) return null;
+    if (start.getFullYear() !== end.getFullYear() || start.getMonth() !== end.getMonth()) return null;
+    var lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    var days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    var fromFirst = start.getDate() === 1 && end.getDate() >= Math.min(28, lastDay);
+    if (!fromFirst && days < 28) return null;
+    return {
+        year: start.getFullYear(),
+        month: start.getMonth(),
+        start: start,
+        end: end,
+        monthName: AZ_MONTHS_LOWER[start.getMonth()],
+        fileMonth: AZ_MONTHS_FILE[start.getMonth()]
+    };
+}
+
+export function updateReportButtonLabel() {
+    var el = document.getElementById('reportDownloadLabel');
+    if (!el) return;
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var month = getMonthRangeInfo(startEl && startEl.value, endEl && endEl.value);
+    el.textContent = month ? 'Aylıq hesabatı yüklə' : 'Hesabatı yüklə';
+}
+
+function monthlyDirRank(name) {
+    var n = normalizeStr(name || '');
+    if (n.indexOf('reyestr') !== -1) return 1;
+    if (n.indexOf('məqsədəuyğun') !== -1 || n.indexOf('meqseduygun') !== -1) return 2;
+    if (n.indexOf('diaqnostika') !== -1 || n.indexOf('rəqəmsallaşma') !== -1 || n.indexOf('reqemsallasma') !== -1) return 3;
+    if (n.indexOf('elektron xidmət') !== -1 || n.indexOf('elektron xidmet') !== -1) return 5;
+    if ((n.indexOf('ehtiyat') !== -1 || n.indexOf('sistem') !== -1) && (n.indexOf('qiymət') !== -1 || n.indexOf('qiymet') !== -1)) return 4;
+    if (n.indexOf('inteqras') !== -1 || n.indexOf('məlumat hədd') !== -1 || n.indexOf('melumat hedd') !== -1 || n.indexOf('digital') !== -1) return 6;
+    return 80;
+}
+
+function monthlySectionTitle(dirName) {
+    var name = (dirName || 'Digər istiqamətlər').trim();
+    if (/üzrə\s*:?\s*$/i.test(name) || /uzre\s*:?\s*$/i.test(normalizeStr(name))) {
+        return name.replace(/\s*:?\s*$/, '') + ':';
+    }
+    return name + ' üzrə:';
+}
+
+function monthlyIntroForDirection(dirName, yearMark, monthName) {
+    var n = normalizeStr(dirName || '');
+    var period = yearMark + ' ilin ' + monthName + ' ayı';
+    if (n.indexOf('reyestr') !== -1) {
+        return '“Dövlət informasiya ehtiyatlarının, sistemlərinin və elektron xidmətlərin vahid reyestri”nin (bundan sonra - Reyestr) vasitəsilə ' + period + ' ərzində aşağıdakı işlər görülmüşdür:';
+    }
+    if (n.indexOf('məqsədəuyğun') !== -1 || n.indexOf('meqseduygun') !== -1) {
+        return 'Qurumların informasiya sistemləri və ehtiyatlarına, habelə elektron xidmətlərinə onların texniki və səmərəliliyi baxımından məqsədəuyğunluğuna dair rəyin verilməsi üzrə:';
+    }
+    if (n.indexOf('diaqnostika') !== -1 || n.indexOf('rəqəmsallaşma') !== -1 || n.indexOf('reqemsallasma') !== -1) {
+        return 'Qurumlarda rəqəmsallaşma səviyyəsinin diaqnostikasının aparılması məqsədilə aşağıdakı tədbirlər həyata keçirilmişdir:';
+    }
+    if (n.indexOf('elektron xidmət') !== -1 || n.indexOf('elektron xidmet') !== -1) {
+        return 'Elektron xidmətlərin qiymətləndirilməsi məqsədilə aşağıdakı tədbirlər həyata keçirilmişdir:';
+    }
+    if ((n.indexOf('ehtiyat') !== -1 || n.indexOf('sistem') !== -1) && (n.indexOf('qiymət') !== -1 || n.indexOf('qiymet') !== -1)) {
+        return 'İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi üzrə aşağıdakı işlər görülmüşdür:';
+    }
+    if (n.indexOf('inteqras') !== -1 || n.indexOf('məlumat hədd') !== -1 || n.indexOf('melumat hedd') !== -1 || n.indexOf('digital') !== -1) {
+        return 'Məlumat hədlərinin “Rəqəmsal Məlumat Mübadiləsi” (“Digital Bridge”) altsistemi üzərindən inteqrasiyası ilə bağlı aşağıdakı işlər görülmüşdür:';
+    }
+    return period + ' ərzində bu istiqamət üzrə aşağıdakı işlər görülmüşdür:';
 }
 
 export async function exportTasksToWord(title) {
@@ -178,6 +272,24 @@ export async function exportTasksToWord(title) {
         return issues;
     }
 
+    function uniquePhaseEntries(entries) {
+        var byText = {};
+        (entries || []).forEach(function(e) {
+            if (!e || !e.text) return;
+            var key = normalizeStr(String(e.text).replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?\s*/i, '').replace(/[.]+$/, ''));
+            if (!key) return;
+            var prev = byText[key];
+            if (!prev) {
+                byText[key] = e;
+                return;
+            }
+            var prevTime = prev.date ? prev.date.getTime() : 0;
+            var nextTime = e.date ? e.date.getTime() : 0;
+            if (nextTime >= prevTime) byText[key] = e;
+        });
+        return Object.keys(byText).map(function(k) { return byText[k]; });
+    }
+
     function groupPhaseEntries(t, issues, periodStart, periodEnd, restrictToPeriod) {
         var allDated = [];
         (issues || []).forEach(function(issue) {
@@ -198,7 +310,7 @@ export async function exportTasksToWord(title) {
                 if (fallback) allDated.push({ date: fallback, text: name });
             });
         }
-        return selectPhasesForReport(allDated, periodStart, periodEnd);
+        return selectPhasesForReport(uniquePhaseEntries(allDated), periodStart, periodEnd);
     }
 
     function formatEntryLine(entry) {
@@ -221,9 +333,15 @@ export async function exportTasksToWord(title) {
     }
 
     function appendEntryLines(childLines, entries) {
+        var seen = {};
+        (childLines || []).forEach(function(line) { seen[normalizeStr(line)] = true; });
         (entries || []).forEach(function(entry) {
             var line = formatEntryLine(entry);
-            if (line) childLines.push(line);
+            if (!line) return;
+            var key = normalizeStr(line);
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            childLines.push(line);
         });
     }
 
@@ -246,7 +364,7 @@ export async function exportTasksToWord(title) {
         return filterFn(t);
     }
 
-    function getPrintTasks(filterFn) {
+    function getPrintTasks(filterFn, sourceTasks) {
         var printList = [];
         var seen = {};
         function addParent(t) {
@@ -255,7 +373,7 @@ export async function exportTasksToWord(title) {
             seen[t.key] = true;
             printList.push(t);
         }
-        state.filteredTasks.forEach(function(t) {
+        (sourceTasks || state.filteredTasks).forEach(function(t) {
             if (isPausedTask(t)) return;
             if (isSubtaskType(t)) {
                 if (issueMatches(t, filterFn)) addParent(getParentIssue(t));
@@ -363,6 +481,273 @@ export async function exportTasksToWord(title) {
         return nodes;
     }
 
+    function monthlyFileName(info) {
+        return 'IRIA_Ayliq_Hesabat_' + info.fileMonth + '_' + info.year + '.docx';
+    }
+
+    async function downloadGeneratedDoc(doc, filename, toastMsg) {
+        try {
+            var blob = await Packer.toBlob(doc);
+            var url = URL.createObjectURL(blob);
+            var fileDownload = document.createElement('a');
+            document.body.appendChild(fileDownload);
+            fileDownload.href = url;
+            fileDownload.download = filename;
+            fileDownload.click();
+            document.body.removeChild(fileDownload);
+            URL.revokeObjectURL(url);
+            showToast(toastMsg, 'success');
+        } catch (err) {
+            console.error(err);
+            showToast('Hesabat yaradılarkən xəta baş verdi: ' + err.message, 'error');
+        }
+    }
+
+    function matchesReportSideFilters(t) {
+        if (!t || !t.fields) return false;
+        if (state.currentDirectionFilter) {
+            var dir = resolveDirection(t);
+            if (!dir || dir.key !== state.currentDirectionFilter) return false;
+        }
+        if (state.currentQurumFilter) {
+            var q = getQurumName(t) || 'Təyin edilməyib';
+            if (q !== state.currentQurumFilter) return false;
+        }
+        if (state.currentAssigneeFilter) {
+            if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
+        }
+        return true;
+    }
+
+    function taskHasMonthActivity(t, start, end) {
+        if (!t || !t.fields || isPausedTask(t)) return false;
+        var startD = getTaskStartDate(t);
+        if (startD && isDateInReportPeriod(startD, start, end)) return true;
+        var dueRaw = t.fields['customfield_10807'] || t.fields.duedate;
+        if (dueRaw) {
+            var due = parseReportIsoDate(String(dueRaw).split('T')[0]);
+            if (due && isDateInReportPeriod(due, start, end)) return true;
+        }
+        var entries = getDatedPhaseEntries(t);
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].date && isDateInReportPeriod(entries[i].date, start, end)) return true;
+        }
+        return false;
+    }
+
+    function collectMonthlySource(info) {
+        var seen = {};
+        var out = [];
+        function add(t) {
+            if (!t || !t.key || seen[t.key] || isPausedTask(t)) return;
+            if (!matchesReportSideFilters(t)) return;
+            seen[t.key] = true;
+            out.push(t);
+        }
+        (state.filteredTasks || []).forEach(add);
+        (state.allTasks || []).forEach(function(t) {
+            if (taskHasMonthActivity(t, info.start, info.end)) add(t);
+        });
+        return out;
+    }
+
+    function monthlyBulletText(t, info) {
+        var childIssues = collectChildIssues(t);
+        var groupIssues = [t].concat(childIssues);
+        var lines = [];
+        appendEntryLines(lines, groupPhaseEntries(t, groupIssues, info.start, info.end, true));
+        if (lines.length === 0) {
+            childIssues.forEach(function(subIssue) {
+                if (!subIssue || subIssue.key === t.key) return;
+                if (hasPhaseText(subIssue)) return;
+                var name = (subIssue.fields && subIssue.fields.summary) ? subIssue.fields.summary.trim() : '';
+                if (name) lines.push(name.endsWith('.') ? name : name + '.');
+            });
+        }
+        var unique = [];
+        var seenLine = {};
+        lines.forEach(function(line) {
+            var key = normalizeStr(line);
+            if (!key || seenLine[key]) return;
+            seenLine[key] = true;
+            unique.push(line);
+        });
+        if (unique.length > 0) return unique.join(' ');
+        var summary = (t.fields && t.fields.summary) ? t.fields.summary.trim() : '';
+        if (!summary) return '';
+        if (!/[.!?]$/.test(summary)) summary += '.';
+        return summary;
+    }
+
+    function bulletKey(text) {
+        return normalizeStr(String(text || '').replace(/\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?/gi, '')).replace(/\s+/g, ' ').trim();
+    }
+
+    function isDuplicateBullet(text, used) {
+        var key = bulletKey(text);
+        if (!key) return true;
+        if (used[key]) return true;
+        for (var prev in used) {
+            if (!prev) continue;
+            if (prev === key) return true;
+            if (key.length >= 50 && prev.indexOf(key) !== -1) return true;
+            if (prev.length >= 50 && key.indexOf(prev) !== -1) return true;
+        }
+        return false;
+    }
+
+    function bulletParagraph(text, fontName) {
+        return new Paragraph({
+            spacing: { after: 120, line: 276 },
+            indent: { left: 280, hanging: 200 },
+            children: [
+                new TextRun({ text: '•  ' + text, font: fontName, size: 22, color: COL_INK })
+            ]
+        });
+    }
+
+    function buildMonthlyDocument(info) {
+        var MONTH_FONT = 'Times New Roman';
+        var yearMark = azYearMark(info.year);
+        var titleLine = yearMark + ' ilin ' + info.monthName + ' ayı üzrə fəaliyyətinə dair hesabat';
+        var monthSource = collectMonthlySource(info);
+        var allParents = getPrintTasks(function() { return true; }, monthSource);
+        var seenParent = {};
+        var uniqueParents = [];
+        allParents.forEach(function(t) {
+            if (!t || !t.key || seenParent[t.key]) return;
+            seenParent[t.key] = true;
+            uniqueParents.push(t);
+        });
+        var doneParents = [];
+        var ongoingParents = [];
+        uniqueParents.forEach(function(t) {
+            if (getStatusGroup(t.fields.status.name) === 'done') doneParents.push(t);
+            else ongoingParents.push(t);
+        });
+        var doneGroups = groupByDirection(doneParents);
+        var ongoingGroups = groupByDirection(ongoingParents);
+        var dirSet = {};
+        Object.keys(doneGroups).forEach(function(k) { dirSet[k] = true; });
+        Object.keys(ongoingGroups).forEach(function(k) { dirSet[k] = true; });
+        var dirNames = Object.keys(dirSet).sort(function(a, b) {
+            var ra = monthlyDirRank(a);
+            var rb = monthlyDirRank(b);
+            if (ra !== rb) return ra - rb;
+            return a.localeCompare(b, 'az');
+        });
+
+        var monthChildren = [];
+        var usedBullets = {};
+        function pushUniqueBullet(text) {
+            if (!text || isDuplicateBullet(text, usedBullets)) return;
+            usedBullets[bulletKey(text)] = true;
+            monthChildren.push(bulletParagraph(text, MONTH_FONT));
+        }
+
+        monthChildren.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 80 },
+            children: [new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsinin', bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
+        }));
+        monthChildren.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 360 },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 12 } },
+            children: [new TextRun({ text: titleLine, bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
+        }));
+
+        if (dirNames.length === 0) {
+            monthChildren.push(new Paragraph({
+                spacing: { before: 200 },
+                children: [new TextRun({ text: yearMark + ' ilin ' + info.monthName + ' ayı üzrə qeydə alınmış fəaliyyət tapılmadı.', font: MONTH_FONT, size: 22, color: COL_BODY })]
+            }));
+        }
+
+        dirNames.forEach(function(dirName) {
+            var doneTasks = doneGroups[dirName] || [];
+            var ongoingTasks = ongoingGroups[dirName] || [];
+            var doneTexts = [];
+            var ongoingTexts = [];
+            doneTasks.forEach(function(t) {
+                var text = monthlyBulletText(t, info);
+                if (text && !isDuplicateBullet(text, usedBullets)) doneTexts.push(text);
+            });
+            ongoingTasks.forEach(function(t) {
+                var text = monthlyBulletText(t, info);
+                if (text && !isDuplicateBullet(text, usedBullets) && doneTexts.indexOf(text) === -1) ongoingTexts.push(text);
+            });
+            if (doneTexts.length === 0 && ongoingTexts.length === 0) return;
+
+            monthChildren.push(new Paragraph({
+                spacing: { before: 280, after: 120 },
+                children: [new TextRun({ text: monthlySectionTitle(dirName), bold: true, font: MONTH_FONT, size: 24, color: COL_INK })]
+            }));
+            var intro = monthlyIntroForDirection(dirName, yearMark, info.monthName);
+            if (intro) {
+                monthChildren.push(new Paragraph({
+                    spacing: { after: 160, line: 276 },
+                    children: [new TextRun({ text: intro, font: MONTH_FONT, size: 22, color: COL_BODY })]
+                }));
+            }
+            doneTexts.forEach(pushUniqueBullet);
+            if (ongoingTexts.length > 0) {
+                monthChildren.push(new Paragraph({
+                    spacing: { before: 160, after: 120, line: 276 },
+                    children: [new TextRun({ text: 'Aşağıdakı işlər isə icra və ya təhlil mərhələsindədir:', font: MONTH_FONT, size: 22, color: COL_BODY })]
+                }));
+                ongoingTexts.forEach(pushUniqueBullet);
+            }
+        });
+
+        return new Document({
+            sections: [{
+                properties: {
+                    titlePage: true,
+                    page: { margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } }
+                },
+                headers: {
+                    first: new Header({ children: [new Paragraph({ children: [] })] }),
+                    default: new Header({
+                        children: [
+                            new Paragraph({
+                                border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 } },
+                                spacing: { after: 80 },
+                                children: [new TextRun({ text: 'HESABAT – ' + info.year, font: MONTH_FONT, size: 20, color: COL_MUTED })]
+                            })
+                        ]
+                    })
+                },
+                footers: {
+                    default: new Footer({
+                        children: [
+                            new Paragraph({
+                                alignment: AlignmentType.RIGHT,
+                                border: { top: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 8 } },
+                                spacing: { before: 60 },
+                                children: [
+                                    new TextRun({ children: [PageNumber.CURRENT], font: MONTH_FONT, size: 20, color: COL_MUTED })
+                                ]
+                            })
+                        ]
+                    })
+                },
+                children: monthChildren
+            }],
+            styles: {
+                default: {
+                    document: { run: { color: COL_BODY, font: MONTH_FONT, size: 22 } }
+                }
+            }
+        });
+    }
+
+    var monthInfo = getMonthRangeInfo(startDate, endDate);
+    if (monthInfo) {
+        await downloadGeneratedDoc(buildMonthlyDocument(monthInfo), monthlyFileName(monthInfo), 'Aylıq hesabat (.docx) uğurla yükləndi!');
+        return;
+    }
+
     function hasDiffDash(t) {
         var g = getStatusGroup(t.fields.status.name);
         var diff = hasValidDifficulty(t);
@@ -371,7 +756,7 @@ export async function exportTasksToWord(title) {
 
     var dashDueWeek = reportUnits.filter(function(t) {
         var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && !hasDiffDash(t) && isDueThisWeek(t);
+        return g !== 'done' && g !== 'rejected' && !hasDiffDash(t) && isDueInSelectedWeek(t);
     }).length;
     var dashBlocked = reportUnits.filter(function(t) {
         var g = getStatusGroup(t.fields.status.name);
@@ -384,11 +769,11 @@ export async function exportTasksToWord(title) {
     }).length;
 
     var totalTasksCount = reportUnits.length;
-    var doneOnTimeCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done' && isDueThisWeek(t); }).length;
+    var doneOnTimeCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done' && isDueInSelectedWeek(t); }).length;
     var rejectedCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'rejected'; }).length;
     var notDoneDueWeekCount = reportUnits.filter(function(t) { 
         var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+        return g !== 'done' && g !== 'rejected' && isDueInSelectedWeek(t); 
     }).length;
 
     var summaryParts = [];
@@ -562,13 +947,13 @@ export async function exportTasksToWord(title) {
     // 2. Nəyi edə bilmədik
     var notDoneDueTasksPrint = getPrintTasks(function(t) { 
         var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+        return g !== 'done' && g !== 'rejected' && isDueInSelectedWeek(t); 
     });
     appendReportSection(
         sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'),
         buildSection(notDoneDueTasksPrint, false, periodStart, periodEnd, function(t) { 
             var g = getStatusGroup(t.fields.status.name);
-            return g !== 'done' && g !== 'rejected' && isDueThisWeek(t); 
+            return g !== 'done' && g !== 'rejected' && isDueInSelectedWeek(t); 
         }),
         'Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.'
     );
@@ -577,13 +962,13 @@ export async function exportTasksToWord(title) {
     // 3. İcra mərhələsində olan və yarımçıq qalanlar
     var progressTasksPrint = getPrintTasks(function(t) { 
         var g = getStatusGroup(t.fields.status.name);
-        return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
+        return (g === 'progress' || g === 'other') && !isDueInSelectedWeek(t); 
     });
     appendReportSection(
         sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'),
         buildSection(progressTasksPrint, false, periodStart, periodEnd, function(t) { 
             var g = getStatusGroup(t.fields.status.name);
-            return (g === 'progress' || g === 'other') && !isDueThisWeek(t); 
+            return (g === 'progress' || g === 'other') && !isDueInSelectedWeek(t); 
         }),
         'İcra mərhələsində yarımçıq qalan tapşırıq yoxdur.'
     );
@@ -664,19 +1049,5 @@ export async function exportTasksToWord(title) {
         }
     });
 
-    try {
-        var blob = await Packer.toBlob(doc);
-        var url = URL.createObjectURL(blob);
-        var fileDownload = document.createElement('a');
-        document.body.appendChild(fileDownload);
-        fileDownload.href = url;
-        fileDownload.download = 'IRIA_Heftelik_Icra_Hesabati_' + dateStr.replace(/\//g, '_') + '.docx';
-        fileDownload.click();
-        document.body.removeChild(fileDownload);
-        URL.revokeObjectURL(url);
-        showToast('Hesabat (.docx) uğurla yükləndi!', 'success');
-    } catch (err) {
-        console.error(err);
-        showToast('Hesabat yaradılarkən xəta baş verdi: ' + err.message, 'error');
-    }
+    await downloadGeneratedDoc(doc, 'IRIA_Heftelik_Icra_Hesabati_' + dateStr.replace(/\//g, '_') + '.docx', 'Hesabat (.docx) uğurla yükləndi!');
 }
