@@ -1,13 +1,13 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleSettings } from './utils.js';
-import { belongsToDept, hasKomplaynsComponent } from './model.js';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, hasKomplaynsComponent } from './model.js';
 import { applyFilters, loadFiltersFromStorage, populateSprintFilter } from './filters.js';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
 var MAX_RESULTS = 500;
 var SEARCH_FIELDS = [
-    'summary', 'status', 'duedate',
+    'summary', 'status', 'duedate', 'description',
     'customfield_10807', 'customfield_10808',
     'customfield_15611', 'customfield_15612', 'customfield_15613', 'customfield_15614',
     'customfield_15615', 'customfield_15616', 'customfield_15617', 'customfield_15618',
@@ -15,6 +15,9 @@ var SEARCH_FIELDS = [
     'components', 'assignee', 'reporter', 'updated', 'created', 'resolutiondate',
     'priority', 'labels', 'customfield_10101', 'customfield_10107', 'customfield_10008',
     'customfield_10015', 'customfield_10016', 'customfield_12703', 'customfield_13608',
+    'customfield_12424',
+    'customfield_17315', 'customfield_17316', 'customfield_17317', 'customfield_17318',
+    'customfield_17319', 'customfield_17320',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ].join(',');
 
@@ -87,19 +90,81 @@ async function parseJiraError(res, text) {
     }
 }
 
+function searchFieldsList() {
+    var extra = collectActivityDirectionFieldIds().concat(collectMeqsedDisplayFieldIds());
+    var parts = SEARCH_FIELDS.split(',');
+    var seen = {};
+    var i;
+    for (i = 0; i < parts.length; i++) seen[parts[i]] = true;
+    for (i = 0; i < extra.length; i++) {
+        if (extra[i] && !seen[extra[i]]) parts.push(extra[i]);
+    }
+    return parts.join(',');
+}
+
+function mergeFieldNames(names) {
+    if (!names) return;
+    var cur = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (Object.prototype.hasOwnProperty.call(names, key) && names[key]) cur[key] = names[key];
+    }
+    state.jiraFieldNames = cur;
+}
+
+async function fetchJiraFieldCatalog(baseUrl, pat) {
+    if (fetchJiraFieldCatalog.loaded) return;
+    var transport = await pickTransport();
+    try {
+        var data;
+        if (transport.type === 'proxy') {
+            var res = await fetch((transport.root || '') + '/api/jira/fields', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ baseUrl: baseUrl, pat: pat })
+            });
+            var text = await res.text();
+            data = JSON.parse(text);
+            if (!res.ok) return;
+        } else {
+            var root = String(baseUrl || '').replace(/\/+$/, '');
+            var res2 = await fetch(root + '/rest/api/2/field', {
+                headers: {
+                    Authorization: 'Bearer ' + pat,
+                    Accept: 'application/json'
+                }
+            });
+            if (!res2.ok) return;
+            var list = await res2.json();
+            var names = {};
+            if (Array.isArray(list)) {
+                list.forEach(function(item) {
+                    if (item && item.id && item.name) names[item.id] = item.name;
+                });
+            }
+            data = { names: names };
+        }
+        if (data && data.names) {
+            mergeFieldNames(data.names);
+            fetchJiraFieldCatalog.loaded = true;
+        }
+    } catch (e) { /* catalog is optional; search still runs */ }
+}
+
 async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
     var root = String(baseUrl || '').replace(/\/+$/, '');
     var allIssues = [];
     var startAt = 0;
     var names = {};
+    var fields = searchFieldsList();
     while (true) {
         var params = new URLSearchParams({
             jql: jql,
             startAt: String(startAt),
             maxResults: String(MAX_RESULTS),
-            fields: SEARCH_FIELDS
+            fields: fields
         });
-        if (expandChangelog) params.set('expand', 'changelog');
+        params.set('expand', expandChangelog ? 'names,changelog' : 'names');
         var res;
         try {
             res = await fetch(root + '/rest/api/2/search?' + params.toString(), {
@@ -120,7 +185,12 @@ async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
             throw new Error('Jira cavabı JSON deyil: ' + text.substring(0, 150));
         }
         allIssues = allIssues.concat(data.issues || []);
-        if (data.names) names = data.names;
+        if (data.names) {
+            var nk;
+            for (nk in data.names) {
+                if (Object.prototype.hasOwnProperty.call(data.names, nk)) names[nk] = data.names[nk];
+            }
+        }
         startAt += MAX_RESULTS;
         if (startAt >= (data.total || 0)) break;
     }
@@ -128,7 +198,7 @@ async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
 }
 
 async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
-    var body = { baseUrl: baseUrl, jql: jql, pat: pat };
+    var body = { baseUrl: baseUrl, jql: jql, pat: pat, fields: searchFieldsList() };
     if (expandChangelog) body.expandChangelog = true;
     var url = (proxyRoot || '') + '/api/jira';
     var res;
@@ -152,23 +222,42 @@ async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
     }
 }
 
+var jqlInflight = {};
+var lastJqlCache = { key: '', data: null };
+
 export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
     if (!pat) throw new Error('Yuxarıdakı Token düyməsindən PAT daxil edin.');
-    var transport = await pickTransport();
-    var data;
-    try {
-        data = transport.type === 'proxy'
-            ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog, transport.root)
-            : await fetchJiraDirect(baseUrl, pat, jql, expandChangelog);
-    } catch (err) {
-        var msg = err && err.message ? err.message : '';
-        if (transport.type === 'direct' && msg.indexOf('qoşulmaq mümkün olmadı') !== -1) {
-            throw new Error(await describeDirectFailure());
+    var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + searchFieldsList();
+    if (jqlInflight[cacheKey]) return jqlInflight[cacheKey];
+    if (!expandChangelog && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
+    var run = (async function() {
+        var transport = await pickTransport();
+        var data;
+        await fetchJiraFieldCatalog(baseUrl, pat);
+        try {
+            data = transport.type === 'proxy'
+                ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog, transport.root)
+                : await fetchJiraDirect(baseUrl, pat, jql, expandChangelog);
+        } catch (err) {
+            var msg = err && err.message ? err.message : '';
+            if (transport.type === 'direct' && msg.indexOf('qoşulmaq mümkün olmadı') !== -1) {
+                throw new Error(await describeDirectFailure());
+            }
+            throw err;
         }
-        throw err;
+        if (data.names) mergeFieldNames(data.names);
+        if (!expandChangelog) {
+            lastJqlCache.key = cacheKey;
+            lastJqlCache.data = data;
+        }
+        return data;
+    })();
+    jqlInflight[cacheKey] = run;
+    try {
+        return await run;
+    } finally {
+        delete jqlInflight[cacheKey];
     }
-    if (data.names) state.jiraFieldNames = data.names;
-    return data;
 }
 
 var changelogPending = {};
@@ -244,7 +333,7 @@ export async function fetchTodayChanges() {
 }
 
 function applyDashboardPayload(data) {
-    if (data.names) state.jiraFieldNames = data.names;
+    if (data.names) mergeFieldNames(data.names);
     state.allDirections = []; state.allTasks = []; state.issueIndex = {}; state.parentCache = {};
     (data.issues || []).forEach(function(t) {
         state.issueIndex[t.key] = t;
@@ -292,8 +381,11 @@ export async function fetchDashboardData() {
      document.getElementById('loadingOverlay').classList.remove('hidden');
      try {
          var jql = 'project = ' + projectKey + ' ORDER BY updated DESC';
+         lastJqlCache.key = '';
+         lastJqlCache.data = null;
          var data = await fetchJQL(state.currentBaseUrl, pat, jql);
          applyDashboardPayload(data);
+         document.getElementById('loadingOverlay').classList.add('hidden');
          showToast('Məlumatlar uğurla yeniləndi!', 'success');
          if (state.todayRefreshInterval) clearInterval(state.todayRefreshInterval);
          state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);

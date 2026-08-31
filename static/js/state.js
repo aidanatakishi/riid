@@ -19,6 +19,7 @@ export const state = {
     dailyDirectionChart: null,
     qurumChart: null,
     sprintDisplayMap: {},
+    sprintCompareChart: null,
     autoRefreshInterval: null,
     isInitialLoad: true,
     jiraFieldNames: {},
@@ -28,8 +29,15 @@ export const state = {
     currentPage: 1,
     tasksPerPage: 10,
     currentDisplayTasks: [],
+    taskListSource: [],
+    taskListView: 'mixed',
+    taskListTitle: 'Tapşırıqların Siyahısı',
+    taskListSearch: '',
+    taskListKeepNested: false,
     EXCLUDED_USERS: ['ilham', 'salmanov', 'gunduz', 'ahmadli', 'ehmedli'],
     STRUCTURE_TYPES: ['istiqamət', 'tədbir', 'istiqamet', 'tedbir'],
     dailyDateRange: null,
-    deferredDirty: true
+    deferredDirty: true,
+    deferredGen: 0,
+    sectionRenderGen: {}
 };

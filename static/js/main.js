@@ -4,10 +4,11 @@ import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponen
 import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig } from './api.js';
 import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, filterTasks, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js';
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
-import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
+import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick } from './assessments.js';
 
-state.onSectionOpen = function(id) { renderLazySection(id, false); };
+state.onSectionOpen = function(id) { renderLazySection(id, true); };
 
 window.showToast = showToast;
 window.animateValue = animateValue;
@@ -89,12 +90,28 @@ window.renderTaskList = renderTaskList;
 window.toggleSubtasks = toggleSubtasks;
 window.toggleRelated = toggleRelated;
 window.changePage = changePage;
+window.showTaskListKind = showTaskListKind;
+window.onTaskListSearchInput = onTaskListSearchInput;
+window.clearTaskListSearch = clearTaskListSearch;
+window.resetTaskListFilter = resetTaskListFilter;
 window.renderWeeklyTasks = renderWeeklyTasks;
 window.renderPausedTasks = renderPausedTasks;
 window.renderSprintComparison = renderSprintComparison;
 window.showUserActivity = showUserActivity;
 window.loadDocxLib = loadDocxLib;
 window.exportTasksToWord = exportTasksToWord;
+window.renderAssessmentSections = renderAssessmentSections;
+window.setAssessmentYear = setAssessmentYear;
+window.setAssessmentYearForActiveTab = setAssessmentYearForActiveTab;
+window.setAssessmentTab = setAssessmentTab;
+window.setAssessmentSearch = setAssessmentSearch;
+window.onAssessmentSearchInput = onAssessmentSearchInput;
+window.clearAssessmentSearch = clearAssessmentSearch;
+window.toggleAssessmentDetail = toggleAssessmentDetail;
+window.getActiveAssessmentTab = getActiveAssessmentTab;
+window.openDiagModal = openDiagModal;
+window.closeDiagModal = closeDiagModal;
+window.onDiagModalOverlayClick = onDiagModalOverlayClick;
 
 Object.defineProperty(window, 'filteredTasks', {
     get: function() { return state.filteredTasks; },
@@ -116,4 +133,6 @@ window.onload = async function() {
     var projectKey = document.getElementById('projectKey').value;
     if (baseUrl && projectKey && pat) fetchDashboardData();
     else toggleSettings();
+    var hub = document.getElementById('assessmentHubContent');
+    if (hub && !hub.classList.contains('hidden')) renderAssessmentSections();
 };

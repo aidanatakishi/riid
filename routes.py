@@ -1,7 +1,7 @@
 from flask import Blueprint, request, jsonify
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY
-from jira_client import fetch_jira_data, fetch_plan_issues, count_jql
+from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql
 from jql import build_date_filter_jql, generate_recommendations
 
 api = Blueprint('api', __name__)
@@ -137,11 +137,28 @@ def proxy_jira():
 
     jql += build_date_filter_jql(date_filter, date_field)
     expand = 'changelog' if data.get('expandChangelog') else None
-    result, error, status = fetch_jira_data(base_url, pat, jql, SEARCH_FIELDS, expand=expand)
+    fields = data.get('fields') or SEARCH_FIELDS
+    result, error, status = fetch_jira_data(base_url, pat, jql, fields, expand=expand)
 
     if error:
         return jsonify(error), status
 
+    return jsonify(result), 200
+
+
+@api.route('/api/jira/fields', methods=['POST', 'OPTIONS'])
+def proxy_jira_fields():
+    if request.method == 'OPTIONS':
+        return options_ok()
+
+    data = request_json()
+    base_url, pat = resolve_credentials(data)
+    if not all([base_url, pat]):
+        return jsonify({"error": "Əksik məlumat"}), 400
+
+    result, error, status = fetch_jira_fields(base_url, pat)
+    if error:
+        return jsonify(error), status
     return jsonify(result), 200
 
 

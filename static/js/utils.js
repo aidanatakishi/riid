@@ -28,6 +28,11 @@ export function animateValue(id, start, end, duration) {
         window.cancelAnimationFrame(animFrames[id]);
         delete animFrames[id];
     }
+    var shown = parseInt(obj.innerText, 10);
+    if (!duration || shown === end) {
+        obj.innerText = end;
+        return;
+    }
     var startTimestamp = null;
     var step = function(timestamp) {
         if (!startTimestamp) startTimestamp = timestamp;
@@ -105,13 +110,20 @@ export function toggleDropdown(id) {
     if (!el.classList.contains('hidden')) {
         el.classList.add('slide-down');
         if (icon) icon.style.transform = 'rotate(180deg)';
-        if (typeof state.onSectionOpen === 'function') state.onSectionOpen(id);
+        try {
+            if (typeof state.onSectionOpen === 'function') state.onSectionOpen(id);
+        } catch (err) {
+            console.error('Section open failed:', id, err);
+        }
         setTimeout(function() {
-            if (typeof state.statusChart !== 'undefined' && state.statusChart) state.statusChart.resize();
-            if (typeof state.assigneeChart !== 'undefined' && state.assigneeChart) state.assigneeChart.resize();
-            if (typeof state.epicChart !== 'undefined' && state.epicChart) state.epicChart.resize();
-            if (typeof state.labelChart !== 'undefined' && state.labelChart) state.labelChart.resize();
-            if (typeof state.qurumChart !== 'undefined' && state.qurumChart) state.qurumChart.resize();
+            try {
+                if (typeof state.statusChart !== 'undefined' && state.statusChart) state.statusChart.resize();
+                if (typeof state.assigneeChart !== 'undefined' && state.assigneeChart) state.assigneeChart.resize();
+                if (typeof state.epicChart !== 'undefined' && state.epicChart) state.epicChart.resize();
+                if (typeof state.labelChart !== 'undefined' && state.labelChart) state.labelChart.resize();
+                if (typeof state.qurumChart !== 'undefined' && state.qurumChart) state.qurumChart.resize();
+                if (typeof state.sprintCompareChart !== 'undefined' && state.sprintCompareChart) state.sprintCompareChart.resize();
+            } catch (err2) {}
         }, 300);
     } else {
         if (icon) icon.style.transform = 'rotate(0deg)';

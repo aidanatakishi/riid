@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isDateInReportPeriod, isDueInSelectedWeek, resolveDirection } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isDateInReportPeriod, isDueInSelectedWeek, isSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -220,8 +220,7 @@ export async function exportTasksToWord(title) {
                 var link = t.fields.issuelinks[i];
                 var linkedIssue = link.outwardIssue || link.inwardIssue;
                 if (linkedIssue && linkedIssue.fields && linkedIssue.fields.issuetype) {
-                    var linkedType = normalizeStr(linkedIssue.fields.issuetype.name);
-                    if (linkedType.includes('alt') || linkedType.includes('sub')) {
+                    if (isSubtaskType(linkedIssue)) {
                         hasChildren = true;
                         break;
                     }
@@ -233,12 +232,6 @@ export async function exportTasksToWord(title) {
             reportUnits.push(t);
         }
     });
-
-    function isSubtaskType(t) {
-        if (!t || !t.fields || !t.fields.issuetype) return false;
-        var n = normalizeStr(t.fields.issuetype.name);
-        return n.includes('alt') || n.includes('sub');
-    }
 
     function isPausedTask(t) {
         if (!t || !t.fields || !t.fields.status) return false;
@@ -551,7 +544,8 @@ export async function exportTasksToWord(title) {
         for (var i = 0; i < entries.length; i++) {
             if (entries[i].date && isDateInReportPeriod(entries[i].date, start, end)) return true;
         }
-        return false;
+        var raw = getRawPhaseEntries(t, start, end);
+        return raw.length > 0;
     }
 
     function collectMonthlySource(info) {
@@ -570,12 +564,46 @@ export async function exportTasksToWord(title) {
         return out;
     }
 
+    function phaseFieldIndex(entry) {
+        var n = PHASE_FIELDS.length;
+        var i = entry && typeof entry.fieldIndex === 'number' ? entry.fieldIndex : -1;
+        if (i >= 0 && i < n) return i;
+        return 0;
+    }
+
+    function uniqueMonthlyPhaseEntries(entries) {
+        var byKey = {};
+        (entries || []).forEach(function(e) {
+            if (!e || !e.text) return;
+            var body = normalizeStr(String(e.text).replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?\s*/i, '').replace(/[.]+$/, ''));
+            if (!body) return;
+            var fi = phaseFieldIndex(e);
+            var day = e.date ? formatDateObj(e.date) : '';
+            var key = fi + '|' + day + '|' + body;
+            var prev = byKey[key];
+            if (!prev) {
+                byKey[key] = e;
+                return;
+            }
+            var prevTime = prev.date ? prev.date.getTime() : 0;
+            var nextTime = e.date ? e.date.getTime() : 0;
+            if (nextTime >= prevTime) byKey[key] = e;
+        });
+        return Object.keys(byKey).map(function(k) { return byKey[k]; });
+    }
+
     function issueMonthPhaseEntries(t, info) {
         if (!t || !info) return [];
-        var inPeriod = uniquePhaseEntries(getDatedPhaseEntries(t)).filter(function(entry) {
+        var collected = (getDatedPhaseEntries(t) || []).concat(getRawPhaseEntries(t, info.start, info.end) || []);
+        var inPeriod = uniqueMonthlyPhaseEntries(collected).filter(function(entry) {
             return entry && entry.date && isDateInReportPeriod(entry.date, info.start, info.end);
         });
-        inPeriod.sort(function(a, b) { return a.date - b.date; });
+        inPeriod.sort(function(a, b) {
+            var da = a.date ? a.date.getTime() : 0;
+            var db = b.date ? b.date.getTime() : 0;
+            if (da !== db) return da - db;
+            return phaseFieldIndex(a) - phaseFieldIndex(b);
+        });
         return inPeriod;
     }
 
@@ -590,6 +618,61 @@ export async function exportTasksToWord(title) {
         return (t && t.fields && t.fields.summary) ? String(t.fields.summary).trim() : '';
     }
 
+    function isWeakQurumLabel(label, t) {
+        if (!label) return true;
+        var s = String(label).trim();
+        if (!s || s === '—' || s === '-') return true;
+        if (t && t.key && s === t.key) return true;
+        return false;
+    }
+
+    function resolvePhaseQurum(t) {
+        var cur = t;
+        var depth = 0;
+        while (cur && depth < 10) {
+            var q = getQurumName(cur);
+            if (q && String(q).trim()) return String(q).trim();
+            cur = getParentIssue(cur);
+            depth++;
+        }
+        var parent = getParentIssue(t);
+        var parentSum = parent && parent.fields && parent.fields.summary ? String(parent.fields.summary).trim() : '';
+        var assessed = getAssessmentQurumLabel(t);
+        if (!isWeakQurumLabel(assessed, t)) {
+            var dir = resolveDirection(t);
+            var dirName = dir && dir.fields && dir.fields.summary ? String(dir.fields.summary).trim() : '';
+            if (dirName && normalizeStr(assessed) === normalizeStr(dirName) && parentSum && normalizeStr(parentSum) !== normalizeStr(dirName)) {
+                return parentSum;
+            }
+            return String(assessed).trim();
+        }
+        if (parentSum) return parentSum;
+        var own = taskSummary(t);
+        if (own) return own;
+        return (t && t.key) || 'Qurum təyin edilməyib';
+    }
+
+    function textHasQurum(text, qurum) {
+        if (!qurum || !text) return false;
+        var needle = normalizeStr(qurum);
+        return !!(needle && normalizeStr(text).indexOf(needle) !== -1);
+    }
+
+    function withQurumOnTitle(name, qurum) {
+        if (!name) return name;
+        if (!qurum || textHasQurum(name, qurum)) return name;
+        return qurum + ' — ' + name;
+    }
+
+    function formatMonthlyEntryLine(entry, qurum) {
+        var text = formatEntryLine(entry);
+        if (!text) return '';
+        if (qurum && !textHasQurum(text, qurum)) {
+            text = text.replace(/\.?\s*$/, '') + ' (' + qurum + ').';
+        }
+        return text;
+    }
+
     function collectMonthlyWorkUnits(dirTasks, info) {
         var seen = {};
         var units = [];
@@ -601,16 +684,29 @@ export async function exportTasksToWord(title) {
                 return child && !isSkippedMonthlyTask(child);
             });
             if (kids.length > 0) {
-                var before = units.length;
                 kids.forEach(walk);
-                if (units.length > before) return;
             }
             var entries = issueMonthPhaseEntries(t, info);
             if (entries.length === 0) return;
-            units.push({ task: t, entries: entries });
+            var qurum = resolvePhaseQurum(t);
+            units.push({
+                task: t,
+                qurum: qurum,
+                entries: entries.map(function(e) {
+                    var copy = Object.assign({}, e);
+                    if (!copy.qurum) copy.qurum = qurum;
+                    return copy;
+                })
+            });
         }
         (dirTasks || []).forEach(walk);
         units.sort(function(a, b) {
+            var na = (a.entries || []).length;
+            var nb = (b.entries || []).length;
+            if (na !== nb) return na - nb;
+            var ia = a.entries && a.entries[0] ? phaseFieldIndex(a.entries[0]) : 0;
+            var ib = b.entries && b.entries[0] ? phaseFieldIndex(b.entries[0]) : 0;
+            if (ia !== ib) return ia - ib;
             var da = a.entries[0] && a.entries[0].date ? a.entries[0].date.getTime() : 0;
             var db = b.entries[0] && b.entries[0].date ? b.entries[0].date.getTime() : 0;
             if (da !== db) return da - db;
@@ -638,17 +734,76 @@ export async function exportTasksToWord(title) {
     }
 
     function appendMonthlyTaskEntries(monthChildren, units, fontName, skipFn) {
+        var rows = [];
         (units || []).forEach(function(row) {
             var t = row && row.task;
             if (!t || (skipFn && skipFn(t))) return;
             var name = taskSummary(t);
             if (!name) return;
-            var lines = [];
-            appendEntryLines(lines, row.entries);
-            if (lines.length === 0) return;
-            monthChildren.push(monthlyTaskNameParagraph(name, fontName));
-            lines.forEach(function(line, idx) {
-                monthChildren.push(monthlyPhaseParagraph(line, fontName, idx === lines.length - 1));
+            var qurum = row.qurum || resolvePhaseQurum(t);
+            var entries = (row.entries || []).filter(function(e) { return e && e.text; });
+            if (entries.length === 0) return;
+            entries.sort(function(a, b) {
+                var da = a.date ? a.date.getTime() : 0;
+                var db = b.date ? b.date.getTime() : 0;
+                if (da !== db) return da - db;
+                return phaseFieldIndex(a) - phaseFieldIndex(b);
+            });
+            rows.push({
+                task: t,
+                name: withQurumOnTitle(name, qurum),
+                qurum: qurum,
+                entries: entries
+            });
+        });
+
+        var fieldCount = [];
+        var fi;
+        for (fi = 0; fi < PHASE_FIELDS.length; fi++) fieldCount[fi] = 0;
+        rows.forEach(function(row) {
+            row.entries.forEach(function(e) {
+                fieldCount[phaseFieldIndex(e)]++;
+            });
+        });
+
+        var fieldOrder = [];
+        for (fi = 0; fi < PHASE_FIELDS.length; fi++) {
+            if (fieldCount[fi] > 0) fieldOrder.push(fi);
+        }
+        fieldOrder.sort(function(a, b) {
+            if (fieldCount[a] !== fieldCount[b]) return fieldCount[a] - fieldCount[b];
+            return a - b;
+        });
+
+        var listed = {};
+        fieldOrder.forEach(function(homeFi) {
+            var groupRows = rows.filter(function(row) {
+                var rowKey = (row.task && row.task.key) || row.name;
+                if (rowKey && listed[rowKey]) return false;
+                return row.entries.some(function(e) { return phaseFieldIndex(e) === homeFi; });
+            });
+            groupRows.sort(function(a, b) {
+                if (a.entries.length !== b.entries.length) return a.entries.length - b.entries.length;
+                return a.name.localeCompare(b.name, 'az');
+            });
+            groupRows.forEach(function(row) {
+                var key = (row.task && row.task.key) || row.name;
+                if (key) listed[key] = true;
+                var lines = [];
+                var seenLine = {};
+                row.entries.forEach(function(entry) {
+                    var line = formatMonthlyEntryLine(entry, entry.qurum || row.qurum);
+                    if (!line) return;
+                    var lk = normalizeStr(line);
+                    if (!lk || seenLine[lk]) return;
+                    seenLine[lk] = true;
+                    lines.push(line);
+                });
+                if (lines.length === 0) return;
+                monthChildren.push(monthlyTaskNameParagraph(row.name, fontName));
+                lines.forEach(function(line, idx) {
+                    monthChildren.push(monthlyPhaseParagraph(line, fontName, idx === lines.length - 1));
+                });
             });
         });
     }

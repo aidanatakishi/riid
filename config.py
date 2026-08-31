@@ -29,20 +29,25 @@ JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
 
 SEARCH_FIELDS = (
-    "summary,status,duedate,customfield_10807,customfield_10808,"
+    "summary,status,duedate,description,customfield_10807,customfield_10808,"
     "customfield_15611,customfield_15612,customfield_15613,customfield_15614,"
     "customfield_15615,customfield_15616,customfield_15617,customfield_15618,"
     "customfield_15619,customfield_15620,components,assignee,reporter,updated,"
     "created,resolutiondate,priority,labels,customfield_10101,customfield_10107,customfield_10008,"
-    "customfield_10015,customfield_10016,customfield_12703,customfield_13608,"
+    "customfield_10015,customfield_10016,customfield_12703,customfield_13608,customfield_12424,"
+    "customfield_17315,customfield_17316,customfield_17317,customfield_17318,"
+    "customfield_17319,customfield_17320,"
     "issuetype,subtasks,parent,issuelinks"
 )
 
 HIERARCHY_FIELDS = (
-    "summary,status,duedate,customfield_10807,customfield_10808,components,"
+    "summary,status,duedate,description,customfield_10807,customfield_10808,components,"
     "assignee,reporter,updated,created,priority,labels,customfield_10101,"
     "customfield_10107,customfield_10008,customfield_10015,customfield_10016,"
-    "customfield_12703,customfield_13608,issuetype,subtasks,parent,issuelinks"
+    "customfield_12703,customfield_13608,customfield_12424,"
+    "customfield_17315,customfield_17316,customfield_17317,customfield_17318,"
+    "customfield_17319,customfield_17320,"
+    "issuetype,subtasks,parent,issuelinks"
 )
 
 DATETIME_FIELDS = ['created', 'updated', 'customfield_10015', 'customfield_10016']

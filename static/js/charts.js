@@ -1,10 +1,70 @@
 import { state } from './state.js';
-import { getInitials, normalizeStr, toggleDropdown } from './utils.js';
+import { getInitials, normalizeStr, showToast } from './utils.js';
 import { countableWorkUnits, currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, resolveDirection } from './model.js';
-import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter } from './filters.js';
-import { renderTaskList, showUserActivity } from './render.js';
+import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
+import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
+
+var chartRebuildRaf = {};
+var chartRebuildFn = {};
+function debounceChartRebuild(name, fn) {
+    chartRebuildFn[name] = fn;
+    if (chartRebuildRaf[name]) return;
+    chartRebuildRaf[name] = requestAnimationFrame(function() {
+        chartRebuildRaf[name] = 0;
+        var run = chartRebuildFn[name];
+        chartRebuildFn[name] = null;
+        if (run) run();
+    });
+}
+
+function taskLabelNames(t) {
+    var raw = (t && t.fields && t.fields.labels) ? t.fields.labels : [];
+    return raw.map(function(lbl) {
+        if (lbl && typeof lbl === 'object') return String(lbl.name || lbl.value || '').trim();
+        return String(lbl || '').trim();
+    }).filter(Boolean);
+}
+
+function taskMatchesChartLabel(t, selectedLabel) {
+    var labels = taskLabelNames(t);
+    if (selectedLabel === 'Etiketsiz') return labels.length === 0;
+    return labels.indexOf(selectedLabel) !== -1;
+}
+
+function uniqueTasksByKey(tasks) {
+    var seen = {};
+    return (tasks || []).filter(function(t) {
+        if (!t || !t.key || seen[t.key]) return false;
+        seen[t.key] = true;
+        return true;
+    });
+}
+
+function directionLabelTasks(dirKey) {
+    return uniqueTasksByKey(countableWorkUnits(state.filteredTasks).filter(function(t) {
+        var dir = resolveDirection(t);
+        return dir && dir.key === dirKey;
+    }));
+}
+
+function etiketsizTasks(directionTasks) {
+    return uniqueTasksByKey((directionTasks || []).filter(function(t) {
+        return taskMatchesChartLabel(t, 'Etiketsiz');
+    }));
+}
+
+function tasksForChartLabel(directionTasks, selectedLabel) {
+    if (selectedLabel === 'Etiketsiz') return etiketsizTasks(directionTasks);
+    return uniqueTasksByKey((directionTasks || []).filter(function(t) {
+        return taskMatchesChartLabel(t, selectedLabel);
+    }));
+}
 
 export function renderStatusChart(tasks) {
+    debounceChartRebuild('statusChart', function() { drawStatusChart(tasks); });
+}
+
+function drawStatusChart(tasks) {
     var gN = { 'done': 'Tamamlanmış', 'progress': 'İcradakı', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
     var gC = { 'done': '#10b981', 'progress': '#3b82f6', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
     var order = ['done', 'progress', 'planned', 'blocked', 'rejected', 'paused', 'other'];
@@ -73,9 +133,12 @@ export function renderStatusChart(tasks) {
             onClick: function(e, c) {
                 if (!c.length) return;
                 var k = keys[c[0].index];
-                renderTaskList(countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), gN[k] + ' - Tapşırıqları');
-                toggleDropdown('taskListContent');
-                document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
+                if (k === 'blocked') {
+                    showDifficulties();
+                    return;
+                }
+                renderTaskList(countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), gN[k] + ' - Tapşırıqları', { keepNested: true });
+                openTaskListSection();
             }
         },
         plugins: [centerTextPlugin]
@@ -83,6 +146,10 @@ export function renderStatusChart(tasks) {
 }
 
 export function renderAssigneeChart(tasks) {
+    debounceChartRebuild('assigneeChart', function() { drawAssigneeChart(tasks); });
+}
+
+function drawAssigneeChart(tasks) {
     var counts = {};
     countableWorkUnits(tasks).forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
     var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
@@ -127,7 +194,7 @@ export function renderAssigneeChart(tasks) {
                 if (!c.length) return;
                 state.currentAssigneeFilter = labels[c[0].index];
                 applyFilters();
-                toggleDropdown('taskListContent');
+                openTaskListSection();
             },
             plugins: {
                 legend: { display: false },
@@ -217,6 +284,10 @@ export function renderEpicChart(tasks) {
 }
 
 export function renderQurumChart(tasks) {
+    debounceChartRebuild('qurumChart', function() { drawQurumChart(tasks); });
+}
+
+function drawQurumChart(tasks) {
     var qurumData = {};
     countableWorkUnits(tasks).forEach(function(t) {
         var qName = getQurumName(t) || 'Təyin edilməyib';
@@ -293,6 +364,10 @@ export function renderQurumChart(tasks) {
 }
 
 export function renderLabelChart() {
+    debounceChartRebuild('labelChart', drawLabelChart);
+}
+
+function drawLabelChart() {
     var exc = ['tədbirlərin statistikası', 'tədbirin statistikasi', 'statistika'];
     var directionLabels = [];
     var allLabelsSet = new Set();
@@ -300,14 +375,20 @@ export function renderLabelChart() {
     state.allDirections.forEach(function(d) {
         var name = d.fields.summary;
         if (exc.some(function(kw) { return normalizeStr(name).includes(kw); })) return;
-        var dirTasks = countableWorkUnits(state.filteredTasks).filter(function(t) { var dir = resolveDirection(t); return dir && dir.key === d.key; });
+        var dirTasks = directionLabelTasks(d.key);
         if (dirTasks.length > 0) {
             directionLabels.push(name);
             dataMatrix[name] = {};
+            var unlabeled = etiketsizTasks(dirTasks);
+            if (unlabeled.length) {
+                allLabelsSet.add('Etiketsiz');
+                dataMatrix[name]['Etiketsiz'] = unlabeled.length;
+            }
             dirTasks.forEach(function(t) {
-                var labels = t.fields.labels || [];
-                if (labels.length === 0) { allLabelsSet.add('Etiketsiz'); dataMatrix[name]['Etiketsiz'] = (dataMatrix[name]['Etiketsiz'] || 0) + 1; }
-                else { labels.forEach(function(lbl) { var l = lbl.trim(); if (l) { allLabelsSet.add(l); dataMatrix[name][l] = (dataMatrix[name][l] || 0) + 1; } }); }
+                taskLabelNames(t).forEach(function(l) {
+                    allLabelsSet.add(l);
+                    dataMatrix[name][l] = (dataMatrix[name][l] || 0) + 1;
+                });
             });
         }
     });
@@ -324,10 +405,10 @@ export function renderLabelChart() {
             var selectedLabel = datasets[datasetIndex].label;
             var dirObj = state.allDirections.find(function(d) { return d.fields.summary === selectedDir; });
             if (dirObj) {
-                var fTasks = countableWorkUnits(state.filteredTasks).filter(function(t) { var tDir = resolveDirection(t); return tDir && tDir.key === dirObj.key && (t.fields.labels || []).includes(selectedLabel); });
-                renderTaskList(fTasks, selectedDir + ' - Etiket: ' + selectedLabel);
-                toggleDropdown('taskListContent');
-                document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
+                var fTasks = tasksForChartLabel(directionLabelTasks(dirObj.key), selectedLabel);
+                renderTaskList(fTasks, selectedDir + ' - Etiket: ' + selectedLabel, { keepNested: true });
+                if (fTasks.length === 0) showToast('Bu istiqamət və etiket üçün tapşırıq tapılmadı.', 'info');
+                openTaskListSection();
             }
         }
     };

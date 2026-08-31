@@ -1,12 +1,13 @@
 import { state } from './state.js';
-import { normalizeStr, showToast, toggleDropdown } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { normalizeStr, showToast } from './utils.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
-import { renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
+import { renderAssessmentSections } from './assessments.js';
 
-var historicalChangelogLoading = false;
 var userChoseSprint = false;
+var filterPaintRaf = 0;
 var AZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun', 'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
 var dateDraft = { start: '', end: '', viewYear: 0, viewMonth: 0 };
 
@@ -250,7 +251,7 @@ function tasksWithoutStartDate() {
             if (!sprints.includes(sprintVal)) return false;
         }
         if (getTaskStartDate(t)) return false;
-        if (!isLeafWorkUnit(t)) return false;
+        if (!isTaskType(t)) return false;
         if (state.currentDirectionFilter) {
             var dir = resolveDirection(t);
             if (!dir || dir.key !== state.currentDirectionFilter) return false;
@@ -487,16 +488,6 @@ export function applyFilters() {
             }
             return t;
         });
-        if (!historicalChangelogLoading && state.ensureChangelogs) {
-            var missingLog = state.filteredTasks.some(function(t) { return t && !t.changelog; });
-            if (missingLog) {
-                historicalChangelogLoading = true;
-                Promise.resolve(state.ensureChangelogs(state.filteredTasks)).then(function() {
-                    historicalChangelogLoading = false;
-                    applyFilters();
-                }).catch(function() { historicalChangelogLoading = false; });
-            }
-        }
     }
 
     state.epicChartTasks = countableWorkUnits(state.sprintDateFiltered.filter(function(t) {
@@ -537,13 +528,25 @@ export function applyFilters() {
     }
 
     renderStats(state.filteredTasks);
-    renderStatusChart(state.filteredTasks);
-    renderAssigneeChart(state.filteredTasks);
-    renderEpicChart(state.epicChartTasks);
     updateCollapsedCounts();
+    state.deferredGen = (state.deferredGen || 0) + 1;
     state.deferredDirty = true;
-    renderVisibleLazySections();
     saveFiltersToStorage();
+    scheduleFilterPaint();
+}
+
+function scheduleFilterPaint() {
+    if (filterPaintRaf) cancelAnimationFrame(filterPaintRaf);
+    filterPaintRaf = requestAnimationFrame(function() {
+        filterPaintRaf = 0;
+        renderStatusChart(state.filteredTasks);
+        renderAssigneeChart(state.filteredTasks);
+        renderEpicChart(state.epicChartTasks);
+        var runLazy = function() { renderVisibleLazySections(); };
+        if (typeof requestIdleCallback === 'function') requestIdleCallback(runLazy, { timeout: 180 });
+        else requestAnimationFrame(runLazy);
+        state.deferredDirty = false;
+    });
 }
 
 function isSectionOpen(id) {
@@ -558,7 +561,7 @@ function updateCollapsedCounts() {
     if (weeklyDiff) weeklyDiff.innerText = 'Cəmi ' + planned.length + ' tapşırıq';
     var pausedSource = state.sprintDateFiltered || [];
     var pausedTasks = pausedSource.filter(function(t) {
-        if (!isLeafWorkUnit(t)) return false;
+        if (!isTaskType(t)) return false;
         var statusNorm = normalizeStr(t.fields.status.name);
         return statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti') || statusNorm.includes('paused');
     });
@@ -568,7 +571,8 @@ function updateCollapsedCounts() {
 
 export function renderVisibleLazySections() {
     ['dailyActivityContent', 'labelChartContent', 'qurumStatContent', 'sprintComparisonContent',
-     'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent'].forEach(function(id) {
+     'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent',
+     'assessmentHubContent'].forEach(function(id) {
         if (isSectionOpen(id)) renderLazySection(id, true);
     });
 }
@@ -584,19 +588,22 @@ export function renderLazySection(id, force) {
     if (id === 'labelChartContent') { renderLabelChart(); return; }
     if (id === 'qurumStatContent') { renderQurumChart(state.qurumChartTasks); return; }
     if (id === 'sprintComparisonContent') {
-        Promise.resolve(state.ensureChangelogs && state.ensureChangelogs(state.allTasks)).then(function() {
-            renderSprintComparison();
-        });
+        try { renderSprintComparison(); } catch (err) { console.error(err); }
+        Promise.resolve(state.ensureChangelogs && state.ensureChangelogs(state.allTasks)).then(function(updated) {
+            if (updated) {
+                try { renderSprintComparison(); } catch (err2) { console.error(err2); }
+            }
+        }).catch(function() {});
         return;
     }
     if (id === 'weeklyContent') { renderWeeklyTasks(); return; }
     if (id === 'pausedContent') { renderPausedTasks(); return; }
     if (id === 'cetinliklerContent') { renderDifficulties(state.filteredTasks); return; }
+    if (id === 'assessmentHubContent') {
+        try { renderAssessmentSections(); } catch (err) { console.error(err); }
+        return;
+    }
     if (id === 'taskListContent') {
-        if (!force) {
-            var listDiv = document.getElementById('taskList');
-            if (listDiv && listDiv.innerHTML) return;
-        }
         renderTaskList(state.filteredTasks);
     }
 }
@@ -693,9 +700,9 @@ export function filterSprintComparison(sprintName, type) {
     var isSelectedSprint = state.sprintDisplayMap[sprintName] === 'Seçilmiş sprint' || state.sprintDisplayMap[sprintName] === 'Cari həftə';
     var sTasks;
     if (isSelectedSprint && (useDateFilter || (sprintVal && sprintVal !== 'all' && sprintVal === sprintName))) {
-        sTasks = (state.sprintDateFiltered || []).filter(isLeafWorkUnit);
+        sTasks = (state.sprintDateFiltered || []).filter(isTaskType);
     } else {
-        sTasks = state.allTasks.filter(function(t) { return isLeafWorkUnit(t) && getSprintNames(t).includes(sprintName); });
+        sTasks = state.allTasks.filter(function(t) { return isTaskType(t) && getSprintNames(t).includes(sprintName); });
     }
     var curSprint = null, prevSprint = null;
     for (var key in state.sprintDisplayMap) {
@@ -754,9 +761,14 @@ export function filterSprintComparison(sprintName, type) {
     }
     else { f = validSTasks; }
 
-    renderTaskList(f, title);
-    toggleDropdown('taskListContent');
-    document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
+    renderTaskList(f, title, { keepNested: true });
+    openTaskListSection();
+
+    document.querySelectorAll('#sprintComparison [data-sc-type]').forEach(function(el) {
+        var on = el.getAttribute('data-sprint') === sprintName && el.getAttribute('data-sc-type') === type;
+        el.classList.toggle('is-active', on);
+        if (el.tagName === 'BUTTON') el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
 }
 
 export function selectDailyUser(userName) {
@@ -850,14 +862,11 @@ export function filterTasks(type) {
         f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
         title = "Tamamlanmış (Həll edilib) Tapşırıqlar"; 
     }
-    else if (type === 'blocked') { 
-        f = units.filter(function(t) { 
-            var g = getStatusGroup(t.fields.status.name); 
-            return (g === 'blocked' || hasValidDifficulty(t)) && g !== 'rejected'; 
-        }); 
-        title = 'Çətinliklər'; 
+    else if (type === 'blocked') {
+        showDifficulties();
+        return;
     }
-    else if (type === 'rejected') { f = (state.filteredTasks || []).filter(function(t) { return isLeafWorkUnit(t) && getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
+    else if (type === 'rejected') { f = (state.filteredTasks || []).filter(function(t) { return isTaskType(t) && getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
     else if (type === 'other') { f = units.filter(function(t) { var g = getStatusGroup(t.fields.status.name); return g === 'other' && !hasValidDifficulty(t); }); title = 'Digər Statusda Olan Tapşırıqlar'; }
     else if (type === 'noStart') {
         f = tasksWithoutStartDate();
@@ -866,7 +875,7 @@ export function filterTasks(type) {
     }
     
     renderTaskList(f, title);
-    renderQurumChart(f);
+    if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
     
     var listEl = document.getElementById('taskListContent');
     listEl.classList.remove('hidden');

@@ -273,7 +273,7 @@
         </div>
 
         <div id="blockedCard" class="card p-0 cursor-pointer active:scale-95 transition relative overflow-hidden flex flex-col">
-            <div onclick="filterTasks('blocked');" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
+            <div onclick="showDifficulties();" class="p-4 md:p-5 flex-1 transition hover:bg-slate-50">
                 <div class="flex flex-col h-full">
                     <div class="flex justify-between items-center mb-3">
                         <span class="bg-red-50 text-red-600 p-2 rounded-xl shadow-sm">
@@ -360,12 +360,15 @@
     <div class="card overflow-hidden mb-6 fade-in">
         <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('labelChartContent')">
             <div class="flex items-center gap-3 min-w-0">
-                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600 shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" /></svg>
                 </span>
-                <h2 class="font-bold text-base md:text-lg text-slate-800">İstiqamətlər üzrə əhatəli analitika</h2>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">İstiqamətlər üzrə əhatəli analitika</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">İstiqamət və etiket üzrə süzgəc</p>
+                </div>
             </div>
-            <svg id="icon-labelChartContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            <svg id="icon-labelChartContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
         </div>
         <div id="labelChartContent" class="p-4 md:p-5 hidden">
             <div class="h-80 md:h-96 overflow-y-auto min-w-0">
@@ -377,12 +380,15 @@
     <div class="card overflow-hidden mb-6 fade-in">
         <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('qurumStatContent')">
             <div class="flex items-center gap-3 min-w-0">
-                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600">
+                <span class="bg-indigo-100 p-2 rounded-lg text-indigo-600 shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 21V5a2 2 0 0 0-2-2H7a2 2 0 0 0-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" /></svg>
                 </span>
-                <h2 class="font-bold text-base md:text-lg text-slate-800">Qurumlar üzrə Statistika</h2>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Qurumlar üzrə Statistika</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Qurum adı ilə axtarış və statistika</p>
+                </div>
             </div>
-            <svg id="icon-qurumStatContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            <svg id="icon-qurumStatContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
         </div>
         <div id="qurumStatContent" class="p-4 md:p-5 hidden">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -414,17 +420,64 @@
         </div>
     </div>
 
-    <div class="card overflow-hidden mb-6 fade-in">
+    <div class="card overflow-hidden mb-6 fade-in assess-hub-card">
+        <div class="assess-hub-head bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('assessmentHubContent')">
+            <div class="flex items-center gap-3 min-w-0">
+                <span class="assess-hub-icon shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                </span>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Qiymətləndirmə və nəticələr</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Qurumlar üzrə nəticələr — il və axtarış ilə süzgəc</p>
+                </div>
+            </div>
+            <svg id="icon-assessmentHubContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+        </div>
+        <div id="assessmentHubContent" class="assess-section hidden">
+            <div class="assess-hub-chrome" onclick="event.stopPropagation();">
+                <div class="assess-hub-tabs" role="tablist" aria-label="Qiymətləndirmə bölmələri">
+                    <button type="button" class="assess-tab is-active" data-tab="diag" role="tab" aria-selected="true" onclick="setAssessmentTab('diag')">Diaqnostika</button>
+                    <button type="button" class="assess-tab" data-tab="isq" role="tab" aria-selected="false" onclick="setAssessmentTab('isq')">İSQ</button>
+                    <button type="button" class="assess-tab" data-tab="self" role="tab" aria-selected="false" onclick="setAssessmentTab('self')">Özünüqiymətləndirmə</button>
+                    <button type="button" class="assess-tab" data-tab="exq" role="tab" aria-selected="false" onclick="setAssessmentTab('exq')">Elektron xidmət</button>
+                    <button type="button" class="assess-tab" data-tab="meqsed" role="tab" aria-selected="false" onclick="setAssessmentTab('meqsed')">Məqsədəuyğunluq</button>
+                </div>
+                <div class="assess-toolbar-year">
+                    <span class="assess-toolbar-year-label">İl</span>
+                    <div id="assessmentYearPills" class="assess-year-pills" role="group" aria-label="İl"></div>
+                    <select id="assessmentYearSelect" class="assess-year-fallback" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
+                </div>
+            </div>
+            <div class="assess-hub-toolbar" onclick="event.stopPropagation();">
+                <div class="assess-search-wrap">
+                    <span class="assess-search-slot" aria-hidden="true">
+                        <svg class="assess-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    </span>
+                    <input type="text" id="assessSearchInput" class="assess-search-input" placeholder="Qurum axtar..." autocomplete="off" oninput="onAssessmentSearchInput(this.value)">
+                    <button type="button" id="assessSearchClear" class="assess-search-clear hidden" onclick="clearAssessmentSearch()" aria-label="Axtarışı təmizlə">✕</button>
+                </div>
+            </div>
+            <div id="assessHubMeta" class="assess-hub-meta" aria-live="polite"></div>
+            <div class="assess-hub-body">
+                <div id="assessmentHubBody"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in sc-hub-card">
         <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('sprintComparisonContent')">
             <div class="flex items-center gap-3 min-w-0">
-                <span class="bg-purple-100 p-2 rounded-lg text-purple-600">
+                <span class="bg-purple-100 p-2 rounded-lg text-purple-600 shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                 </span>
-                <h2 class="font-bold text-base md:text-lg text-slate-800">Həftələr üzrə Müqayisə</h2>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Həftələr üzrə Müqayisə</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Seçilmiş və əvvəlki sprint — rəqəmə klikləyib siyahını açın</p>
+                </div>
             </div>
-            <svg id="icon-sprintComparisonContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            <svg id="icon-sprintComparisonContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
         </div>
-        <div id="sprintComparisonContent" class="p-4 md:p-5 hidden">
+        <div id="sprintComparisonContent" class="sc-section hidden">
             <div id="sprintComparison"></div>
         </div>
     </div>
@@ -476,22 +529,59 @@
         </div>
     </div>
 
-    <div class="card overflow-hidden mb-6 fade-in">
-        <div class="bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('taskListContent')">
+    <div class="card overflow-hidden mb-6 fade-in tl-hub-card">
+        <div class="assess-hub-head bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('taskListContent')">
             <div class="flex items-center gap-3 min-w-0">
-                <span class="bg-slate-200 p-2 rounded-lg text-slate-600">
+                <span class="bg-slate-200 p-2 rounded-lg text-slate-600 shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
                 </span>
-                <h2 id="taskListTitle" class="font-bold text-base md:text-lg text-slate-800">Tapşırıqların Siyahısı</h2>
+                <div class="min-w-0">
+                    <h2 id="taskListTitle" class="font-bold text-base md:text-lg text-slate-800">Tapşırıqların Siyahısı</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Tapşırıq və alt-tapşırıqlar</p>
+                </div>
             </div>
-            <button onclick="renderTaskList(filteredTasks, 'Tapşırıqların Siyahısı'); event.stopPropagation();" class="text-xs md:text-sm text-[#5b21b6] hover:underline z-10 whitespace-nowrap transition active:scale-95">Filtri Sıfırla</button>
+            <div class="flex items-center gap-2 shrink-0">
+                <span id="taskListHeaderCount" class="tl-head-count">0</span>
+                <svg id="icon-taskListContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </div>
         </div>
-        <div id="taskListContent" class="p-4 md:p-5 hidden">
-            <div id="taskList"></div>
-            <div id="taskPagination" class="mt-6 flex flex-col md:flex-row justify-center items-center gap-3 md:gap-6"></div>
+        <div id="taskListContent" class="hidden">
+            <div class="assess-hub-tabs" role="tablist" aria-label="Tapşırıq növü" onclick="event.stopPropagation();">
+                <button type="button" id="taskListTabMixed" class="assess-tab is-active" role="tab" aria-selected="true" onclick="showTaskListKind('mixed')">Hamısı <span id="taskListAllCount" class="assess-tab-count">0</span></button>
+                <button type="button" id="taskListTabTasks" class="assess-tab" role="tab" aria-selected="false" onclick="showTaskListKind('tasks')">Tapşırıq <span id="taskListTaskCount" class="assess-tab-count">0</span></button>
+                <button type="button" id="taskListTabSubtasks" class="assess-tab" role="tab" aria-selected="false" onclick="showTaskListKind('subtasks')">Alt-tapşırıq <span id="taskListSubtaskCount" class="assess-tab-count">0</span></button>
+            </div>
+            <div class="assess-hub-toolbar" onclick="event.stopPropagation();">
+                <div class="assess-search-wrap">
+                    <span class="assess-search-slot" aria-hidden="true">
+                        <svg class="assess-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    </span>
+                    <input type="text" id="taskListSearchInput" class="assess-search-input" placeholder="Açar, ad və ya icraçı axtar..." autocomplete="off" oninput="onTaskListSearchInput(this.value)">
+                    <button type="button" id="taskListSearchClear" class="assess-search-clear hidden" onclick="clearTaskListSearch()" aria-label="Axtarışı təmizlə">✕</button>
+                </div>
+                <button type="button" class="tl-reset-btn" onclick="resetTaskListFilter()">Filtri sıfırla</button>
+            </div>
+            <div id="taskListMeta" class="assess-hub-meta" aria-live="polite"></div>
+            <div class="tl-body">
+                <div id="taskList"></div>
+                <div id="taskPagination" class="tl-pagination"></div>
+            </div>
         </div>
     </div>
 
+    <div id="assessDiagModal" class="assess-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="assessDiagModalTitle" aria-hidden="true" onclick="onDiagModalOverlayClick(event)">
+        <div class="assess-modal-panel" onclick="event.stopPropagation()">
+            <button type="button" class="assess-modal-close" onclick="closeDiagModal()" aria-label="Bağla">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div class="assess-modal-head">
+                <p id="assessDiagModalSub" class="assess-modal-kicker">Ümumi nəticə</p>
+                <h3 id="assessDiagModalTitle">—</h3>
+                <a id="assessDiagModalKey" class="assess-modal-key hidden" href="#" target="_blank" rel="noopener noreferrer"></a>
+            </div>
+            <div id="assessDiagModalBody" class="assess-modal-body"></div>
+        </div>
+    </div>
     <div id="datePopoverOverlay" class="date-popover-overlay hidden" onclick="onDateOverlayClick()"></div>
     <script type="module" src="/static/js/main.js"></script>
 
