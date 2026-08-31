@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, toggleDropdown } from './utils.js';
-import { currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, resolveDirection } from './model.js';
+import { countableWorkUnits, currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter } from './filters.js';
 import { renderTaskList, showUserActivity } from './render.js';
 
@@ -9,7 +9,8 @@ export function renderStatusChart(tasks) {
     var gC = { 'done': '#10b981', 'progress': '#3b82f6', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
     var order = ['done', 'progress', 'planned', 'blocked', 'rejected', 'paused', 'other'];
     var counts = {};
-    tasks.forEach(function(t) {
+    var units = countableWorkUnits(tasks);
+    units.forEach(function(t) {
         var k = getStatusGroup(t.fields.status.name);
         if (!gN[k]) return;
         counts[k] = (counts[k] || 0) + 1;
@@ -72,7 +73,7 @@ export function renderStatusChart(tasks) {
             onClick: function(e, c) {
                 if (!c.length) return;
                 var k = keys[c[0].index];
-                renderTaskList(state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), gN[k] + ' - Tapşırıqları');
+                renderTaskList(countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), gN[k] + ' - Tapşırıqları');
                 toggleDropdown('taskListContent');
                 document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });
             }
@@ -83,7 +84,7 @@ export function renderStatusChart(tasks) {
 
 export function renderAssigneeChart(tasks) {
     var counts = {};
-    tasks.forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
+    countableWorkUnits(tasks).forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
     var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
     var data = labels.map(function(n) { return counts[n]; });
     var PALETTE = ['#4c1d95', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2'];
@@ -166,7 +167,7 @@ export function renderAssigneeChart(tasks) {
 export function renderEpicChart(tasks) {
     var counts = {}, dirKeysMap = {}, tasksByDir = {};
     var exc = ['tədbirlərin statistikası', 'tədbirin statistikasi', 'statistika'];
-    tasks.forEach(function(t) {
+    countableWorkUnits(tasks).forEach(function(t) {
         var dir = resolveDirection(t);
         if (dir) { if (!tasksByDir[dir.key]) tasksByDir[dir.key] = []; tasksByDir[dir.key].push(t); }
     });
@@ -217,7 +218,7 @@ export function renderEpicChart(tasks) {
 
 export function renderQurumChart(tasks) {
     var qurumData = {};
-    tasks.forEach(function(t) {
+    countableWorkUnits(tasks).forEach(function(t) {
         var qName = getQurumName(t) || 'Təyin edilməyib';
         if (!qurumData[qName]) qurumData[qName] = { total: 0, done: 0, inProgress: 0, planned: 0, blocked: 0 };
         qurumData[qName].total++;
@@ -299,7 +300,7 @@ export function renderLabelChart() {
     state.allDirections.forEach(function(d) {
         var name = d.fields.summary;
         if (exc.some(function(kw) { return normalizeStr(name).includes(kw); })) return;
-        var dirTasks = state.filteredTasks.filter(function(t) { var dir = resolveDirection(t); return dir && dir.key === d.key; });
+        var dirTasks = countableWorkUnits(state.filteredTasks).filter(function(t) { var dir = resolveDirection(t); return dir && dir.key === d.key; });
         if (dirTasks.length > 0) {
             directionLabels.push(name);
             dataMatrix[name] = {};
@@ -323,7 +324,7 @@ export function renderLabelChart() {
             var selectedLabel = datasets[datasetIndex].label;
             var dirObj = state.allDirections.find(function(d) { return d.fields.summary === selectedDir; });
             if (dirObj) {
-                var fTasks = state.filteredTasks.filter(function(t) { var tDir = resolveDirection(t); return tDir && tDir.key === dirObj.key && (t.fields.labels || []).includes(selectedLabel); });
+                var fTasks = countableWorkUnits(state.filteredTasks).filter(function(t) { var tDir = resolveDirection(t); return tDir && tDir.key === dirObj.key && (t.fields.labels || []).includes(selectedLabel); });
                 renderTaskList(fTasks, selectedDir + ' - Etiket: ' + selectedLabel);
                 toggleDropdown('taskListContent');
                 document.getElementById('taskListContent').scrollIntoView({ behavior: 'smooth' });

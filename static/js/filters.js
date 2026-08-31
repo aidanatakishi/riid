@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleDropdown } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, resolveDirection, sortSprintNames } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
-import { updateReportButtonLabel } from './report.js';
+import { updateReportButtonLabel, duePeriodLabel } from './report.js';
 
 var historicalChangelogLoading = false;
 var userChoseSprint = false;
@@ -123,10 +123,7 @@ export function selectViewedMonth() {
     dateDraft.end = toIsoDate(dateDraft.viewYear, dateDraft.viewMonth, last);
     updateDateDraftChips();
     renderDateCalendar();
-    commitDateDraft();
-    updateDateTriggerLabel();
-    applyFilters();
-    closeDatePopover();
+    applyCommittedDateFilter();
 }
 
 export function shiftDateCalendar(delta) {
@@ -154,9 +151,6 @@ export function pickPopoverDate(iso) {
     }
     updateDateDraftChips();
     renderDateCalendar();
-    commitDateDraft();
-    updateDateTriggerLabel();
-    applyFilters();
 }
 
 export function toggleDatePopover(ev) {
@@ -206,11 +200,23 @@ function commitDateDraft() {
     endEl.value = end;
 }
 
-export function applyDatePopover() {
+function applyCommittedDateFilter() {
+    userChoseSprint = false;
+    var sprintSelect = document.getElementById('sprintFilter');
+    if (sprintSelect) sprintSelect.value = 'all';
     commitDateDraft();
     closeDatePopover();
     updateDateTriggerLabel();
+    updateSprintFilterState();
     applyFilters();
+}
+
+export function applyDatePopover() {
+    if (!dateDraft.start && !dateDraft.end) {
+        closeDatePopover();
+        return;
+    }
+    applyCommittedDateFilter();
 }
 
 export function onDateOverlayClick() {
@@ -227,6 +233,11 @@ export function clearDatePopover() {
     renderDateCalendar();
     closeDatePopover();
     updateDateTriggerLabel();
+    var sprintSelect = document.getElementById('sprintFilter');
+    var names = sprintSelect ? Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; }) : [];
+    var latest = latestSprintValue(sprintSelect, names);
+    if (latest) selectSprintByName(latest);
+    else updateSprintFilterState();
     applyFilters();
 }
 
@@ -239,6 +250,7 @@ function tasksWithoutStartDate() {
             if (!sprints.includes(sprintVal)) return false;
         }
         if (getTaskStartDate(t)) return false;
+        if (!isLeafWorkUnit(t)) return false;
         if (state.currentDirectionFilter) {
             var dir = resolveDirection(t);
             if (!dir || dir.key !== state.currentDirectionFilter) return false;
@@ -332,12 +344,21 @@ export function updateSprintFilterState() {
     if (startStr || endStr) {
         sprintSelect.disabled = false;
         sprintSelect.classList.add('opacity-50');
-        sprintSelect.title = 'Tarix aralığı aktivdir. Sprint seçsəniz, yalnız sprintə görə filter olunacaq.';
+        sprintSelect.title = 'Tarix aralığı aktivdir. Sprint seçsəniz, tarix filteri silinəcək.';
     } else {
         sprintSelect.classList.remove('opacity-50', 'cursor-not-allowed');
         sprintSelect.title = '';
     }
     updateDateTriggerLabel();
+}
+
+function previousSprintValue(sprintSelect, names) {
+    var list = names || [];
+    var selected = sprintSelect && sprintSelect.value;
+    var from = (selected && selected !== 'all') ? selected : latestSprintValue(sprintSelect, list);
+    var idx = list.indexOf(from);
+    if (idx >= 0 && idx + 1 < list.length) return list[idx + 1];
+    return '';
 }
 
 export function selectLatestSprint() {
@@ -350,9 +371,7 @@ export function selectLatestSprint() {
 export function selectPreviousSprint() {
     var sprintSelect = document.getElementById('sprintFilter');
     var names = Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; });
-    var cur = latestSprintValue(sprintSelect, names);
-    var idx = names.indexOf(cur);
-    var prev = (idx >= 0 && idx + 1 < names.length) ? names[idx + 1] : names[1];
+    var prev = previousSprintValue(sprintSelect, names);
     if (selectSprintByName(prev)) {
         userChoseSprint = true;
         applyFilters();
@@ -398,10 +417,6 @@ export function resetAllFilters() {
 }
 
 export function applyFilters() {
-    if (dateDraft.start || dateDraft.end) {
-        commitDateDraft();
-        updateDateTriggerLabel();
-    }
     state.currentPage = 1;
     var sprintSelectEl = document.getElementById('sprintFilter');
     var sprintVal = sprintSelectEl.value;
@@ -431,10 +446,7 @@ export function applyFilters() {
             if (!sprints.includes(sprintVal)) return false;
         }
         if (useDateFilter) {
-            var d = getTaskStartDate(t);
-            if (!d) return false;
-            if (startDateObj && d < startDateObj) return false;
-            if (endDateObj && d > endDateObj) return false;
+            if (!taskBelongsToDateRange(t, startDateObj, endDateObj)) return false;
         }
         return true;
     });
@@ -487,16 +499,16 @@ export function applyFilters() {
         }
     }
 
-    state.epicChartTasks = state.sprintDateFiltered.filter(function(t) {
+    state.epicChartTasks = countableWorkUnits(state.sprintDateFiltered.filter(function(t) {
         if (state.currentQurumFilter) { var q = getQurumName(t) || 'Təyin edilməyib'; if (q !== state.currentQurumFilter) return false; }
         if (state.currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false; }
         return true;
-    });
-    state.qurumChartTasks = state.sprintDateFiltered.filter(function(t) {
+    }));
+    state.qurumChartTasks = countableWorkUnits(state.sprintDateFiltered.filter(function(t) {
         if (state.currentDirectionFilter) { var dir = resolveDirection(t); if (!dir || dir.key !== state.currentDirectionFilter) return false; }
         if (state.currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false; }
         return true;
-    });
+    }));
 
     if (state.currentDirectionFilter) {
         var b = document.getElementById('directionFilterBadge');
@@ -524,7 +536,7 @@ export function applyFilters() {
         document.getElementById('userFilterBadge').classList.remove('flex');
     }
 
-    renderStats(state.sprintDateFiltered);
+    renderStats(state.filteredTasks);
     renderStatusChart(state.filteredTasks);
     renderAssigneeChart(state.filteredTasks);
     renderEpicChart(state.epicChartTasks);
@@ -540,10 +552,13 @@ function isSectionOpen(id) {
 }
 
 function updateCollapsedCounts() {
-    var planned = state.allTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
+    var source = countableWorkUnits(state.filteredTasks);
+    var planned = source.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
     var weeklyDiff = document.getElementById('weeklyDiff');
     if (weeklyDiff) weeklyDiff.innerText = 'Cəmi ' + planned.length + ' tapşırıq';
-    var pausedTasks = state.allTasks.filter(function(t) {
+    var pausedSource = state.sprintDateFiltered || [];
+    var pausedTasks = pausedSource.filter(function(t) {
+        if (!isLeafWorkUnit(t)) return false;
         var statusNorm = normalizeStr(t.fields.status.name);
         return statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti') || statusNorm.includes('paused');
     });
@@ -653,7 +668,7 @@ export function filterQurumByStatus(qName, statusType) {
 }
 
 export function filterTasksByDateStatus(type) {
-    var f = state.filteredTasks.filter(function(t) { return getDateStatus(t) === type; });
+    var f = countableWorkUnits(state.filteredTasks).filter(function(t) { return getDateStatus(t) === type; });
     var title = type === 'early' ? 'Vaxtından Öncə Bitən Tapşırıqlar' : type === 'ontime' ? 'Zamanında Bitən Tapşırıqlar' : 'Gecikən / Vaxtı Keçmiş Tapşırıqlar';
     renderTaskList(f, title);
     var listEl = document.getElementById('taskListContent');
@@ -710,20 +725,13 @@ export function filterSprintComparison(sprintName, type) {
         return isDueInSelectedWeek(t);
     }
 
-    function hasOpenDiff(t, statusName) {
-        var g = getStatusGroup(statusName || '');
-        return hasValidDifficulty(t) && g !== 'done' && g !== 'rejected';
-    }
-
     if (type === 'done') {
         f = validSTasks.filter(function(t) { return getStatusGroup(statusForCompare(t)) === 'done'; });
         title += ' - Tamamlanmış';
     }
     else if (type === 'due') {
         f = validSTasks.filter(function(t) {
-            var status = statusForCompare(t);
-            var g = getStatusGroup(status);
-            return dueInComparedWeek(t) && g !== 'done' && g !== 'rejected' && !hasOpenDiff(t, status);
+            return dueInComparedWeek(t) && getStatusGroup(statusForCompare(t)) !== 'rejected';
         });
         title += ' - Həftə ərzində bitməli olan';
     }
@@ -802,10 +810,11 @@ export function showDifficulties() {
 
 export function showDueThisWeekDoneTasks() {
     var dueTasks = collectDueThisWeekDoneTasks();
+    var label = duePeriodLabel();
     if (dueTasks.length === 0) {
-        showToast('Bu həftə bitməli olub tamamlanan tapşırıq tapılmadı.', 'info');
+        showToast(label + ' olub tamamlanan tapşırıq tapılmadı.', 'info');
     }
-    renderTaskList(dueTasks, 'Bu həftə bitməli olub edilən tapşırıqlar');
+    renderTaskList(dueTasks, label + ' olub edilən tapşırıqlar');
     var listEl = document.getElementById('taskListContent');
     listEl.classList.remove('hidden');
     listEl.classList.add('slide-down');
@@ -814,10 +823,11 @@ export function showDueThisWeekDoneTasks() {
 
 export function showDueThisWeekTasks() {
     var dueTasks = collectDueThisWeekTasks();
+    var label = duePeriodLabel();
     if (dueTasks.length === 0) {
-        showToast('Bu həftə bitməli olan task tapılmadı! (Tarix fields-i yoxlayın)', 'info');
+        showToast(label + ' olan task tapılmadı! (Tarix fields-i yoxlayın)', 'info');
     }
-    renderTaskList(dueTasks, 'Bu həftə bitməli olan Tapşırıqlar');
+    renderTaskList(dueTasks, label + ' olan tapşırıqlar');
     var listEl = document.getElementById('taskListContent');
     listEl.classList.remove('hidden');
     listEl.classList.add('slide-down');
@@ -826,26 +836,29 @@ export function showDueThisWeekTasks() {
 
 export function filterTasks(type) {
     state.currentPage = 1;
-    var f = state.filteredTasks, title = 'Ümumi Tapşırıqların Siyahısı';
+    var units = countableWorkUnits(state.filteredTasks);
+    var f = units, title = 'Ümumi Tapşırıqların Siyahısı';
     
     if (type === 'all') { 
-        f = state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) !== 'rejected'; }); 
+        f = (state.filteredTasks || []).filter(function(t) {
+            return getStatusGroup(t.fields.status.name) !== 'rejected';
+        });
     }
-    if (type === 'planned') { f = state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }); title = 'Növbəti həftə iş yükü (Planlaşdırılıb)'; }
-    else if (type === 'sprint') { f = state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'progress'; }); title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar'; }
+    if (type === 'planned') { f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }); title = 'Növbəti həftə iş yükü (Planlaşdırılıb)'; }
+    else if (type === 'sprint') { f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'progress'; }); title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar'; }
     else if(type==='done') { 
-        f = state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
+        f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
         title = "Tamamlanmış (Həll edilib) Tapşırıqlar"; 
     }
     else if (type === 'blocked') { 
-        f = state.filteredTasks.filter(function(t) { 
+        f = units.filter(function(t) { 
             var g = getStatusGroup(t.fields.status.name); 
             return (g === 'blocked' || hasValidDifficulty(t)) && g !== 'rejected'; 
         }); 
         title = 'Çətinliklər'; 
     }
-    else if (type === 'rejected') { f = state.filteredTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
-    else if (type === 'other') { f = state.filteredTasks.filter(function(t) { var g = getStatusGroup(t.fields.status.name); return g === 'other' && !hasValidDifficulty(t); }); title = 'Digər Statusda Olan Tapşırıqlar'; }
+    else if (type === 'rejected') { f = (state.filteredTasks || []).filter(function(t) { return isLeafWorkUnit(t) && getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
+    else if (type === 'other') { f = units.filter(function(t) { var g = getStatusGroup(t.fields.status.name); return g === 'other' && !hasValidDifficulty(t); }); title = 'Digər Statusda Olan Tapşırıqlar'; }
     else if (type === 'noStart') {
         f = tasksWithoutStartDate();
         title = 'Başlama tarixi boş olan tapşırıqlar';

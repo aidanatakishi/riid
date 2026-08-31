@@ -1,6 +1,12 @@
 import { state } from './state.js';
 import { normalizeStr } from './utils.js';
 
+export function isSubtaskType(t) {
+    if (!t || !t.fields || !t.fields.issuetype) return false;
+    var n = normalizeStr(t.fields.issuetype.name);
+    return n.includes('alt') || n.includes('sub');
+}
+
 export function isLeafWorkUnit(t) {
     if (!t || !t.fields) return false;
     var subtasks = t.fields.subtasks || [];
@@ -10,13 +16,25 @@ export function isLeafWorkUnit(t) {
             var link = t.fields.issuelinks[i];
             var linkedIssue = link.outwardIssue || link.inwardIssue;
             if (!linkedIssue) continue;
-            if (linkedIssue.fields && linkedIssue.fields.issuetype) {
-                var linkedType = normalizeStr(linkedIssue.fields.issuetype.name);
-                if (linkedType.includes('alt') || linkedType.includes('sub')) return false;
-            }
+            if (isSubtaskType(linkedIssue)) return false;
         }
     }
     return true;
+}
+
+export function isExcludedFromDashboardTotal(t) {
+    if (!t || !t.fields || !t.fields.status) return true;
+    var st = normalizeStr(t.fields.status.name || '');
+    if (getStatusGroup(st) === 'rejected') return true;
+    if (st.includes('başlanmamış') || st.includes('baslanmamis')) return true;
+    if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return true;
+    return false;
+}
+
+export function countableWorkUnits(tasks) {
+    return (tasks || []).filter(function(t) {
+        return isLeafWorkUnit(t) && !isExcludedFromDashboardTotal(t);
+    });
 }
 
 export function getParentIssue(t) {
@@ -63,9 +81,7 @@ export function getParentIssue(t) {
         }
     }
     if (!parent) {
-        var typeNameSub = f.issuetype ? normalizeStr(f.issuetype.name) : '';
-        var isSubtaskType = typeNameSub.includes('alt') || typeNameSub.includes('sub');
-        if (isSubtaskType && f.issuelinks && f.issuelinks.length > 0) {
+        if (isSubtaskType(t) && f.issuelinks && f.issuelinks.length > 0) {
             for (var li = 0; li < f.issuelinks.length; li++) {
                 var linked = f.issuelinks[li].outwardIssue || f.issuelinks[li].inwardIssue;
                 if (!linked) continue;
@@ -139,35 +155,27 @@ export function getStatusGroup(statusName) {
     return 'other';
 }
 
+export function getBakuWeekRange(weekOffset) {
+    var offset = weekOffset || 0;
+    var now = new Date();
+    var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
+    var bakuNow = new Date(utc + (4 * 3600000));
+    bakuNow.setHours(0, 0, 0, 0);
+    var dayOfWeek = bakuNow.getDay();
+    var diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    var monday = new Date(bakuNow.getFullYear(), bakuNow.getMonth(), bakuNow.getDate() + diffToMonday + (offset * 7));
+    monday.setHours(0, 0, 0, 0);
+    var sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+    return { start: monday, end: sunday };
+}
+
 export function isDueThisWeek(t) {
     if (!t.fields) return false;
-    var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
-    if (!dueDateRaw) return false;
-    try {
-        var dueStr = String(dueDateRaw).split('T')[0];
-        var parts = dueStr.split('-');
-        if (parts.length < 3) return false;
-        var dueYear = parseInt(parts[0], 10);
-        var dueMonth = parseInt(parts[1], 10) - 1; 
-        var dueDay = parseInt(parts[2], 10);
-        var dueDate = new Date(dueYear, dueMonth, dueDay);
-        dueDate.setHours(0, 0, 0, 0);
-        var now = new Date();
-        var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
-        var bakuNow = new Date(utc + (4 * 3600000));
-        bakuNow.setHours(0, 0, 0, 0);
-        var dayOfWeek = bakuNow.getDay(); 
-        var diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-        var monday = new Date(bakuNow);
-        monday.setDate(bakuNow.getDate() + diffToMonday);
-        monday.setHours(0, 0, 0, 0);
-        var sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        sunday.setHours(23, 59, 59, 999);
-        return dueDate >= monday && dueDate <= sunday;
-    } catch(e) { 
-        return false; 
-    }
+    var due = getTaskDueDate(t);
+    if (!due) return false;
+    var week = getBakuWeekRange(0);
+    return due >= week.start && due <= week.end;
 }
 
 export function getTaskStartDate(t) {
@@ -225,6 +233,30 @@ export function isDueInDateRange(t, start, end) {
     return true;
 }
 
+export function getTaskCreatedDate(t) {
+    if (!t || !t.fields) return null;
+    return parseLocalDay(t.fields.created);
+}
+
+export function taskBelongsToDateRange(t, start, end) {
+    if (!t) return false;
+    var startBound = parseLocalDay(start);
+    var endBound = parseLocalDay(end);
+    if (endBound) endBound.setHours(23, 59, 59, 999);
+    if (dayInBounds(getTaskStartDate(t), startBound, endBound)) return true;
+    if (dayInBounds(getTaskCreatedDate(t), startBound, endBound)) return true;
+    return false;
+}
+
+function dayInBounds(d, startBound, endBound) {
+    if (!d) return false;
+    var day = parseLocalDay(d);
+    if (!day) return false;
+    if (startBound && day < startBound) return false;
+    if (endBound && day > endBound) return false;
+    return true;
+}
+
 function parseLocalDay(raw) {
     if (!raw) return null;
     if (raw instanceof Date) {
@@ -250,6 +282,16 @@ export function isDueInSprint(t, sprintName) {
     return isDueInDateRange(t, range.start, range.end);
 }
 
+export function wasCompletedInSprint(t, sprintName, statusName) {
+    var status = statusName || (t && t.fields && t.fields.status && t.fields.status.name) || '';
+    if (getStatusGroup(status) !== 'done') return false;
+    var range = getSprintDateRange(sprintName);
+    if (!range || !range.end) return true;
+    var resolved = parsePhaseDate(t && t.fields && t.fields.resolutiondate);
+    if (!resolved) return true;
+    return dateKey(resolved) <= dateKey(range.end);
+}
+
 export function getSelectedSprintName() {
     var el = document.getElementById('sprintFilter');
     var val = el && el.value;
@@ -257,24 +299,28 @@ export function getSelectedSprintName() {
     return val;
 }
 
-export function isDueInSelectedWeek(t) {
-    var sprintName = getSelectedSprintName();
-    if (sprintName) return isDueInSprint(t, sprintName);
+function getSelectedDueWindow() {
     var startEl = document.getElementById('startDate');
     var endEl = document.getElementById('endDate');
     var start = startEl && startEl.value;
     var end = endEl && endEl.value;
-    if (start || end) return isDueInDateRange(t, start, end);
+    if (start || end) return { start: start, end: end };
+    var sprintName = getSelectedSprintName();
+    if (!sprintName) return null;
+    var range = getSprintDateRange(sprintName);
+    if (!range || !range.start || !range.end) return null;
+    return { start: range.start, end: range.end };
+}
+
+export function isDueInSelectedWeek(t) {
+    var win = getSelectedDueWindow();
+    if (win) return isDueInDateRange(t, win.start, win.end);
     return isDueThisWeek(t);
 }
 
 function dueInRangePool() {
-    var startEl = document.getElementById('startDate');
-    var endEl = document.getElementById('endDate');
-    var start = startEl && startEl.value;
-    var end = endEl && endEl.value;
-    var useDateRange = !!(start || end);
-    var source = useDateRange ? (state.allTasks || []) : (state.filteredTasks || []);
+    var win = getSelectedDueWindow();
+    var source = win ? (state.allTasks || []) : (state.filteredTasks || []);
     return source.filter(function(t) {
         if (!t || !t.fields) return false;
         if (!isLeafWorkUnit(t)) return false;
@@ -283,7 +329,7 @@ function dueInRangePool() {
         if (g === 'rejected') return false;
         if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
         if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
-        if (useDateRange) {
+        if (win) {
             if (state.currentDirectionFilter) {
                 var dir = resolveDirection(t);
                 if (!dir || dir.key !== state.currentDirectionFilter) return false;
@@ -295,21 +341,22 @@ function dueInRangePool() {
             if (state.currentAssigneeFilter) {
                 if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
             }
-            return isDueInDateRange(t, start, end);
+            return isDueInDateRange(t, win.start, win.end);
         }
         return isDueThisWeek(t);
     });
 }
 
+export function collectDueThisWeekPool() {
+    return dueInRangePool();
+}
+
 export function collectDueThisWeekTasks() {
-    return dueInRangePool().filter(function(t) {
-        var g = getStatusGroup(t.fields.status.name || '');
-        return g !== 'done' && !hasValidDifficulty(t);
-    });
+    return collectDueThisWeekPool();
 }
 
 export function collectDueThisWeekDoneTasks() {
-    return dueInRangePool().filter(function(t) {
+    return collectDueThisWeekPool().filter(function(t) {
         return getStatusGroup(t.fields.status.name || '') === 'done';
     });
 }
@@ -812,36 +859,36 @@ export function getQurumName(t) {
     return null;
 }
 
-export function getDateStatus(t) {
-    var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
-    if (!dueDateRaw) return 'nodate';
-    try {
-        var dueStr = String(dueDateRaw).split('T')[0];
-        var parts = dueStr.split('-');
-        if (parts.length < 3) return 'nodate';
-        var dueDate = new Date(parts[0], parts[1] - 1, parts[2]);
-        dueDate.setHours(23, 59, 59, 999); 
-        var statusGroup = getStatusGroup(t.fields.status.name);
-        var isDone = (statusGroup === 'done');
-        var today = new Date(); today.setHours(0,0,0,0);
-        if (isDone) {
-            var resolvedRaw = t.fields['resolutiondate'] || t.fields['updated'];
-            if (!resolvedRaw) return 'ontime';
-            var resStr = String(resolvedRaw).split('T')[0];
-            var resParts = resStr.split('-');
-            if (resParts.length < 3) return 'ontime';
-            var resDate = new Date(resParts[0], resParts[1] - 1, resParts[2]);
-            resDate.setHours(12, 0, 0, 0);
-            if (resDate < dueDate) return 'early';
-            if (resDate.getTime() === dueDate.setHours(12,0,0,0)) return 'ontime';
-            return 'late';
-        } else {
-            if (dueDate < today) return 'late';
-            return 'upcoming';
-        }
-    } catch(e) { 
-        return 'nodate'; 
+function getStatusAsOfDate() {
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var win = getSelectedDueWindow();
+    if (!win || !win.end) return today;
+    var end = parseLocalDay(win.end);
+    if (!end) return today;
+    end.setHours(0, 0, 0, 0);
+    if (end < today) {
+        end.setDate(end.getDate() + 1);
+        return end;
     }
+    return today;
+}
+
+export function getDateStatus(t) {
+    var dueDay = parseLocalDay(getTaskDueDate(t));
+    if (!dueDay) return 'nodate';
+    var statusGroup = getStatusGroup(t.fields && t.fields.status ? t.fields.status.name : '');
+    if (statusGroup === 'done') {
+        var resolved = parsePhaseDate(t.fields && (t.fields.resolutiondate || t.fields.updated));
+        var resDay = parseLocalDay(resolved);
+        if (!resDay) return 'ontime';
+        if (resDay < dueDay) return 'early';
+        if (resDay.getTime() === dueDay.getTime()) return 'ontime';
+        return 'late';
+    }
+    var asOf = getStatusAsOfDate();
+    if (dueDay < asOf) return 'late';
+    return 'upcoming';
 }
 
 function parseSprintItem(item) {

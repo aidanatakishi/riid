@@ -1,35 +1,17 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getIssueTypeIcon, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, getDateStatus, getDifficultyField, getHistoricalStatus, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, sortSprintNames } from './model.js';
+import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isLeafWorkUnit, isSubtaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
+import { duePeriodLabel } from './report.js';
 
 export function renderStats(tasks) {
-    var units = (tasks || []).filter(isLeafWorkUnit);
-
-    var backlogTasks = units.filter(function(t) { 
-        var st = normalizeStr(t.fields.status.name || '');
-        return st.includes('başlanmamış') || st.includes('baslanmamis');
+    var validTasks = countableWorkUnits(tasks);
+    var total = validTasks.length;
+    var rejected = (tasks || []).filter(function(t) {
+        return isLeafWorkUnit(t) && getStatusGroup(t.fields.status.name || '') === 'rejected';
     }).length;
-
-    var pausedTasks = units.filter(function(t) {
-        var st = normalizeStr(t.fields.status.name || '');
-        return st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
-    }).length;
-
-    var rejected = units.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'rejected'; }).length;
-
-    var total = units.length - backlogTasks - pausedTasks - rejected;
-    if (total < 0) total = 0;
 
     animateValue('totalTasks', 0, total, 800);
-
-    var validTasks = units.filter(function(t) {
-        var st = normalizeStr(t.fields.status.name || '');
-        var isRejected = getStatusGroup(st) === 'rejected';
-        var isBacklog = st.includes('başlanmamış') || st.includes('baslanmamis');
-        var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
-        return !isRejected && !isBacklog && !isPaused;
-    });
 
     var done = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'done'; }).length;
     var completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
@@ -54,8 +36,8 @@ export function renderStats(tasks) {
     
     var sprintT = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'progress' && !hasDiff(t); }).length;
     
-    var dueWeekTasks = collectDueThisWeekTasks();
-    var sprintDueWeek = dueWeekTasks.length;
+    var dueWeekPool = collectDueThisWeekTasks();
+    var sprintDueWeek = dueWeekPool.length;
     var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
     
     var planned = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'planned' && !hasDiff(t); }).length;
@@ -84,6 +66,8 @@ export function renderStats(tasks) {
     if (dueWeekEl) dueWeekEl.innerText = sprintDueWeek;
     var dueWeekDoneEl = document.getElementById('sprintTasksDueWeekDone');
     if (dueWeekDoneEl) dueWeekDoneEl.innerText = sprintDueWeekDone;
+    var dueLabelEl = document.getElementById('duePeriodLabel');
+    if (dueLabelEl) dueLabelEl.textContent = duePeriodLabel();
 
     var blockedCard = document.getElementById('blockedCard');
     if (blocked > 0 || rejected > 0) blockedCard.classList.add('pulse-danger');
@@ -104,7 +88,7 @@ export function renderStats(tasks) {
 export function renderDifficulties(tasks) {
     var listDiv = document.getElementById('komplaynsList');
     listDiv.innerHTML = '';
-    var blockedOrDiffTasks = tasks.filter(function(t) {
+    var blockedOrDiffTasks = countableWorkUnits(tasks).filter(function(t) {
         var g = getStatusGroup(t.fields.status.name);
         return (g === 'blocked' || hasValidDifficulty(t)) && g !== 'done' && g !== 'rejected';
     });
@@ -143,19 +127,41 @@ export function getDifficultyCardHtml(t, type) {
 
 export function renderTaskList(tasks, title) {
     title = title || 'Tapşırıqların Siyahısı';
-    state.currentDisplayTasks = tasks;
+    var sourceTasks = tasks || [];
+    var listKeySet = {};
+    var nestedUnderShownParent = {};
+    sourceTasks.forEach(function(t) {
+        if (!t || !t.key) return;
+        listKeySet[t.key] = true;
+        if (isSubtaskType(t) || !t.fields) return;
+        (t.fields.subtasks || []).forEach(function(sub) {
+            if (sub && sub.key) nestedUnderShownParent[sub.key] = true;
+        });
+        (t.fields.issuelinks || []).forEach(function(link) {
+            var linked = link.outwardIssue || link.inwardIssue;
+            if (linked && linked.key) nestedUnderShownParent[linked.key] = true;
+        });
+    });
+    var listTasks = sourceTasks.filter(function(t) {
+        if (!isSubtaskType(t)) return true;
+        var parent = getParentIssue(t);
+        if (parent && parent.key && listKeySet[parent.key]) return false;
+        if (nestedUnderShownParent[t.key]) return false;
+        return true;
+    });
+    state.currentDisplayTasks = listTasks;
     document.getElementById('taskListTitle').innerText = title;
     var listDiv = document.getElementById('taskList');
     var pagDiv = document.getElementById('taskPagination');
     listDiv.innerHTML = '';
     if (pagDiv) pagDiv.innerHTML = '';
-    if (tasks.length === 0) { listDiv.innerHTML += '<p class="text-slate-400 text-sm p-4 text-center">Bu filtrə uyğun tapşırıq tapılmadı.</p>'; return; }
-    var totalPages = Math.ceil(tasks.length / state.tasksPerPage);
+    if (listTasks.length === 0) { listDiv.innerHTML += '<p class="text-slate-400 text-sm p-4 text-center">Bu filtrə uyğun tapşırıq tapılmadı.</p>'; return; }
+    var totalPages = Math.ceil(listTasks.length / state.tasksPerPage);
     if (state.currentPage > totalPages) state.currentPage = 1;
     if (state.currentPage < 1) state.currentPage = 1;
     var start = (state.currentPage - 1) * state.tasksPerPage;
     var end = start + state.tasksPerPage;
-    var paginatedTasks = tasks.slice(start, end);
+    var paginatedTasks = listTasks.slice(start, end);
     
     function fmtDate(dateStr) {
         if (!dateStr) return '-';
@@ -257,7 +263,8 @@ export function changePage(page) {
 }
 
 export function renderWeeklyTasks() {
-    var planned = state.allTasks.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
+    var source = countableWorkUnits(state.filteredTasks);
+    var planned = source.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
     var list = document.getElementById('weeklyTaskList'); 
     if (!list) return;
     list.innerHTML = '';
@@ -267,7 +274,8 @@ export function renderWeeklyTasks() {
 }
 
 export function renderPausedTasks() {
-    var pausedTasks = state.allTasks.filter(function(t) {
+    var pausedTasks = (state.sprintDateFiltered || []).filter(function(t) {
+        if (!isLeafWorkUnit(t)) return false;
         var statusNorm = normalizeStr(t.fields.status.name);
         var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti') || statusNorm.includes('paused');
         return isPaused && belongsToDept(t);
@@ -327,11 +335,6 @@ export function renderSprintComparison() {
         return isDueInSelectedWeek;
     }
 
-    function hasOpenDiff(t, statusName) {
-        var g = getStatusGroup(statusName || '');
-        return hasValidDifficulty(t) && g !== 'done' && g !== 'rejected';
-    }
-
     function card(jName, dName, tasks, coTitle, isPrev) {
         if (!jName || tasks.length === 0) return '<div class="text-slate-400 text-sm p-4 text-center">Məlumat yoxdur.</div>';
         function statusForCard(t) {
@@ -352,9 +355,7 @@ export function renderSprintComparison() {
         var co = total - done;
         var isDue = weekDueFn(jName, isPrev);
         var dueCount = validTasks.filter(function(t) {
-            var status = statusForCard(t);
-            var g = getStatusGroup(status);
-            return isDue(t) && g !== 'done' && g !== 'rejected' && !hasOpenDiff(t, status);
+            return isDue(t) && getStatusGroup(statusForCard(t)) !== 'rejected';
         }).length;
         var dueDone = validTasks.filter(function(t) {
             return isDue(t) && getStatusGroup(statusForCard(t)) === 'done';

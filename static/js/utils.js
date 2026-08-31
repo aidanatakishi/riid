@@ -19,21 +19,28 @@ export function showToast(message, type) {
     }, ttl);
 }
 
+var animFrames = {};
+
 export function animateValue(id, start, end, duration) {
     var obj = document.getElementById(id);
     if (!obj) return;
+    if (animFrames[id]) {
+        window.cancelAnimationFrame(animFrames[id]);
+        delete animFrames[id];
+    }
     var startTimestamp = null;
     var step = function(timestamp) {
         if (!startTimestamp) startTimestamp = timestamp;
         var progress = Math.min((timestamp - startTimestamp) / duration, 1);
         obj.innerText = Math.floor(progress * (end - start) + start);
         if (progress < 1) {
-            window.requestAnimationFrame(step);
+            animFrames[id] = window.requestAnimationFrame(step);
         } else {
             obj.innerText = end;
+            delete animFrames[id];
         }
     };
-    window.requestAnimationFrame(step);
+    animFrames[id] = window.requestAnimationFrame(step);
 }
 
 export function normalizeStr(str) {
