@@ -16,6 +16,11 @@ body { font-family: 'Inter', sans-serif; background-color: #f8fafc; color: #1e29
 .task-item:active { transform: scale(0.98); }
 
 .hidden { display: none; }
+#loadingOverlay.hidden,
+#datePopoverOverlay.hidden {
+    display: none !important;
+    pointer-events: none !important;
+}
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }

@@ -966,14 +966,20 @@ function parseSprintItem(item) {
 }
 
 function getSprintItemsOnIssue(t) {
-    var f = t && t.fields && t.fields.customfield_10101;
-    if (!f) return [];
+    if (!t) return [];
+    if (t._sprintItems) return t._sprintItems;
+    var f = t.fields && t.fields.customfield_10101;
+    if (!f) {
+        t._sprintItems = [];
+        return t._sprintItems;
+    }
     var list = Array.isArray(f) ? f : [f];
     var out = [];
     for (var i = 0; i < list.length; i++) {
         var parsed = parseSprintItem(list[i]);
         if (parsed) out.push(parsed);
     }
+    t._sprintItems = out;
     return out;
 }
 
@@ -1005,28 +1011,46 @@ function taskHasSprintOverlappingRange(t, startBound, endBound) {
     return false;
 }
 
-export function getSprintMeta(sprintName) {
-    if (!sprintName || sprintName === 'all') return null;
-    var best = null;
-    for (var i = 0; i < state.allTasks.length; i++) {
-        var t = state.allTasks[i];
-        var f = t.fields && t.fields.customfield_10101;
-        if (!f) continue;
-        var sprints = Array.isArray(f) ? f : [f];
-        for (var j = 0; j < sprints.length; j++) {
-            var parsed = parseSprintItem(sprints[j]);
-            if (!parsed || parsed.name !== sprintName) continue;
-            if (!best) {
-                best = parsed;
-                continue;
-            }
-            if (!best.start && parsed.start) best.start = parsed.start;
-            if (!best.end && parsed.end) best.end = parsed.end;
-            if (parsed.id && parsed.id > (best.id || 0)) best.id = parsed.id;
-            if (parsed.state && (!best.state || String(parsed.state).toUpperCase() === 'ACTIVE')) best.state = parsed.state;
+var sprintMetaCache = null;
+var sprintMetaCacheRef = null;
+
+function mergeSprintMeta(best, parsed) {
+    if (!best) {
+        return {
+            name: parsed.name,
+            start: parsed.start,
+            end: parsed.end,
+            state: parsed.state,
+            id: parsed.id
+        };
+    }
+    if (!best.start && parsed.start) best.start = parsed.start;
+    if (!best.end && parsed.end) best.end = parsed.end;
+    if (parsed.id && parsed.id > (best.id || 0)) best.id = parsed.id;
+    if (parsed.state && (!best.state || String(parsed.state).toUpperCase() === 'ACTIVE')) best.state = parsed.state;
+    return best;
+}
+
+function ensureSprintMetaCache() {
+    var tasks = state.allTasks || [];
+    if (sprintMetaCache && sprintMetaCacheRef === tasks) return sprintMetaCache;
+    var map = {};
+    for (var i = 0; i < tasks.length; i++) {
+        var items = getSprintItemsOnIssue(tasks[i]);
+        for (var j = 0; j < items.length; j++) {
+            var parsed = items[j];
+            if (!parsed || !parsed.name) continue;
+            map[parsed.name] = mergeSprintMeta(map[parsed.name], parsed);
         }
     }
-    return best;
+    sprintMetaCache = map;
+    sprintMetaCacheRef = tasks;
+    return map;
+}
+
+export function getSprintMeta(sprintName) {
+    if (!sprintName || sprintName === 'all') return null;
+    return ensureSprintMetaCache()[sprintName] || null;
 }
 
 export function getSprintDateRange(sprintName) {
@@ -1480,8 +1504,6 @@ export function getAssessmentQurumLabel(t) {
         cur = getParentIssue(cur);
         depth++;
     }
-    var childQ = qurumFromDescendants(t);
-    if (childQ) return childQ;
     var dir = resolveDirection(t);
     if (dir && dir.fields && dir.fields.summary) {
         var ds = shortenLabel(dir.fields.summary);

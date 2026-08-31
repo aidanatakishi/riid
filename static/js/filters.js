@@ -569,12 +569,20 @@ function updateCollapsedCounts() {
     if (pausedCount) pausedCount.innerText = pausedTasks.length + ' tapşırıq';
 }
 
+var lastHubQurumFilter = undefined;
+
 export function renderVisibleLazySections() {
     ['dailyActivityContent', 'labelChartContent', 'qurumStatContent', 'sprintComparisonContent',
-     'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent',
-     'assessmentHubContent'].forEach(function(id) {
+     'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent'].forEach(function(id) {
         if (isSectionOpen(id)) renderLazySection(id, true);
     });
+    if (isSectionOpen('assessmentHubContent')) {
+        var qf = state.currentQurumFilter || '';
+        if (lastHubQurumFilter !== qf) {
+            lastHubQurumFilter = qf;
+            try { renderAssessmentSections(); } catch (err) { console.error(err); }
+        }
+    }
 }
 
 export function renderLazySection(id, force) {
@@ -589,17 +597,13 @@ export function renderLazySection(id, force) {
     if (id === 'qurumStatContent') { renderQurumChart(state.qurumChartTasks); return; }
     if (id === 'sprintComparisonContent') {
         try { renderSprintComparison(); } catch (err) { console.error(err); }
-        Promise.resolve(state.ensureChangelogs && state.ensureChangelogs(state.allTasks)).then(function(updated) {
-            if (updated) {
-                try { renderSprintComparison(); } catch (err2) { console.error(err2); }
-            }
-        }).catch(function() {});
         return;
     }
     if (id === 'weeklyContent') { renderWeeklyTasks(); return; }
     if (id === 'pausedContent') { renderPausedTasks(); return; }
     if (id === 'cetinliklerContent') { renderDifficulties(state.filteredTasks); return; }
     if (id === 'assessmentHubContent') {
+        lastHubQurumFilter = state.currentQurumFilter || '';
         try { renderAssessmentSections(); } catch (err) { console.error(err); }
         return;
     }

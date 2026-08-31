@@ -110,11 +110,14 @@ export function toggleDropdown(id) {
     if (!el.classList.contains('hidden')) {
         el.classList.add('slide-down');
         if (icon) icon.style.transform = 'rotate(180deg)';
-        try {
-            if (typeof state.onSectionOpen === 'function') state.onSectionOpen(id);
-        } catch (err) {
-            console.error('Section open failed:', id, err);
-        }
+        var openId = id;
+        requestAnimationFrame(function() {
+            try {
+                if (typeof state.onSectionOpen === 'function') state.onSectionOpen(openId);
+            } catch (err) {
+                console.error('Section open failed:', openId, err);
+            }
+        });
         setTimeout(function() {
             try {
                 if (typeof state.statusChart !== 'undefined' && state.statusChart) state.statusChart.resize();
