@@ -9,6 +9,8 @@ import {
     getDiagHeadline,
     getDiagScore,
     getExqServiceCount,
+    getPhaseFieldText,
+    PHASE_FIELDS,
     getMeqsedInfo,
     getQurumName,
     getSelfAssessInfo,
@@ -66,10 +68,26 @@ function escapeHtml(s) {
         .replace(/'/g, '&#39;');
 }
 
-function statusPill(name) {
+function getLastPhaseText(t) {
+    if (!t || !t.fields) return '';
+    var i, text;
+    for (i = PHASE_FIELDS.length - 1; i >= 0; i--) {
+        text = getPhaseFieldText(t, PHASE_FIELDS[i].text);
+        if (text) return text;
+    }
+    return '';
+}
+
+function statusPill(name, task) {
     var raw = name || '—';
     var g = getStatusGroup(raw) || 'other';
-    return '<span class="assess-status assess-status--' + g + '">' + escapeHtml(raw) + '</span>';
+    var pill = '<span class="assess-status assess-status--' + g + '">' + escapeHtml(raw) + '</span>';
+    var phase = getLastPhaseText(task);
+    if (!phase) return '<span class="assess-status-wrap">' + pill + '</span>';
+    return '<span class="assess-status-wrap is-tipped" tabindex="0">'
+        + pill
+        + '<span class="assess-status-tip" role="tooltip">' + escapeHtml(phase) + '</span>'
+        + '</span>';
 }
 
 function getRowCache() {
@@ -358,18 +376,15 @@ function taskBrowseUrl(task) {
 function qurumCell(r) {
     var raw = r && r.qurum != null ? String(r.qurum).trim() : '';
     var name = escapeHtml(raw || '—');
-    var yearTag = (isAllYears(selectedYear) && r && r.year != null)
-        ? '<span class="assess-year-tag">' + escapeHtml(String(r.year)) + '</span>'
-        : '';
     var url = taskBrowseUrl(r.task);
     if (!url) {
-        return '<div class="assess-hub-qurum">' + name + yearTag + '</div>';
+        return '<div class="assess-hub-qurum">' + name + '</div>';
     }
     return '<div class="assess-hub-qurum">'
         + '<a class="assess-hub-qurum-link" href="' + escapeHtml(url) + '" target="_blank" rel="noopener noreferrer"'
         + ' onclick="event.stopPropagation();">'
         + name
-        + '</a>' + yearTag + '</div>';
+        + '</a></div>';
 }
 
 function hubTable(section, headers, rowsHtml) {
@@ -436,13 +451,6 @@ function destroyAssessChart(key, canvasId) {
     }
 }
 
-function hexFade(hex, on) {
-    if (on) return hex;
-    var h = String(hex || '').replace('#', '');
-    if (h.length !== 6) return hex;
-    return 'rgba(' + parseInt(h.slice(0, 2), 16) + ',' + parseInt(h.slice(2, 4), 16) + ',' + parseInt(h.slice(4, 6), 16) + ',0.28)';
-}
-
 function setAssessChartVisible(wrapId, emptyId, show) {
     var wrap = document.getElementById(wrapId);
     var empty = document.getElementById(emptyId);
@@ -469,54 +477,40 @@ function collectDashModel() {
     return { yearCounts: yearCounts, catCounts: catCounts };
 }
 
+function pickYearFromChartEvent(els, yearCounts) {
+    if (!els || !els.length) return null;
+    var idx = els[0].index;
+    var row = yearCounts[idx];
+    return row && row.y != null ? row.y : null;
+}
+
 function drawAssessYearChart(yearCounts) {
     var canvas = document.getElementById('assessYearChart');
     if (!canvas || typeof Chart === 'undefined') return;
     destroyAssessChart('assessYearChart', 'assessYearChart');
     var labels = yearCounts.map(function(row) { return String(row.y); });
+    var data = yearCounts.map(function(row) { return row.total; });
     var selectedOn = !isAllYears(selectedYear);
     var selectedNum = Number(selectedYear);
-    var datasets = SECTIONS.map(function(s) {
-        return {
-            label: SECTION_LABELS[s],
-            data: yearCounts.map(function(row) {
-                var part = row.parts.filter(function(p) { return p.s === s; })[0];
-                return part ? part.n : 0;
-            }),
-            backgroundColor: yearCounts.map(function(row) {
-                return hexFade(CAT_COLORS[s], !selectedOn || row.y === selectedNum);
-            }),
-            borderColor: '#ffffff',
-            borderWidth: 1,
-            stack: 'years',
-            borderRadius: 6,
-            maxBarThickness: 46
-        };
+    var colors = yearCounts.map(function(row) {
+        return (!selectedOn || row.y === selectedNum) ? '#7c3aed' : 'rgba(124, 58, 237, 0.28)';
     });
-    var totalsPlugin = {
-        id: 'assessYearTotals',
+    var barValuesPlugin = {
+        id: 'assessYearBarValues',
         afterDatasetsDraw: function(chart) {
+            var meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data) return;
             var c = chart.ctx;
-            var metas = chart.data.datasets.map(function(_, i) { return chart.getDatasetMeta(i); });
-            if (!metas.length || !metas[0].data) return;
+            var ds = chart.data.datasets[0];
             c.save();
-            c.font = '700 11px Inter, sans-serif';
+            c.font = '600 11px Inter, sans-serif';
             c.fillStyle = '#475569';
             c.textAlign = 'center';
             c.textBaseline = 'bottom';
-            labels.forEach(function(_, i) {
-                var sum = 0;
-                var topY = null;
-                var x = null;
-                metas.forEach(function(meta) {
-                    var bar = meta.data[i];
-                    if (!bar || meta.hidden) return;
-                    var v = chart.data.datasets[meta.index].data[i] || 0;
-                    sum += v;
-                    if (x == null) x = bar.x;
-                    if (topY == null || bar.y < topY) topY = bar.y;
-                });
-                if (sum > 0 && x != null && topY != null) c.fillText(String(sum), x, topY - 2);
+            meta.data.forEach(function(bar, i) {
+                var n = ds.data[i];
+                if (!n) return;
+                c.fillText(String(n), bar.x, bar.y - 3);
             });
             c.restore();
         }
@@ -524,21 +518,24 @@ function drawAssessYearChart(yearCounts) {
     var ctx = canvas.getContext('2d');
     state.assessYearChart = new Chart(ctx, {
         type: 'bar',
-        data: { labels: labels, datasets: datasets },
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Qurum',
+                data: data,
+                backgroundColor: colors,
+                hoverBackgroundColor: '#6d28d9',
+                borderRadius: 6,
+                borderSkipped: false,
+                maxBarThickness: 48
+            }]
+        },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            layout: { padding: { top: 18, right: 8, bottom: 0, left: 0 } },
+            layout: { padding: { top: 18, right: 8, left: 4, bottom: 0 } },
             plugins: {
-                legend: {
-                    position: 'bottom',
-                    labels: { usePointStyle: true, pointStyle: 'rectRounded', padding: 12, font: { family: 'Inter', size: 11 }, boxWidth: 8, color: '#475569' },
-                    onClick: function(e, item) {
-                        var s = SECTIONS[item.datasetIndex];
-                        if (s) setAssessmentTab(s);
-                    }
-                },
+                legend: { display: false },
                 tooltip: {
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
                     padding: 10,
@@ -546,26 +543,24 @@ function drawAssessYearChart(yearCounts) {
                     titleFont: { family: 'Inter', size: 12, weight: 'bold' },
                     bodyFont: { family: 'Inter', size: 11 },
                     callbacks: {
-                        footer: function(items) {
-                            var sum = 0;
-                            (items || []).forEach(function(it) { sum += it.parsed.y || 0; });
-                            return 'Cəmi: ' + sum;
+                        label: function(item) {
+                            return ' ' + (item.parsed.y || 0) + ' qurum';
                         }
                     }
                 }
             },
             scales: {
                 x: {
-                    stacked: true,
+                    title: { display: true, text: 'İl', font: { family: 'Inter', size: 11, weight: '600' }, color: '#64748b' },
                     grid: { display: false },
-                    ticks: { font: { family: 'Inter', size: 11, weight: '700' }, color: '#334155' }
+                    ticks: { font: { family: 'Inter', size: 11, weight: '600' }, color: '#64748b' }
                 },
                 y: {
-                    stacked: true,
+                    title: { display: true, text: 'Qurum sayı', font: { family: 'Inter', size: 11, weight: '600' }, color: '#64748b' },
                     beginAtZero: true,
-                    grace: '8%',
-                    ticks: { precision: 0, font: { family: 'Inter', size: 10 }, color: '#94a3b8' },
-                    grid: { color: 'rgba(148, 163, 184, 0.18)' },
+                    grace: '12%',
+                    ticks: { precision: 0, font: { family: 'Inter', size: 11 }, color: '#94a3b8' },
+                    grid: { color: 'rgba(226, 232, 240, 0.9)' },
                     border: { display: false }
                 }
             },
@@ -573,12 +568,11 @@ function drawAssessYearChart(yearCounts) {
                 if (e && e.native && e.native.target) e.native.target.style.cursor = els[0] ? 'pointer' : 'default';
             },
             onClick: function(e, els) {
-                if (!els.length) return;
-                var year = yearCounts[els[0].index] && yearCounts[els[0].index].y;
+                var year = pickYearFromChartEvent(els, yearCounts);
                 if (year != null) setAssessmentYearForActiveTab(year);
             }
         },
-        plugins: [totalsPlugin]
+        plugins: [barValuesPlugin]
     });
 }
 
@@ -754,7 +748,7 @@ function renderDiag(rows) {
         var headline = getDiagHeadline(t);
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'Status', html: statusPill(status) },
+            { label: 'Status', html: statusPill(status, t) },
             { label: 'Ümumi nəticə', html: headlineCell(headline) },
             { label: '', cls: 'assess-hub-cell--action', html: eyeButton(key) }
         ], '');
@@ -789,7 +783,7 @@ function renderSelf(rows) {
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
             { label: 'Bal', html: scoreBadge(info.score) },
-            { label: 'Status', html: statusPill(status) },
+            { label: 'Status', html: statusPill(status, t) },
             { label: '', cls: 'assess-hub-cell--action', html: detailButton('self', key, open) }
         ], detailPanel(open, detailInner));
     }).join('');
@@ -806,7 +800,7 @@ function renderExq(rows) {
         var netice = formatAssessmentFieldText(t.fields && t.fields.customfield_17317);
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'Status', html: statusPill(status) },
+            { label: 'Status', html: statusPill(status, t) },
             { label: 'Xidmət sayı', html: scoreBadge(countLabel) },
             { label: 'EXQ Nəticəsi', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(netice) + '</span>' }
         ], '');

@@ -450,6 +450,7 @@ input[type="date"] { min-height: 38px; }
     box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.03);
     border-color: #e2e8f0;
 }
+.assess-hub-card { overflow: visible; }
 .assess-hub-icon {
     display: inline-flex;
     align-items: center;
@@ -551,7 +552,7 @@ input[type="date"] { min-height: 38px; }
     gap: 0.75rem;
 }
 @media (min-width: 768px) {
-    .assess-dash-grid { grid-template-columns: 1.4fr 1fr; }
+    .assess-dash-grid { grid-template-columns: 1.65fr 1fr; }
 }
 .assess-dash-card {
     background: #f8fafc;
@@ -629,7 +630,7 @@ input[type="date"] { min-height: 38px; }
     background: #fff;
     border: 1px solid #e8edf3;
     border-radius: 14px;
-    overflow: hidden;
+    overflow: visible;
     padding: 0.65rem 0.35rem 0.75rem;
 }
 @media (min-width: 768px) {
@@ -676,18 +677,6 @@ input[type="date"] { min-height: 38px; }
 .assess-yseg--exq { background: #d97706; }
 .assess-yseg--meqsed { background: #db2777; }
 .assess-cbar { grid-template-columns: 7.5rem minmax(0, 1fr) 2.1rem; }
-.assess-year-tag {
-    display: inline-flex;
-    margin-left: 0.4rem;
-    padding: 0.08rem 0.4rem;
-    border-radius: 999px;
-    background: #f3e8ff;
-    color: #6d28d9;
-    font-size: 0.65rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-    vertical-align: middle;
-}
 .assess-pager { padding: 0.75rem 0.65rem 0.15rem; }
 .assess-hub-tabs {
     display: flex;
@@ -985,11 +974,13 @@ input.assess-search-input:focus {
     border-radius: 16px;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    position: relative;
 }
 .assess-hub-row:hover {
     background: #fff;
     border-color: #ddd6fe;
     box-shadow: 0 4px 10px -6px rgba(91, 33, 182, 0.28);
+    z-index: 3;
 }
 .assess-hub-row:last-child { border-bottom: 1px solid #e8edf3; }
 .assess-hub-row:last-child:hover { border-bottom-color: #ddd6fe; }
@@ -1056,6 +1047,45 @@ input.assess-search-input:focus {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+.assess-status-wrap {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    vertical-align: middle;
+}
+.assess-status-wrap.is-tipped { cursor: help; }
+.assess-status-tip {
+    position: absolute;
+    left: 0;
+    bottom: calc(100% + 8px);
+    z-index: 40;
+    min-width: 12rem;
+    max-width: min(22rem, 72vw);
+    max-height: 14rem;
+    overflow: auto;
+    padding: 0.55rem 0.7rem;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.96);
+    color: #f8fafc;
+    font-size: 0.75rem;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    box-shadow: 0 10px 24px -12px rgba(15, 23, 42, 0.55);
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+}
+.assess-status-wrap.is-tipped:hover .assess-status-tip,
+.assess-status-wrap.is-tipped:focus-visible .assess-status-tip,
+.assess-status-wrap.is-tipped:focus-within .assess-status-tip {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
 }
 .assess-status--planned { background: #fff7ed; color: #c2410c; }
 .assess-status--progress { background: #eff6ff; color: #1d4ed8; }
