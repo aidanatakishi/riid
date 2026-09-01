@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
 import { countableWorkUnits, currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
-import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
+import { applyFilters, filterQurumByStatus, filterQurumList, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 
 var chartRebuildRaf = {};
@@ -319,6 +319,7 @@ function drawQurumChart(tasks) {
             tbody.appendChild(tr);
         });
     }
+    filterQurumList();
     var thead = tbody.previousElementSibling ? tbody.previousElementSibling.querySelector('tr') : null;
     if (thead) {
         thead.innerHTML = '<th class="py-3 px-4 text-left font-semibold">Qurumun adı</th><th class="py-3 px-2 text-center font-semibold">Ümumi</th><th class="py-3 px-2 text-center font-semibold">Plan.</th><th class="py-3 px-2 text-center font-semibold">İcradakı</th><th class="py-3 px-2 text-center font-semibold">Tamamlanıb</th>';

@@ -75,47 +75,43 @@ export function duePeriodLabel() {
     return isSelectedMonthRange() ? 'Bu ay bitməli' : 'Bu həftə bitməli';
 }
 
-function monthlyDirRank(name) {
-    var n = normalizeStr(name || '');
-    if (n.indexOf('reyestr') !== -1) return 1;
-    if (n.indexOf('məqsədəuyğun') !== -1 || n.indexOf('meqseduygun') !== -1) return 2;
-    if (n.indexOf('diaqnostika') !== -1 || n.indexOf('rəqəmsallaşma') !== -1 || n.indexOf('reqemsallasma') !== -1) return 3;
-    if (n.indexOf('elektron xidmət') !== -1 || n.indexOf('elektron xidmet') !== -1) return 5;
-    if ((n.indexOf('ehtiyat') !== -1 || n.indexOf('sistem') !== -1) && (n.indexOf('qiymət') !== -1 || n.indexOf('qiymet') !== -1)) return 4;
-    if (n.indexOf('inteqras') !== -1 || n.indexOf('məlumat hədd') !== -1 || n.indexOf('melumat hedd') !== -1 || n.indexOf('digital') !== -1) return 6;
-    return 80;
-}
+var CANON_ORDER = ['reyestr', 'meqsed', 'diag', 'isq', 'exq', 'inteqrasiya', 'diger'];
+var CANON_TITLES = {
+    reyestr: 'Vahid Reyestr üzrə:',
+    meqsed: 'Məqsədəuyğunluq rəyi üzrə:',
+    diag: 'Rəqəmsallaşma səviyyəsinin diaqnostikası üzrə:',
+    isq: 'İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi üzrə:',
+    exq: 'Elektron xidmətlərin qiymətləndirilməsi üzrə:',
+    inteqrasiya: 'Məlumat hədlərinin inteqrasiyası üzrə:',
+    diger: 'Digər istiqamətlər üzrə:'
+};
 
-function monthlySectionTitle(dirName) {
-    var name = (dirName || 'Digər istiqamətlər').trim();
-    if (/üzrə\s*:?\s*$/i.test(name) || /uzre\s*:?\s*$/i.test(normalizeStr(name))) {
-        return name.replace(/\s*:?\s*$/, '') + ':';
-    }
-    return name + ' üzrə:';
-}
-
-function monthlyIntroForDirection(dirName, yearMark, monthName) {
+function canonicalSectionId(dirName) {
     var n = normalizeStr(dirName || '');
+    if (n.indexOf('reyestr') !== -1) return 'reyestr';
+    if (n.indexOf('məqsədəuyğun') !== -1 || n.indexOf('meqseduygun') !== -1) return 'meqsed';
+    if (n.indexOf('diaqnostika') !== -1 || n.indexOf('rəqəmsallaşma') !== -1 || n.indexOf('reqemsallasma') !== -1 || n.indexOf('özünüqiymət') !== -1 || n.indexOf('ozunuqiymet') !== -1) return 'diag';
+    if (n.indexOf('elektron xidmət') !== -1 || n.indexOf('elektron xidmet') !== -1) return 'exq';
+    if ((n.indexOf('ehtiyat') !== -1 || n.indexOf('sistem') !== -1) && (n.indexOf('qiymət') !== -1 || n.indexOf('qiymet') !== -1)) return 'isq';
+    if (n.indexOf('inteqras') !== -1 || n.indexOf('məlumat hədd') !== -1 || n.indexOf('melumat hedd') !== -1 || n.indexOf('digital') !== -1) return 'inteqrasiya';
+    return 'diger';
+}
+
+function monthlyIntroForCanon(id, yearMark, monthName) {
     var period = yearMark + ' ilin ' + monthName + ' ayı';
-    if (n.indexOf('reyestr') !== -1) {
+    if (id === 'reyestr') {
         return '“Dövlət informasiya ehtiyatlarının, sistemlərinin və elektron xidmətlərin vahid reyestri”nin (bundan sonra - Reyestr) “İnformasiya ehtiyat və sistemləri reyestri” modulu vasitəsilə ' + period + ' ərzində aşağıdakı sistemlər qeydiyyata alınmışdır:';
     }
-    if (n.indexOf('məqsədəuyğun') !== -1 || n.indexOf('meqseduygun') !== -1) {
+    if (id === 'meqsed') {
         return 'Qurumların informasiya sistemləri və ehtiyatlarına, habelə elektron xidmətlərinə onların texniki və səmərəliliyi baxımından məqsədəuyğunluğuna dair rəyin verilməsi üzrə:';
     }
-    if (n.indexOf('diaqnostika') !== -1 || n.indexOf('rəqəmsallaşma') !== -1 || n.indexOf('reqemsallasma') !== -1) {
+    if (id === 'diag') {
         return 'Qurumlarda rəqəmsallaşma səviyyəsinin diaqnostikasının aparılması məqsədilə aşağıdakı tədbirlər həyata keçirilmişdir:';
     }
-    if (n.indexOf('elektron xidmət') !== -1 || n.indexOf('elektron xidmet') !== -1) {
-        return 'Elektron xidmətlərin qiymətləndirilməsi məqsədilə aşağıdakı tədbirlər həyata keçirilmişdir:';
+    if (id === 'inteqrasiya') {
+        return 'Məlumat hədlərinin “Rəqəmsal Məlumat Mübadiləsi” (“Digital Bridge”) altsistemi üzərindən inteqrasiyası ilə bağlı müraciət etmiş aşağıdakı qurumların inteqrasiya sorğularına müvafiq rəylər verilmişdir:';
     }
-    if ((n.indexOf('ehtiyat') !== -1 || n.indexOf('sistem') !== -1) && (n.indexOf('qiymət') !== -1 || n.indexOf('qiymet') !== -1)) {
-        return 'İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi üzrə aşağıdakı işlər görülmüşdür:';
-    }
-    if (n.indexOf('inteqras') !== -1 || n.indexOf('məlumat hədd') !== -1 || n.indexOf('melumat hedd') !== -1 || n.indexOf('digital') !== -1) {
-        return 'Məlumat hədlərinin “Rəqəmsal Məlumat Mübadiləsi” (“Digital Bridge”) altsistemi üzərindən inteqrasiyası ilə bağlı aşağıdakı işlər görülmüşdür:';
-    }
-    return period + ' ərzində bu istiqamət üzrə aşağıdakı işlər görülmüşdür:';
+    return '';
 }
 
 function isReyestrDirection(dirName) {
@@ -494,7 +490,7 @@ export async function exportTasksToWord(title) {
     }
 
     function monthlyFileName(info) {
-        return 'IRIA_Ayliq_Hesabat_' + info.fileMonth + '_' + info.year + '.docx';
+        return info.fileMonth + ' ayı hesabatı.docx';
     }
 
     async function downloadGeneratedDoc(doc, filename, toastMsg) {
@@ -664,13 +660,8 @@ export async function exportTasksToWord(title) {
         return qurum + ' — ' + name;
     }
 
-    function formatMonthlyEntryLine(entry, qurum) {
-        var text = formatEntryLine(entry);
-        if (!text) return '';
-        if (qurum && !textHasQurum(text, qurum)) {
-            text = text.replace(/\.?\s*$/, '') + ' (' + qurum + ').';
-        }
-        return text;
+    function formatMonthlyEntryLine(entry) {
+        return formatEntryLine(entry);
     }
 
     function collectMonthlyWorkUnits(dirTasks, info) {
@@ -715,96 +706,84 @@ export async function exportTasksToWord(title) {
         return units;
     }
 
-    function monthlyTaskNameParagraph(text, fontName) {
-        return new Paragraph({
-            spacing: { before: 80, after: 40 },
-            children: [
-                new TextRun({ text: '–  ', font: fontName, size: 22, color: COL_MUTED }),
-                new TextRun({ text: text, bold: true, font: fontName, size: 22, color: COL_INK })
-            ]
+    function uniquePhaseLines(entries) {
+        var lines = [];
+        var seen = {};
+        (entries || []).forEach(function(entry) {
+            var line = formatMonthlyEntryLine(entry);
+            if (!line) return;
+            var lk = normalizeStr(line);
+            if (!lk || seen[lk]) return;
+            seen[lk] = true;
+            lines.push(line);
         });
+        return lines;
     }
 
-    function monthlyPhaseParagraph(text, fontName, isLast) {
-        return new Paragraph({
-            spacing: { after: isLast ? 140 : 40, line: 276 },
-            indent: { left: 400 },
-            children: [new TextRun({ text: text, font: fontName, size: 22, color: COL_MUTED })]
-        });
-    }
-
-    function appendMonthlyTaskEntries(monthChildren, units, fontName, skipFn) {
-        var rows = [];
+    function groupMonthlyUnits(units, byQurumOnly) {
+        var groups = {};
+        var order = [];
         (units || []).forEach(function(row) {
             var t = row && row.task;
-            if (!t || (skipFn && skipFn(t))) return;
-            var name = taskSummary(t);
-            if (!name) return;
+            if (!t) return;
             var qurum = row.qurum || resolvePhaseQurum(t);
-            var entries = (row.entries || []).filter(function(e) { return e && e.text; });
-            if (entries.length === 0) return;
-            entries.sort(function(a, b) {
+            var name = taskSummary(t);
+            var key = byQurumOnly
+                ? normalizeStr(qurum)
+                : (normalizeStr(qurum) + '|' + normalizeStr(name));
+            if (!key) return;
+            if (!groups[key]) {
+                groups[key] = { qurum: qurum, name: name, tasks: [], entries: [] };
+                order.push(key);
+            }
+            groups[key].tasks.push(t);
+            (row.entries || []).forEach(function(e) {
+                if (e) groups[key].entries.push(e);
+            });
+        });
+        order.forEach(function(k) {
+            groups[k].entries.sort(function(a, b) {
                 var da = a.date ? a.date.getTime() : 0;
                 var db = b.date ? b.date.getTime() : 0;
                 if (da !== db) return da - db;
                 return phaseFieldIndex(a) - phaseFieldIndex(b);
             });
-            rows.push({
-                task: t,
-                name: withQurumOnTitle(name, qurum),
-                qurum: qurum,
-                entries: entries
-            });
+            groups[k].lines = uniquePhaseLines(groups[k].entries);
         });
-
-        var fieldCount = [];
-        var fi;
-        for (fi = 0; fi < PHASE_FIELDS.length; fi++) fieldCount[fi] = 0;
-        rows.forEach(function(row) {
-            row.entries.forEach(function(e) {
-                fieldCount[phaseFieldIndex(e)]++;
-            });
+        return order.map(function(k) { return groups[k]; }).filter(function(g) {
+            return g.lines && g.lines.length;
         });
+    }
 
-        var fieldOrder = [];
-        for (fi = 0; fi < PHASE_FIELDS.length; fi++) {
-            if (fieldCount[fi] > 0) fieldOrder.push(fi);
+    function stripEndPunct(s) {
+        return String(s || '').replace(/[;.,]+\s*$/, '').trim();
+    }
+
+    function officialItemText(group, mode) {
+        var head = '';
+        if (mode === 'qurum') {
+            head = (group.qurum || group.name || '').trim();
+        } else {
+            var title = (group.name || '').trim();
+            if (group.qurum && title && !textHasQurum(title, group.qurum)) {
+                head = group.qurum + ' — ' + title;
+            } else if (title) {
+                head = title;
+            } else {
+                head = (group.qurum || '').trim();
+            }
         }
-        fieldOrder.sort(function(a, b) {
-            if (fieldCount[a] !== fieldCount[b]) return fieldCount[a] - fieldCount[b];
-            return a - b;
-        });
+        var body = (group.lines || []).join(' ');
+        if (head && body) return head + '. ' + body;
+        if (body) return body;
+        return head;
+    }
 
-        var listed = {};
-        fieldOrder.forEach(function(homeFi) {
-            var groupRows = rows.filter(function(row) {
-                var rowKey = (row.task && row.task.key) || row.name;
-                if (rowKey && listed[rowKey]) return false;
-                return row.entries.some(function(e) { return phaseFieldIndex(e) === homeFi; });
-            });
-            groupRows.sort(function(a, b) {
-                if (a.entries.length !== b.entries.length) return a.entries.length - b.entries.length;
-                return a.name.localeCompare(b.name, 'az');
-            });
-            groupRows.forEach(function(row) {
-                var key = (row.task && row.task.key) || row.name;
-                if (key) listed[key] = true;
-                var lines = [];
-                var seenLine = {};
-                row.entries.forEach(function(entry) {
-                    var line = formatMonthlyEntryLine(entry, entry.qurum || row.qurum);
-                    if (!line) return;
-                    var lk = normalizeStr(line);
-                    if (!lk || seenLine[lk]) return;
-                    seenLine[lk] = true;
-                    lines.push(line);
-                });
-                if (lines.length === 0) return;
-                monthChildren.push(monthlyTaskNameParagraph(row.name, fontName));
-                lines.forEach(function(line, idx) {
-                    monthChildren.push(monthlyPhaseParagraph(line, fontName, idx === lines.length - 1));
-                });
-            });
+    function appendOfficialList(monthChildren, texts, fontName) {
+        var items = (texts || []).map(stripEndPunct).filter(Boolean);
+        items.forEach(function(item, idx) {
+            var line = item + (idx === items.length - 1 ? '.' : ';');
+            monthChildren.push(bodyParagraph(line, fontName));
         });
     }
 
@@ -821,6 +800,17 @@ export async function exportTasksToWord(title) {
         var hasMaqsad = s.indexOf('məqsədəuyğun') !== -1 || s.indexOf('meqseduygun') !== -1;
         var hasProcess = s.indexOf('proses') !== -1 || s.indexOf('təşkil') !== -1 || s.indexOf('teskil') !== -1;
         return hasReyestr && hasMaqsad && hasProcess;
+    }
+
+    function isMetodikiTask(t) {
+        var s = normalizeStr(taskSummary(t));
+        return s.indexOf('metodiki') !== -1 || s.indexOf('metodoloji') !== -1 || s.indexOf('şablon') !== -1 || s.indexOf('sablon') !== -1;
+    }
+
+    function unitIsDone(row) {
+        var t = row && row.task;
+        if (!t || !t.fields || !t.fields.status) return false;
+        return getStatusGroup(t.fields.status.name) === 'done';
     }
 
     function isReyestrSupportTask(t) {
@@ -935,13 +925,16 @@ export async function exportTasksToWord(title) {
         return names;
     }
 
-    function bulletParagraph(text, fontName) {
+    function sectionHeadingParagraph(text, fontName) {
         return new Paragraph({
-            spacing: { after: 120, line: 276 },
-            indent: { left: 280, hanging: 200 },
-            children: [
-                new TextRun({ text: '•  ' + text, font: fontName, size: 22, color: COL_INK })
-            ]
+            spacing: { before: 280, after: 120 },
+            children: [new TextRun({ text: text, bold: true, font: fontName, size: 24, color: COL_INK })]
+        });
+    }
+
+    function filterMonthlyUnits(units, pred) {
+        return (units || []).filter(function(row) {
+            return row && row.task && pred(row.task, row);
         });
     }
 
@@ -958,33 +951,29 @@ export async function exportTasksToWord(title) {
             seenParent[t.key] = true;
             uniqueParents.push(t);
         });
-        var doneParents = [];
-        var ongoingParents = [];
-        uniqueParents.forEach(function(t) {
-            if (getStatusGroup(t.fields.status.name) === 'done') doneParents.push(t);
-            else ongoingParents.push(t);
-        });
-        var doneGroups = groupByDirection(doneParents);
-        var ongoingGroups = groupByDirection(ongoingParents);
-        var dirSet = {};
-        Object.keys(doneGroups).forEach(function(k) { dirSet[k] = true; });
-        Object.keys(ongoingGroups).forEach(function(k) { dirSet[k] = true; });
+
+        var buckets = {};
+        CANON_ORDER.forEach(function(id) { buckets[id] = []; });
+        var seenBucket = {};
+        function addToBucket(t) {
+            if (!t || !t.key || seenBucket[t.key] || isPausedTask(t)) return;
+            seenBucket[t.key] = true;
+            var dir = resolveDirection(t);
+            var name = dir ? (dir.fields.summary || 'DİGƏR İSTİQAMƏTLƏR').trim() : 'DİGƏR İSTİQAMƏTLƏR';
+            var id = canonicalSectionId(name);
+            buckets[id].push(t);
+        }
+        uniqueParents.forEach(addToBucket);
+        (monthSource || []).forEach(addToBucket);
         (state.allTasks || []).forEach(function(t) {
             var dir = resolveDirection(t);
             var name = dir ? (dir.fields.summary || '').trim() : '';
-            if (name && (isReyestrDirection(name) || isMaqsadDirection(name))) dirSet[name] = true;
+            if (name && (isReyestrDirection(name) || isMaqsadDirection(name))) addToBucket(t);
         });
-        (monthSource || []).forEach(function(t) {
-            if (isSkippedMonthlyTask(t)) return;
-            var dir = resolveDirection(t);
-            var name = dir ? (dir.fields.summary || 'DİGƏR İSTİQAMƏTLƏR').trim() : 'DİGƏR İSTİQAMƏTLƏR';
-            if (name) dirSet[name] = true;
-        });
-        var dirNames = Object.keys(dirSet).sort(function(a, b) {
-            var ra = monthlyDirRank(a);
-            var rb = monthlyDirRank(b);
-            if (ra !== rb) return ra - rb;
-            return a.localeCompare(b, 'az');
+
+        var unitsByCanon = {};
+        CANON_ORDER.forEach(function(id) {
+            unitsByCanon[id] = collectMonthlyWorkUnits(buckets[id] || [], info);
         });
 
         var monthChildren = [];
@@ -1002,54 +991,113 @@ export async function exportTasksToWord(title) {
             children: [new TextRun({ text: titleLine, bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
         }));
 
-        if (dirNames.length === 0) {
+        var anySection = false;
+
+        function emitSectionTitle(id) {
+            monthChildren.push(sectionHeadingParagraph(CANON_TITLES[id], MONTH_FONT));
+            var intro = monthlyIntroForCanon(id, yearMark, info.monthName);
+            if (intro) monthChildren.push(bodyParagraph(intro, MONTH_FONT));
+            anySection = true;
+        }
+
+        function emitGrouped(id, units, byQurumOnly) {
+            var groups = groupMonthlyUnits(units, byQurumOnly);
+            if (!groups.length) return false;
+            emitSectionTitle(id);
+            appendOfficialList(monthChildren, groups.map(function(g) {
+                return officialItemText(g, byQurumOnly ? 'qurum' : 'item');
+            }), MONTH_FONT);
+            return true;
+        }
+
+        var reyestrTasks = buckets.reyestr || [];
+        var reyestrUnits = unitsByCanon.reyestr || [];
+        var systems = collectRegisteredSystems(reyestrTasks, info);
+        var reyestrPlanUnits = filterMonthlyUnits(reyestrUnits, function(t) {
+            if (isSystemRegistrationTask(t) && wasRegisteredInMonth(t, info)) return false;
+            return !isReyestrProcessTask(t);
+        });
+        if (systems.length || reyestrPlanUnits.length) {
+            monthChildren.push(sectionHeadingParagraph(CANON_TITLES.reyestr, MONTH_FONT));
+            anySection = true;
+            if (systems.length) {
+                monthChildren.push(bodyParagraph(monthlyIntroForCanon('reyestr', yearMark, info.monthName), MONTH_FONT));
+                systems.forEach(function(name, idx) {
+                    var line = formatRegistryItem(name, idx === systems.length - 1);
+                    if (line) monthChildren.push(bodyParagraph(line, MONTH_FONT));
+                });
+            }
+            monthChildren.push(bodyParagraph(TEDBIRLER_PLANI, MONTH_FONT));
+            var planGroups = groupMonthlyUnits(reyestrPlanUnits, false);
+            if (planGroups.length) {
+                appendOfficialList(monthChildren, planGroups.map(function(g) {
+                    return officialItemText(g, 'item');
+                }), MONTH_FONT);
+            }
+        }
+
+        var meqsedUnits = unitsByCanon.meqsed || [];
+        var meqsedProcess = filterMonthlyUnits(meqsedUnits, function(t) { return isReyestrProcessTask(t); });
+        var meqsedMain = filterMonthlyUnits(meqsedUnits, function(t) {
+            return !isReyestrProcessTask(t);
+        });
+        var meqsedMetodiki = filterMonthlyUnits(meqsedMain, function(t) { return isMetodikiTask(t); });
+        var meqsedRest = filterMonthlyUnits(meqsedMain, function(t) { return !isMetodikiTask(t); });
+        var meqsedDone = filterMonthlyUnits(meqsedRest, function(t, row) { return unitIsDone(row); });
+        var meqsedOpen = filterMonthlyUnits(meqsedRest, function(t, row) { return !unitIsDone(row); });
+        if (meqsedDone.length || meqsedOpen.length || meqsedMetodiki.length || meqsedProcess.length) {
+            emitSectionTitle('meqsed');
+            if (meqsedDone.length) {
+                appendOfficialList(monthChildren, groupMonthlyUnits(meqsedDone, false).map(function(g) {
+                    return officialItemText(g, 'item');
+                }), MONTH_FONT);
+            }
+            if (meqsedOpen.length) {
+                monthChildren.push(bodyParagraph('Aşağıdakı müraciətlər isə Elektron Sənəd Dövriyyəsi sistemi vasitəsilə rəsmi daxil olmuşdur və təhlil mərhələsindədir:', MONTH_FONT));
+                appendOfficialList(monthChildren, groupMonthlyUnits(meqsedOpen, false).map(function(g) {
+                    return officialItemText(g, 'item');
+                }), MONTH_FONT);
+            }
+            if (meqsedMetodiki.length) {
+                monthChildren.push(bodyParagraph('Eyni zamanda, aşağıdakı qurumlara məqsədəuyğunluq rəyinin verilməsi ilə bağlı işçi qaydada görüşlər keçirilmiş və müvafiq metodiki dəstək göstərilmişdir:', MONTH_FONT));
+                var seenQurum = {};
+                var qurumNames = [];
+                groupMonthlyUnits(meqsedMetodiki, true).forEach(function(g) {
+                    var q = (g.qurum || '').trim();
+                    var k = normalizeStr(q);
+                    if (!k || seenQurum[k]) return;
+                    seenQurum[k] = true;
+                    qurumNames.push(q);
+                });
+                appendOfficialList(monthChildren, qurumNames, MONTH_FONT);
+            }
+            if (meqsedProcess.length) {
+                appendOfficialList(monthChildren, groupMonthlyUnits(meqsedProcess, false).map(function(g) {
+                    return officialItemText(g, 'item');
+                }), MONTH_FONT);
+            }
+        }
+
+        emitGrouped('diag', unitsByCanon.diag, true);
+        emitGrouped('isq', unitsByCanon.isq, true);
+        emitGrouped('exq', unitsByCanon.exq, true);
+        emitGrouped('inteqrasiya', unitsByCanon.inteqrasiya, false);
+        emitGrouped('diger', unitsByCanon.diger, false);
+
+        if (!anySection) {
             monthChildren.push(new Paragraph({
                 spacing: { before: 200 },
                 children: [new TextRun({ text: yearMark + ' ilin ' + info.monthName + ' ayı üzrə qeydə alınmış fəaliyyət tapılmadı.', font: MONTH_FONT, size: 22, color: COL_BODY })]
             }));
         }
 
-        dirNames.forEach(function(dirName) {
-            monthChildren.push(new Paragraph({
-                spacing: { before: 280, after: 120 },
-                children: [new TextRun({ text: monthlySectionTitle(dirName), bold: true, font: MONTH_FONT, size: 24, color: COL_INK })]
-            }));
-            var intro = monthlyIntroForDirection(dirName, yearMark, info.monthName);
-            if (intro) monthChildren.push(bodyParagraph(intro, MONTH_FONT));
-            var dirTasks = collectDirectionTasks(dirName, uniqueParents, monthSource);
-            var units = collectMonthlyWorkUnits(dirTasks, info);
-            if (isReyestrDirection(dirName)) {
-                var systems = collectRegisteredSystems(dirTasks, info);
-                systems.forEach(function(name, idx) {
-                    var line = formatRegistryItem(name, idx === systems.length - 1);
-                    if (line) monthChildren.push(bulletParagraph(line, MONTH_FONT));
-                });
-                monthChildren.push(bodyParagraph(TEDBIRLER_PLANI, MONTH_FONT));
-                appendMonthlyTaskEntries(monthChildren, units, MONTH_FONT, function(t) {
-                    return isSystemRegistrationTask(t) && wasRegisteredInMonth(t, info);
-                });
-                return;
-            }
-            appendMonthlyTaskEntries(monthChildren, units, MONTH_FONT);
-        });
-
         return new Document({
             sections: [{
                 properties: {
-                    titlePage: true,
                     page: { margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } }
                 },
                 headers: {
-                    first: new Header({ children: [new Paragraph({ children: [] })] }),
-                    default: new Header({
-                        children: [
-                            new Paragraph({
-                                border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 } },
-                                spacing: { after: 80 },
-                                children: [new TextRun({ text: 'HESABAT – ' + info.year, font: MONTH_FONT, size: 20, color: COL_MUTED })]
-                            })
-                        ]
-                    })
+                    default: new Header({ children: [new Paragraph({ children: [] })] })
                 },
                 footers: {
                     default: new Footer({

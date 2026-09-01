@@ -18,12 +18,12 @@ import {
     hasAssessmentResult,
     isTaskType,
     isDiagOverallLabel,
-    parseDiagUmumiNetice
+    parseDiagUmumiNetice,
+    parseTaskUmumiNetice
 } from './model.js';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
 var searchState = { diag: '', isq: '', self: '', exq: '', meqsed: '' };
-var openKeys = { self: {} };
 var activeTab = 'diag';
 var selectedYear = 'all';
 var yearTouched = false;
@@ -49,7 +49,7 @@ var YEAR_SELECT_ID = 'assessmentYearSelect';
 var HUB_BODY_ID = 'assessmentHubBody';
 var DIAG_MODAL_ID = 'assessDiagModal';
 var openDiagKey = null;
-var diagByKey = {};
+var hubRowByKey = {};
 var lastEyeBtn = null;
 var modalEscBound = false;
 var rowCache = null;
@@ -707,24 +707,19 @@ function renderBlocks(blocks) {
     }).join('') + '</div>';
 }
 
-function detailButton(section, key, open) {
-    var label = open ? 'Bağla' : 'Ətraflı bax';
-    return '<button type="button" class="assess-detail-btn' + (open ? ' is-open' : '') + '"'
-        + ' onclick="event.stopPropagation(); toggleAssessmentDetail(\'' + section + '\', \'' + escapeHtml(key) + '\');">'
-        + escapeHtml(label)
-        + '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>'
-        + '</button>';
-}
-
-function detailPanel(open, inner) {
-    return '<div class="assess-detail' + (open ? '' : ' hidden') + '">' + inner + '</div>';
+function rememberHubRows(rows) {
+    hubRowByKey = {};
+    (rows || []).forEach(function(r) {
+        var key = r && r.task && r.task.key;
+        if (key) hubRowByKey[key] = r;
+    });
 }
 
 function eyeButton(key) {
     var open = openDiagKey === key;
     return '<button type="button" class="assess-eye-btn' + (open ? ' is-open' : '') + '"'
         + ' data-diag-key="' + escapeHtml(key) + '"'
-        + ' aria-label="Ətraflı bax" title="Ətraflı bax"'
+        + ' aria-label="Ətraflı baxış" title="Ətraflı baxış"'
         + ' onclick="event.stopPropagation(); openDiagModal(\'' + escapeHtml(key) + '\', this);">'
         + EYE_SVG + '</button>';
 }
@@ -735,12 +730,10 @@ function headlineCell(value) {
 }
 
 function renderDiag(rows) {
-    diagByKey = {};
     if (!rows.length) return emptyHtml();
     var body = rows.map(function(r) {
         var t = r.task;
         var key = t.key;
-        diagByKey[key] = r;
         var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
         var headline = getDiagHeadline(t);
         return hubRow([
@@ -770,19 +763,14 @@ function renderSelf(rows) {
     if (!rows.length) return emptyHtml();
     var body = rows.map(function(r) {
         var t = r.task;
-        var key = t.key;
-        var open = !!openKeys.self[key];
         var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
         var info = getSelfAssessInfo(t);
-        var detailInner = info.blocks.length
-            ? renderBlocks(info.blocks)
-            : '<p class="text-sm text-slate-400">Ətraflı məlumat tapılmadı.</p>';
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
             { label: 'Bal', html: scoreBadge(info.score) },
             { label: 'Status', html: statusPill(status, t) },
-            { label: '', cls: 'assess-hub-cell--action', html: detailButton('self', key, open) }
-        ], detailPanel(open, detailInner));
+            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
+        ], '');
     }).join('');
     return hubTable('self', ['Qurum adı', 'Bal', 'Status', ''], body);
 }
@@ -813,10 +801,11 @@ function renderMeqsed(rows) {
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
             { label: 'Müraciətin növü', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(info.novu) + '</span>' },
-            { label: 'Məqsədəuyğunluq Rəyi Nəticə', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(info.netice) + '</span>' }
+            { label: 'Məqsədəuyğunluq Rəyi Nəticə', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(info.netice) + '</span>' },
+            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
     }).join('');
-    return hubTable('meqsed', ['Qurum adı', 'Müraciətin növü', 'Məqsədəuyğunluq Rəyi Nəticə'], body);
+    return hubTable('meqsed', ['Qurum adı', 'Müraciətin növü', 'Məqsədəuyğunluq Rəyi Nəticə', ''], body);
 }
 
 function isJiraTableHeaderDump(text) {
@@ -845,25 +834,42 @@ function directionCard(d, overallText) {
         + '</article>';
 }
 
-function fillDiagModal(r) {
-    var t = r.task;
-    var parsed = parseDiagUmumiNetice(t.fields && t.fields.customfield_17319);
+function dashOr(value) {
+    if (value == null || value === '') return '—';
+    return String(value);
+}
+
+function modalFieldBlocks(items) {
+    return '<div class="assess-modal-fields">' + (items || []).map(function(item) {
+        var val = dashOr(item.value);
+        var inner = item.html != null ? item.html : escapeHtml(val);
+        return '<div class="assess-modal-field">'
+            + '<div class="assess-modal-field-label">' + escapeHtml(item.label || '') + '</div>'
+            + '<div class="assess-modal-field-value">' + inner + '</div>'
+            + '</div>';
+    }).join('') + '</div>';
+}
+
+function fillModalChrome(r, kicker) {
+    var t = (r && r.task) || {};
     var titleEl = document.getElementById('assessDiagModalTitle');
     var subEl = document.getElementById('assessDiagModalSub');
     var keyEl = document.getElementById('assessDiagModalKey');
-    var bodyEl = document.getElementById('assessDiagModalBody');
-    var yearLabel = r.year ? String(r.year) : '';
-    if (titleEl) {
-        titleEl.textContent = yearLabel ? (r.qurum + ' · ' + yearLabel) : (r.qurum || '—');
-    }
-    if (subEl) subEl.textContent = 'Ümumi nəticə';
+    var yearLabel = r && r.year ? String(r.year) : '';
+    var qurum = (r && r.qurum) || '—';
+    if (titleEl) titleEl.textContent = yearLabel ? (qurum + ' · ' + yearLabel) : qurum;
+    if (subEl) subEl.textContent = kicker || 'Ətraflı baxış';
     if (keyEl) {
         var base = (state.currentBaseUrl || '').replace(/\/+$/, '');
         keyEl.textContent = t.key || '';
         keyEl.href = base && t.key ? (base + '/browse/' + encodeURIComponent(t.key)) : '#';
         keyEl.classList.toggle('hidden', !t.key);
     }
-    if (!bodyEl) return;
+}
+
+function diagModalBodyHtml(r) {
+    var t = r.task;
+    var parsed = parseDiagUmumiNetice(t.fields && t.fields.customfield_17319);
     var parts = [];
     var overallScore = parsed.overall.score && parsed.overall.score !== '—' && !isJiraTableHeaderDump(parsed.overall.score)
         ? parsed.overall.score : '';
@@ -890,9 +896,85 @@ function fillDiagModal(r) {
         || parsed.directions.some(function(d) { return (d.score && d.score !== '—') || d.text; })
         || extras.length;
     if (!hasAny) {
-        parts = ['<p class="assess-modal-empty">Ümumi nəticə qeyd edilməyib.</p>'];
+        return '<p class="assess-modal-empty">Ümumi nəticə qeyd edilməyib.</p>';
     }
-    bodyEl.innerHTML = parts.join('');
+    return parts.join('');
+}
+
+function meqsedModalBodyHtml(t) {
+    var info = getMeqsedInfo(t);
+    return modalFieldBlocks([
+        { label: 'Xidmət sayı', value: info.xidmetSayi },
+        { label: 'Məqsədəuyğunluq Rəyi Nəticə', value: info.netice },
+        { label: 'Məqsədəuyğunluq üzrə müraciətin növü', value: info.novu },
+        { label: 'Xidmət(lər) barədə məlumat', value: info.xidmetMelumat }
+    ]);
+}
+
+function neticeRowHasContent(d) {
+    if (!d || !d.title) return false;
+    if (isJiraTableHeaderDump(d.title) || isDiagOverallLabel(d.title)) return false;
+    var score = d.score && d.score !== '—' && !isJiraTableHeaderDump(d.score) ? d.score : '';
+    var text = d.text ? String(d.text).trim() : '';
+    if (isJiraTableHeaderDump(text)) text = '';
+    return !!(score || text);
+}
+
+function selfModalBodyHtml(t) {
+    var parsed = parseTaskUmumiNetice(t);
+    var extras = (parsed.extras || []).filter(function(e) {
+        return e && e.title && !isJiraTableHeaderDump(e.title) && !isJiraTableHeaderDump(e.score)
+            && !isDiagOverallLabel(e.title);
+    });
+    var rows = (parsed.directions || []).filter(neticeRowHasContent).concat(extras);
+    var overallScore = parsed.overall && parsed.overall.score && parsed.overall.score !== '—'
+        && !isJiraTableHeaderDump(parsed.overall.score) ? parsed.overall.score : '';
+    var overallText = (parsed.overall && parsed.overall.text) || '';
+    if (isJiraTableHeaderDump(overallText)) overallText = '';
+    var parts = [];
+    if (overallScore || overallText) {
+        parts.push('<div class="assess-modal-overall">'
+            + '<div class="assess-modal-overall-label">Ümumi nəticə</div>'
+            + (overallScore ? '<div class="assess-modal-overall-score">' + scoreBadge(overallScore) + '</div>' : '')
+            + (overallText ? '<p class="assess-modal-overall-text">' + escapeHtml(overallText) + '</p>' : '')
+            + '</div>');
+    }
+    var dirHtml = rows.map(function(d) { return directionCard(d, overallText); }).join('');
+    if (dirHtml) {
+        parts.push('<div class="assess-dir-grid">' + dirHtml + '</div>');
+    }
+    if (parts.length) return parts.join('');
+    var info = getSelfAssessInfo(t);
+    if (info.blocks && info.blocks.length) return renderBlocks(info.blocks);
+    return '<p class="assess-modal-empty">Ümumi nəticə qeyd edilməyib.</p>';
+}
+
+function hasDetailModal(cat) {
+    return cat === 'diag' || cat === 'self' || cat === 'meqsed';
+}
+
+function fillDiagModal(r) {
+    var t = r && r.task;
+    var cat = (t && classifyAssessmentCategory(t)) || activeTab;
+    if (!hasDetailModal(cat)) {
+        closeDiagModal();
+        return;
+    }
+    var overlay = document.getElementById(DIAG_MODAL_ID);
+    var panel = overlay && overlay.querySelector('.assess-modal-panel');
+    if (panel) panel.classList.toggle('assess-modal-panel--compact', cat === 'meqsed');
+    fillModalChrome(r, SECTION_LABELS[cat] || 'Ətraflı baxış');
+    var bodyEl = document.getElementById('assessDiagModalBody');
+    if (!bodyEl) return;
+    if (cat === 'meqsed') bodyEl.innerHTML = meqsedModalBodyHtml(t);
+    else if (cat === 'self') bodyEl.innerHTML = selfModalBodyHtml(t);
+    else bodyEl.innerHTML = diagModalBodyHtml(r);
+}
+
+function syncOpenHubModal() {
+    if (!openDiagKey) return;
+    if (hubRowByKey[openDiagKey]) fillDiagModal(hubRowByKey[openDiagKey]);
+    else closeDiagModal();
 }
 
 function bindModalEsc() {
@@ -909,13 +991,16 @@ export function openDiagModal(key, btn) {
         closeDiagModal();
         return;
     }
-    var r = diagByKey[key];
+    var r = hubRowByKey[key];
     if (!r) {
         var found = (state.allTasks || []).filter(isTaskType).filter(function(t) { return t.key === key; })[0];
         if (!found) return;
         var y = getAssessmentYear(found);
         r = { task: found, qurum: getAssessmentQurumLabel(found), year: y, years: y != null ? [y] : [] };
+        hubRowByKey[key] = r;
     }
+    var cat = classifyAssessmentCategory(r.task) || activeTab;
+    if (!hasDetailModal(cat)) return;
     openDiagKey = key;
     lastEyeBtn = btn || null;
     fillDiagModal(r);
@@ -966,7 +1051,9 @@ function renderOne(section) {
         fillYearSelect([], selectedYear);
         renderAssessDash();
         if (section === activeTab) updateHubMeta(0, false, selectedYear);
+        rememberHubRows([]);
         bodyEl.innerHTML = emptyHtml();
+        if (openDiagKey) closeDiagModal();
         return;
     }
     var globalYears = collectGlobalYears();
@@ -986,22 +1073,21 @@ function renderOne(section) {
     }
 
     if (!filtered.length) {
-        if (section === 'diag') diagByKey = {};
+        rememberHubRows([]);
         bodyEl.innerHTML = (searchActive && rows.length) ? searchEmptyHtml() : emptyHtml();
-        if (section === 'diag' && openDiagKey) closeDiagModal();
+        if (openDiagKey) closeDiagModal();
         return;
     }
     var page = paginateRows(filtered, section);
+    rememberHubRows(page.slice);
     var html = '';
-    if (section === 'diag') {
-        html = renderDiag(page.slice);
-        if (openDiagKey && diagByKey[openDiagKey]) fillDiagModal(diagByKey[openDiagKey]);
-        else if (openDiagKey) closeDiagModal();
-    } else if (section === 'isq') html = renderIsq(page.slice);
+    if (section === 'diag') html = renderDiag(page.slice);
+    else if (section === 'isq') html = renderIsq(page.slice);
     else if (section === 'self') html = renderSelf(page.slice);
     else if (section === 'exq') html = renderExq(page.slice);
     else html = renderMeqsed(page.slice);
     bodyEl.innerHTML = html + page.html;
+    syncOpenHubModal();
 }
 
 export function renderAssessmentSections() {
@@ -1078,10 +1164,8 @@ export function setAssessmentPage(section, page) {
 }
 
 export function toggleAssessmentDetail(section, key) {
-    if (!openKeys[section] || !key) return;
-    if (openKeys[section][key]) delete openKeys[section][key];
-    else openKeys[section][key] = true;
-    renderOne(section);
+    if (!key) return;
+    openDiagModal(key);
 }
 
 export function getActiveAssessmentTab() {

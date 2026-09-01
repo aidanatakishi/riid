@@ -693,13 +693,23 @@ export function filterTasksByDateStatus(type) {
 }
 
 export function filterQurumList() {
-    var searchStr = document.getElementById('qurumSearch').value.toLowerCase();
+    var input = document.getElementById('qurumSearch');
+    var searchStr = normalizeStr(input ? input.value : '');
+    var clearBtn = document.getElementById('qurumSearchClear');
+    if (clearBtn) clearBtn.classList.toggle('hidden', !searchStr);
     var rows = document.querySelectorAll('#qurumTableBody tr');
     rows.forEach(function(row) {
-        var text = row.textContent.toLowerCase();
-        if (text.includes(searchStr)) row.classList.remove('hidden');
+        var nameCell = row.querySelector('td');
+        var text = normalizeStr(nameCell ? nameCell.textContent : row.textContent);
+        if (!searchStr || text.indexOf(searchStr) !== -1) row.classList.remove('hidden');
         else row.classList.add('hidden');
     });
+}
+
+export function clearQurumSearch() {
+    var input = document.getElementById('qurumSearch');
+    if (input) input.value = '';
+    filterQurumList();
 }
 
 export function filterSprintComparison(sprintName, type) {
