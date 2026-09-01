@@ -6,7 +6,7 @@ import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, se
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick } from './assessments.js';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick } from './assessments.js';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 
@@ -107,6 +107,7 @@ window.setAssessmentTab = setAssessmentTab;
 window.setAssessmentSearch = setAssessmentSearch;
 window.onAssessmentSearchInput = onAssessmentSearchInput;
 window.clearAssessmentSearch = clearAssessmentSearch;
+window.setAssessmentPage = setAssessmentPage;
 window.toggleAssessmentDetail = toggleAssessmentDetail;
 window.getActiveAssessmentTab = getActiveAssessmentTab;
 window.openDiagModal = openDiagModal;
@@ -133,6 +134,5 @@ window.onload = async function() {
     var projectKey = document.getElementById('projectKey').value;
     if (baseUrl && projectKey && pat) fetchDashboardData();
     else toggleSettings();
-    var hub = document.getElementById('assessmentHubContent');
-    if (hub && !hub.classList.contains('hidden')) renderAssessmentSections();
+    try { renderAssessmentSections(); } catch (e) {}
 };

@@ -1472,12 +1472,58 @@ export function classifyAssessmentCategory(t) {
     return mapActivityDirectionToCategory(readActivityDirectionValue(t));
 }
 
+var ASSESS_YEAR_RE = /\b(20(?:1[5-9]|2[0-9]|3[0-5]))\b/g;
+
+function yearsFromText(s) {
+    var out = [];
+    var m;
+    var re = new RegExp(ASSESS_YEAR_RE.source, 'g');
+    var str = String(s || '');
+    while ((m = re.exec(str))) {
+        var y = Number(m[1]);
+        if (y >= 2015 && y <= 2035) out.push(y);
+    }
+    return out;
+}
+
+function pushUniqueYear(list, y) {
+    var n = Number(y);
+    if (!isFinite(n) || n < 2015 || n > 2035) return;
+    if (list.indexOf(n) === -1) list.push(n);
+}
+
+function pushYearFromDate(list, d) {
+    if (d && typeof d.getFullYear === 'function' && !isNaN(d.getTime())) pushUniqueYear(list, d.getFullYear());
+}
+
+export function listAssessmentYears(t) {
+    var years = [];
+    if (!t) return years;
+    var f = t.fields || {};
+    yearsFromText(f.summary).forEach(function(y) { pushUniqueYear(years, y); });
+    issueLabelTexts(t).forEach(function(lab) {
+        yearsFromText(lab).forEach(function(y) { pushUniqueYear(years, y); });
+    });
+    var parent = getParentIssue(t);
+    if (parent && parent.fields) {
+        yearsFromText(parent.fields.summary).forEach(function(y) { pushUniqueYear(years, y); });
+    }
+    getSprintNames(t).forEach(function(n) {
+        yearsFromText(n).forEach(function(y) { pushUniqueYear(years, y); });
+    });
+    pushYearFromDate(years, getTaskStartDate(t));
+    pushYearFromDate(years, getTaskDueDate(t));
+    PHASE_FIELDS.forEach(function(pf) {
+        pushYearFromDate(years, parsePhaseDate(f[pf.date]));
+    });
+    pushYearFromDate(years, parsePhaseDate(f.resolutiondate));
+    pushYearFromDate(years, getTaskCreatedDate(t));
+    return years;
+}
+
 export function getAssessmentYear(t) {
-    var d = getTaskStartDate(t) || getTaskCreatedDate(t);
-    if (!d && t && t.fields) d = parsePhaseDate(t.fields.resolutiondate);
-    if (!d) d = getTaskDueDate(t);
-    if (!d) return null;
-    return d.getFullYear();
+    var years = listAssessmentYears(t);
+    return years.length ? years[0] : null;
 }
 
 export function getAssessmentTaskTime(t) {

@@ -20,6 +20,8 @@ export const state = {
     qurumChart: null,
     sprintDisplayMap: {},
     sprintCompareChart: null,
+    assessYearChart: null,
+    assessCatChart: null,
     autoRefreshInterval: null,
     isInitialLoad: true,
     jiraFieldNames: {},

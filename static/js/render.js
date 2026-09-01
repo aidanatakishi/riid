@@ -651,6 +651,31 @@ export function renderSprintComparison() {
             + '</button>';
     }
 
+    function dueComboHtml(stats, compare) {
+        var due = stats.dueCount || 0;
+        var done = stats.dueDone || 0;
+        var pct = pctOf(done, due);
+        var delta = compare ? deltaHtml(done, compare.dueDone, 'good-up') : '';
+        var name = scEscape(stats.jName);
+        return '<div class="sc-metric sc-metric--due sc-duecombo" data-sprint="' + name + '" data-sc-type="due"'
+            + ' data-tip="Bu həftə bitməli olanlar. Yaşıl rəqəm — yekunlaşanlar.">'
+            + '<span class="sc-metric-top">'
+            + '<span class="sc-metric-label">Həftə ərzində bitməli</span>'
+            + '<span class="sc-metric-nums">'
+            + (delta || '')
+            + '<span class="sc-due-pair">'
+            + '<button type="button" class="sc-due-n sc-due-n--done" data-sprint="' + name + '" data-sc-type="dueDone"'
+            + ' aria-label="Yekunlaşıb: ' + done + '">' + done + '</button>'
+            + '<span class="sc-due-slash" aria-hidden="true">/</span>'
+            + '<button type="button" class="sc-due-n" data-sprint="' + name + '" data-sc-type="due"'
+            + ' aria-label="Bitməli: ' + due + '">' + due + '</button>'
+            + '</span>'
+            + '</span>'
+            + '</span>'
+            + '<span class="sc-track" aria-hidden="true"><span class="sc-bar" style="width:' + pct + '%"></span></span>'
+            + '</div>';
+    }
+
     function weekCard(stats, dName, coTitle, compare) {
         if (!stats || !stats.jName || stats.empty) {
             return '<article class="sc-week sc-week--empty">'
@@ -660,7 +685,6 @@ export function renderSprintComparison() {
         }
         var showDelta = compare && !compare.empty;
         var rate = pctOf(stats.done, stats.total);
-        var dueRate = pctOf(stats.dueDone, stats.dueCount);
         var range = sprintRangeLabel(stats.jName);
         var selectedCls = stats.isPrev ? '' : ' is-selected';
         return '<article class="sc-week' + selectedCls + '">'
@@ -670,15 +694,14 @@ export function renderSprintComparison() {
             + '<h3 class="sc-week-title">' + scEscape(stats.jName) + '</h3>'
             + (range ? '<p class="sc-week-dates">' + scEscape(range) + '</p>' : '')
             + '</div>'
-            + '<button type="button" class="sc-ring" data-sprint="' + scEscape(stats.jName) + '" data-sc-type="done" style="--p:' + rate + '" aria-label="' + scEscape(dName + ', tamamlanma ' + rate + '%. Tamamlanmış tapşırıqları aç') + '" data-tip="Tamamlanma: ' + rate + '% — klikləyib tamamlanmışları açın">'
-            + '<span class="sc-ring-inner"><span class="sc-ring-value">' + rate + '%</span><span class="sc-ring-label">tamamlanıb</span></span>'
+            + '<button type="button" class="sc-ring" data-sprint="' + scEscape(stats.jName) + '" data-sc-type="done" style="--p:' + rate + '" aria-label="' + scEscape(dName + ', yekunlaşma ' + rate + '%. Yekunlaşmış tapşırıqları aç') + '" data-tip="Yekunlaşıb: ' + rate + '% — klikləyib siyahını açın">'
+            + '<span class="sc-ring-inner"><span class="sc-ring-value">' + rate + '%</span><span class="sc-ring-label">yekunlaşıb</span></span>'
             + '</button>'
             + '</div>'
             + '<div class="sc-metrics">'
             + metricRow(stats, 'all', 'Ümumi Tapşırıq', stats.total, 100, 'neutral', 'Sprintə daxil olan iş vahidləri. Klikləyib siyahını açın.', '', showDelta ? deltaHtml(stats.total, compare.total, 'neutral') : '')
-            + metricRow(stats, 'done', 'Tamamlanmış', stats.done, pctOf(stats.done, stats.total), 'good', 'Tamamlanmış tapşırıqlar. Klikləyib siyahını açın.', (stats.total ? rate + '% ümumi' : ''), showDelta ? deltaHtml(stats.done, compare.done, 'good-up') : '')
-            + metricRow(stats, 'due', 'Həftə ərzində bitməli olan', stats.dueCount, pctOf(stats.dueCount, stats.total), 'due', 'Bu həftə/sprint müddətində bitməli olanlar. Klikləyib siyahını açın.', '', showDelta ? deltaHtml(stats.dueCount, compare.dueCount, 'neutral') : '')
-            + metricRow(stats, 'dueDone', 'Edildi', stats.dueDone, stats.dueCount ? dueRate : 0, 'good', 'Bitməli olanlardan tamamlananlar. Klikləyib siyahını açın.', (stats.dueCount ? stats.dueDone + ' / ' + stats.dueCount + ' bitməli' : 'Bitməli tapşırıq yoxdur'), showDelta ? deltaHtml(stats.dueDone, compare.dueDone, 'good-up') : '')
+            + metricRow(stats, 'done', 'Yekunlaşıb', stats.done, pctOf(stats.done, stats.total), 'good', 'Yekunlaşmış tapşırıqlar. Klikləyib siyahını açın.', (stats.total ? rate + '% ümumi' : ''), showDelta ? deltaHtml(stats.done, compare.done, 'good-up') : '')
+            + dueComboHtml(stats, showDelta ? compare : null)
             + metricRow(stats, 'carryover', coTitle, stats.co, pctOf(stats.co, stats.total), 'warn', coTitle + '. Klikləyib siyahını açın.', '', showDelta ? deltaHtml(stats.co, compare.co, 'good-down') : '')
             + '</div>'
             + '</article>';
@@ -719,7 +742,7 @@ export function renderSprintComparison() {
     if (!canvas) return;
     var metricKeys = ['total', 'done', 'dueCount', 'dueDone', 'co'];
     var metricTypes = ['all', 'done', 'due', 'dueDone', 'carryover'];
-    var metricLabels = ['Ümumi', 'Tamamlanmış', 'Bitməli', 'Edildi', 'Davam edən'];
+    var metricLabels = ['Ümumi', 'Yekunlaşıb', 'Bitməli', 'Həftədə yekunlaşıb', 'Davam edən'];
     var datasets = chartSprints.map(function(item) {
         return {
             label: item.label,

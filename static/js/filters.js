@@ -570,19 +570,23 @@ function updateCollapsedCounts() {
 }
 
 var lastHubQurumFilter = undefined;
+var lastHubTasks = undefined;
+
+function maybeRenderAssessmentHub() {
+    var qf = state.currentQurumFilter || '';
+    var tasks = state.allTasks || [];
+    if (lastHubQurumFilter === qf && lastHubTasks === tasks) return;
+    lastHubQurumFilter = qf;
+    lastHubTasks = tasks;
+    try { renderAssessmentSections(); } catch (err) { console.error(err); }
+}
 
 export function renderVisibleLazySections() {
+    maybeRenderAssessmentHub();
     ['dailyActivityContent', 'labelChartContent', 'qurumStatContent', 'sprintComparisonContent',
      'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent'].forEach(function(id) {
         if (isSectionOpen(id)) renderLazySection(id, true);
     });
-    if (isSectionOpen('assessmentHubContent')) {
-        var qf = state.currentQurumFilter || '';
-        if (lastHubQurumFilter !== qf) {
-            lastHubQurumFilter = qf;
-            try { renderAssessmentSections(); } catch (err) { console.error(err); }
-        }
-    }
 }
 
 export function renderLazySection(id, force) {
@@ -604,6 +608,7 @@ export function renderLazySection(id, force) {
     if (id === 'cetinliklerContent') { renderDifficulties(state.filteredTasks); return; }
     if (id === 'assessmentHubContent') {
         lastHubQurumFilter = state.currentQurumFilter || '';
+        lastHubTasks = state.allTasks || [];
         try { renderAssessmentSections(); } catch (err) { console.error(err); }
         return;
     }
@@ -738,7 +743,7 @@ export function filterSprintComparison(sprintName, type) {
 
     if (type === 'done') {
         f = validSTasks.filter(function(t) { return getStatusGroup(statusForCompare(t)) === 'done'; });
-        title += ' - Tamamlanmış';
+        title += ' - Yekunlaşıb';
     }
     else if (type === 'due') {
         f = validSTasks.filter(function(t) {
@@ -750,7 +755,7 @@ export function filterSprintComparison(sprintName, type) {
         f = validSTasks.filter(function(t) {
             return dueInComparedWeek(t) && getStatusGroup(statusForCompare(t)) === 'done';
         });
-        title += ' - Edildi';
+        title += ' - Yekunlaşıb';
     }
     else if (type === 'carryover') {
         if (sprintName === prevSprint && curSprint) {

@@ -262,11 +262,10 @@
                         <span class="w-2 h-2 rounded-full bg-cyan-500 shrink-0"></span>
                         <span id="duePeriodLabel" class="stat-foot-label">Bu həftə bitməli</span>
                     </button>
-                    <div class="flex items-baseline gap-3 shrink-0">
+                    <div class="flex items-baseline gap-1 shrink-0">
+                        <button type="button" id="sprintTasksDueWeekDone" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" class="stat-foot-done">0</button>
+                        <span class="stat-foot-slash" aria-hidden="true">/</span>
                         <button type="button" id="sprintTasksDueWeek" onclick="event.stopPropagation(); showDueThisWeekTasks();" class="stat-foot-value text-cyan-600">0</button>
-                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" class="text-[11px] font-bold text-emerald-600 hover:underline whitespace-nowrap">
-                            Edildi <span id="sprintTasksDueWeekDone">0</span>
-                        </button>
                     </div>
                 </div>
             </div>
@@ -330,6 +329,74 @@
         <div class="card p-3 md:p-4 flex flex-col fade-in min-w-0">
             <h2 class="font-semibold text-sm text-slate-800 mb-2">İstiqamətlər</h2>
             <div id="epicChartList" class="direction-list flex-1 overflow-y-auto min-h-0"></div>
+        </div>
+    </div>
+
+    <div class="card overflow-hidden mb-6 fade-in assess-hub-card">
+        <div class="assess-hub-head bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 border-b border-slate-200">
+            <div class="flex items-center gap-3 min-w-0">
+                <span class="assess-hub-icon shrink-0">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
+                </span>
+                <div class="min-w-0">
+                    <h2 class="font-bold text-base md:text-lg text-slate-800">Qiymətləndirmə və nəticələr</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">İl filtri, diaqramlar və qurum siyahısı</p>
+                </div>
+            </div>
+        </div>
+        <div id="assessDash" class="assess-dash" onclick="event.stopPropagation();">
+            <div class="assess-year-filter">
+                <span class="assess-year-filter-label">İl</span>
+                <div id="assessmentYearPills" class="assess-year-pills" role="group" aria-label="İl"></div>
+                <select id="assessmentYearSelect" class="assess-year-fallback" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
+            </div>
+            <div id="assessDashKpis" class="assess-dash-kpis"></div>
+            <div class="assess-dash-grid">
+                <div class="assess-dash-card assess-dash-card--years">
+                    <h3>İllər üzrə nəticələr</h3>
+                    <p id="assessYearEmpty" class="assess-dash-empty hidden">İl tapılmadı.</p>
+                    <div id="assessYearChartWrap" class="assess-chart-box assess-chart-box--years">
+                        <canvas id="assessYearChart"></canvas>
+                    </div>
+                </div>
+                <div class="assess-dash-card assess-dash-card--cat">
+                    <h3>Bölmə payı</h3>
+                    <p id="assessCatEmpty" class="assess-dash-empty hidden">Qeyd yoxdur.</p>
+                    <div id="assessCatChartWrap" class="assess-chart-box assess-chart-box--cat">
+                        <canvas id="assessCatChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="assess-list-panel">
+            <button type="button" class="assess-list-head section-head" onclick="toggleDropdown('assessmentHubContent')" aria-controls="assessmentHubContent" aria-expanded="true" id="assessListToggle">
+                <span class="assess-list-head-copy">
+                    <span class="assess-list-head-title">Qurum siyahısı</span>
+                    <span id="assessHubMeta" class="assess-hub-meta" aria-live="polite"></span>
+                </span>
+                <svg id="icon-assessmentHubContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="transform: rotate(180deg);"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            <div id="assessmentHubContent" class="assess-section">
+                <div class="assess-list-toolbar" onclick="event.stopPropagation();">
+                    <div class="assess-hub-tabs" role="tablist" aria-label="Qiymətləndirmə bölmələri">
+                        <button type="button" class="assess-tab is-active" data-tab="diag" role="tab" aria-selected="true" onclick="setAssessmentTab('diag')">Diaqnostika</button>
+                        <button type="button" class="assess-tab" data-tab="isq" role="tab" aria-selected="false" onclick="setAssessmentTab('isq')">İSQ</button>
+                        <button type="button" class="assess-tab" data-tab="self" role="tab" aria-selected="false" onclick="setAssessmentTab('self')">Özünüqiymətləndirmə</button>
+                        <button type="button" class="assess-tab" data-tab="exq" role="tab" aria-selected="false" onclick="setAssessmentTab('exq')">Elektron xidmət</button>
+                        <button type="button" class="assess-tab" data-tab="meqsed" role="tab" aria-selected="false" onclick="setAssessmentTab('meqsed')">Məqsədəuyğunluq</button>
+                    </div>
+                    <div class="assess-search-wrap">
+                        <span class="assess-search-slot" aria-hidden="true">
+                            <svg class="assess-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                        </span>
+                        <input type="text" id="assessSearchInput" class="assess-search-input" placeholder="Qurum axtar..." autocomplete="off" oninput="onAssessmentSearchInput(this.value)">
+                        <button type="button" id="assessSearchClear" class="assess-search-clear hidden" onclick="clearAssessmentSearch()" aria-label="Axtarışı təmizlə">✕</button>
+                    </div>
+                </div>
+                <div class="assess-table-shell">
+                    <div id="assessmentHubBody"></div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -416,50 +483,6 @@
                         </table>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="card overflow-hidden mb-6 fade-in assess-hub-card">
-        <div class="assess-hub-head bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 cursor-pointer border-b border-slate-200 section-head" onclick="toggleDropdown('assessmentHubContent')">
-            <div class="flex items-center gap-3 min-w-0">
-                <span class="assess-hub-icon shrink-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-                </span>
-                <div class="min-w-0">
-                    <h2 class="font-bold text-base md:text-lg text-slate-800">Qiymətləndirmə və nəticələr</h2>
-                    <p class="text-xs text-slate-500 mt-0.5">Qurumlar üzrə nəticələr — il və axtarış ilə süzgəc</p>
-                </div>
-            </div>
-            <svg id="icon-assessmentHubContent" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-400 transition-transform duration-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>
-        </div>
-        <div id="assessmentHubContent" class="assess-section hidden">
-            <div class="assess-hub-chrome" onclick="event.stopPropagation();">
-                <div class="assess-hub-tabs" role="tablist" aria-label="Qiymətləndirmə bölmələri">
-                    <button type="button" class="assess-tab is-active" data-tab="diag" role="tab" aria-selected="true" onclick="setAssessmentTab('diag')">Diaqnostika</button>
-                    <button type="button" class="assess-tab" data-tab="isq" role="tab" aria-selected="false" onclick="setAssessmentTab('isq')">İSQ</button>
-                    <button type="button" class="assess-tab" data-tab="self" role="tab" aria-selected="false" onclick="setAssessmentTab('self')">Özünüqiymətləndirmə</button>
-                    <button type="button" class="assess-tab" data-tab="exq" role="tab" aria-selected="false" onclick="setAssessmentTab('exq')">Elektron xidmət</button>
-                    <button type="button" class="assess-tab" data-tab="meqsed" role="tab" aria-selected="false" onclick="setAssessmentTab('meqsed')">Məqsədəuyğunluq</button>
-                </div>
-                <div class="assess-toolbar-year">
-                    <span class="assess-toolbar-year-label">İl</span>
-                    <div id="assessmentYearPills" class="assess-year-pills" role="group" aria-label="İl"></div>
-                    <select id="assessmentYearSelect" class="assess-year-fallback" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
-                </div>
-            </div>
-            <div class="assess-hub-toolbar" onclick="event.stopPropagation();">
-                <div class="assess-search-wrap">
-                    <span class="assess-search-slot" aria-hidden="true">
-                        <svg class="assess-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                    </span>
-                    <input type="text" id="assessSearchInput" class="assess-search-input" placeholder="Qurum axtar..." autocomplete="off" oninput="onAssessmentSearchInput(this.value)">
-                    <button type="button" id="assessSearchClear" class="assess-search-clear hidden" onclick="clearAssessmentSearch()" aria-label="Axtarışı təmizlə">✕</button>
-                </div>
-            </div>
-            <div id="assessHubMeta" class="assess-hub-meta" aria-live="polite"></div>
-            <div class="assess-hub-body">
-                <div id="assessmentHubBody"></div>
             </div>
         </div>
     </div>
