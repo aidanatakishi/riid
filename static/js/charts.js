@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
-import { countableWorkUnits, currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, resolveDirection } from './model.js';
+import { countableWorkUnits, currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 
@@ -65,9 +65,9 @@ export function renderStatusChart(tasks) {
 }
 
 function drawStatusChart(tasks) {
-    var gN = { 'done': 'Tamamlanmış', 'progress': 'İcradakı', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
-    var gC = { 'done': '#10b981', 'progress': '#3b82f6', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
-    var order = ['done', 'progress', 'planned', 'blocked', 'rejected', 'paused', 'other'];
+    var gN = { 'done': 'İcra edilib', 'progress': 'İcradadır', 'review': 'Rəy gözlənilir', 'esd': 'ESD', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
+    var gC = { 'done': '#10b981', 'progress': '#3b82f6', 'review': '#06b6d4', 'esd': '#6366f1', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
+    var order = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'rejected', 'paused', 'other'];
     var counts = {};
     var units = countableWorkUnits(tasks);
     units.forEach(function(t) {
@@ -295,7 +295,7 @@ function drawQurumChart(tasks) {
         qurumData[qName].total++;
         var g = getStatusGroup(t.fields.status.name);
         if (g === 'done') qurumData[qName].done++;
-        else if (g === 'progress' || g === 'esd' || g === 'review') qurumData[qName].inProgress++;
+        else if (isActiveExecutionGroup(g)) qurumData[qName].inProgress++;
         else if (g === 'planned') qurumData[qName].planned++;
         else if (g === 'blocked' || hasValidDifficulty(t)) qurumData[qName].blocked++;
     });

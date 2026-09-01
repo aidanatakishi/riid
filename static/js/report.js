@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isDateInReportPeriod, isDueInSelectedWeek, isSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInSelectedWeek, isSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -1295,13 +1295,13 @@ export async function exportTasksToWord(title) {
     // 3. İcra mərhələsində olan və yarımçıq qalanlar
     var progressTasksPrint = getPrintTasks(function(t) { 
         var g = getStatusGroup(t.fields.status.name);
-        return (g === 'progress' || g === 'other') && !isDueInSelectedWeek(t); 
+        return (isActiveExecutionGroup(g) || g === 'other') && !isDueInSelectedWeek(t); 
     });
     appendReportSection(
         sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'),
         buildSection(progressTasksPrint, false, periodStart, periodEnd, function(t) { 
             var g = getStatusGroup(t.fields.status.name);
-            return (g === 'progress' || g === 'other') && !isDueInSelectedWeek(t); 
+            return (isActiveExecutionGroup(g) || g === 'other') && !isDueInSelectedWeek(t); 
         }),
         'İcra mərhələsində yarımçıq qalan tapşırıq yoxdur.'
     );

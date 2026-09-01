@@ -181,12 +181,18 @@ export function getStatusGroup(statusName) {
     var n = normalizeStr(statusName);
     if (n.includes('başlanmamış') || n.includes('baslanmamis')) return 'progress';
     if (n.includes('dayandır') || n.includes('dayandir') || n.includes('müvəqqəti') || n.includes('muveqqeti')) return 'paused';
-    if (n.includes('həll') || n.includes('hel') || n.includes('bağlı') || n.includes('bagli') || n.includes('tamamla') || n === 'done' || n === 'closed' || n === 'resolved') return 'done';
+    if (n.includes('icra edil') || n.includes('həll') || n.includes('hel') || n.includes('bağlı') || n.includes('bagli') || n.includes('tamamla') || n === 'done' || n === 'closed' || n === 'resolved') return 'done';
     if (n.includes('planlaşdır') || n.includes('planlasdir') || n === 'planned' || n === 'to do') return 'planned';
-    if (n.includes('icradadır') || n.includes('icradadir') || n === 'in progress' || n.includes('esd') || n.includes('rəy') || n.includes('rey') || n.includes('review')) return 'progress';
+    if (n.includes('esd')) return 'esd';
+    if (n.includes('rəy') || n.includes('rey') || n.includes('review')) return 'review';
+    if (n.includes('icradadır') || n.includes('icradadir') || n === 'in progress') return 'progress';
     if (n.includes('blok')) return 'blocked';
     if (n.includes('imtina')) return 'rejected';
     return 'other';
+}
+
+export function isActiveExecutionGroup(g) {
+    return g === 'progress' || g === 'esd' || g === 'review';
 }
 
 export function getBakuWeekRange(weekOffset) {
@@ -1517,7 +1523,10 @@ export function listAssessmentYears(t) {
         pushYearFromDate(years, parsePhaseDate(f[pf.date]));
     });
     pushYearFromDate(years, parsePhaseDate(f.resolutiondate));
-    pushYearFromDate(years, getTaskCreatedDate(t));
+    // Created is fallback only — never dual-match a 2025 assessment created in 2026.
+    if (!years.length) {
+        pushYearFromDate(years, getTaskCreatedDate(t));
+    }
     return years;
 }
 

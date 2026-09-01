@@ -19,7 +19,6 @@ export const state = {
     dailyDirectionChart: null,
     qurumChart: null,
     sprintDisplayMap: {},
-    sprintCompareChart: null,
     assessYearChart: null,
     assessCatChart: null,
     autoRefreshInterval: null,

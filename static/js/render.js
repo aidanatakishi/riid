@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
 import { duePeriodLabel } from './report.js';
 
@@ -35,7 +35,9 @@ export function renderStats(tasks) {
         return g === 'blocked' || hasDiff(t);
     }).length;
     
-    var sprintT = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'progress' && !hasDiff(t); }).length;
+    var sprintT = validTasks.filter(function(t) {
+        return isActiveExecutionGroup(getStatusGroup(t.fields.status.name || '')) && !hasDiff(t);
+    }).length;
     
     var dueWeekPool = collectDueThisWeekTasks();
     var sprintDueWeek = dueWeekPool.length;
@@ -513,16 +515,6 @@ export function renderSprintComparison() {
     var root = document.getElementById('sprintComparison');
     if (!root) return;
 
-    if (state.sprintCompareChart) {
-        state.sprintCompareChart.destroy();
-        state.sprintCompareChart = null;
-    }
-    var oldCanvas = document.getElementById('sprintCompareChart');
-    if (oldCanvas && typeof Chart !== 'undefined') {
-        var existingChart = Chart.getChart(oldCanvas);
-        if (existingChart) existingChart.destroy();
-    }
-
     var map = {};
     state.allTasks.forEach(function(t) { getSprintNames(t).forEach(function(n) { if (!map[n]) map[n] = []; if (!map[n].includes(t)) map[n].push(t); }); });
     var names = sortSprintNames(Object.keys(map));
@@ -713,19 +705,9 @@ export function renderSprintComparison() {
     var html = '<p class="sc-hint">Rəqəmə, çubuğa və ya həftə kartına klikləyin — tapşırıqlar <strong>Tapşırıqların Siyahısı</strong>nda açılır.</p>'
         + '<div class="sc-weeks">'
         + weekCard(prevStats, 'Əvvəlki sprint', 'Növbəti sprintə keçən', null)
-        + '<div class="sc-vs" aria-hidden="true"><span>qarşı</span></div>'
+        + '<div class="sc-vs" role="img" aria-label="müqayisə"><span><svg class="sc-vs-icon" viewBox="0 0 36 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M7 2L1 8l6 6M29 2l6 6-6 6M1 8h34" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div>'
         + weekCard(curStats, 'Seçilmiş sprint', 'İcrası davam edən', prevStats.empty ? null : prevStats)
         + '</div>';
-
-    var chartSprints = [];
-    if (!prevStats.empty) chartSprints.push({ stats: prevStats, label: 'Əvvəlki sprint', color: '#c4b5fd' });
-    if (!curStats.empty) chartSprints.push({ stats: curStats, label: 'Seçilmiş sprint', color: '#5b21b6' });
-    if (chartSprints.length) {
-        html += '<div class="sc-chart-panel">'
-            + '<div class="sc-chart-head"><h4>Göstəricilərin müqayisəsi</h4><p>Çubuğa klikləyib həmin həftənin tapşırıqlarını açın</p></div>'
-            + '<div class="sc-chart-scroll"><div class="sc-chart-box"><canvas id="sprintCompareChart"></canvas></div></div>'
-            + '</div>';
-    }
 
     root.innerHTML = html;
     root.onclick = function(e) {
@@ -735,104 +717,6 @@ export function renderSprintComparison() {
         var type = btn.getAttribute('data-sc-type');
         if (name && type) filterSprintComparison(name, type);
     };
-
-    if (!chartSprints.length || typeof Chart === 'undefined') return;
-
-    var canvas = document.getElementById('sprintCompareChart');
-    if (!canvas) return;
-    var metricKeys = ['total', 'done', 'dueCount', 'dueDone', 'co'];
-    var metricTypes = ['all', 'done', 'due', 'dueDone', 'carryover'];
-    var metricLabels = ['Ümumi', 'Yekunlaşıb', 'Bitməli', 'Həftədə yekunlaşıb', 'Davam edən'];
-    var datasets = chartSprints.map(function(item) {
-        return {
-            label: item.label,
-            data: metricKeys.map(function(k) { return item.stats[k]; }),
-            backgroundColor: item.color,
-            borderRadius: 6,
-            borderSkipped: false,
-            maxBarThickness: 28,
-            categoryPercentage: 0.72,
-            barPercentage: 0.86,
-            sprintName: item.stats.jName
-        };
-    });
-    var barValuesPlugin = {
-        id: 'sprintCompareBarValues',
-        afterDatasetsDraw: function(chart) {
-            var c = chart.ctx;
-            c.save();
-            c.font = '600 11px Inter';
-            c.fillStyle = '#475569';
-            c.textAlign = 'center';
-            c.textBaseline = 'bottom';
-            chart.data.datasets.forEach(function(ds, di) {
-                var meta = chart.getDatasetMeta(di);
-                if (!meta || !meta.data) return;
-                meta.data.forEach(function(bar, i) {
-                    var n = ds.data[i];
-                    if (n == null) return;
-                    c.fillText(String(n), bar.x, bar.y - 3);
-                });
-            });
-            c.restore();
-        }
-    };
-    state.sprintCompareChart = new Chart(canvas, {
-        type: 'bar',
-        data: { labels: metricLabels, datasets: datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: 'index', intersect: false },
-            layout: { padding: { top: 18, right: 8, left: 4, bottom: 0 } },
-            plugins: {
-                legend: {
-                    position: 'top',
-                    align: 'end',
-                    labels: { usePointStyle: true, pointStyle: 'rectRounded', padding: 14, boxWidth: 10, font: { family: 'Inter', size: 12, weight: '600' }, color: '#475569' }
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                    padding: 10,
-                    cornerRadius: 8,
-                    titleFont: { family: 'Inter', size: 12, weight: 'bold' },
-                    bodyFont: { family: 'Inter', size: 11 },
-                    callbacks: {
-                        title: function(items) {
-                            return items && items[0] ? items[0].label : '';
-                        },
-                        label: function(ctx) {
-                            return ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y || 0);
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    grid: { display: false },
-                    ticks: { font: { family: 'Inter', size: 11, weight: '600' }, color: '#64748b' }
-                },
-                y: {
-                    beginAtZero: true,
-                    grace: '12%',
-                    ticks: { precision: 0, font: { family: 'Inter', size: 11 }, color: '#94a3b8' },
-                    grid: { color: 'rgba(226, 232, 240, 0.9)', drawBorder: false }
-                }
-            },
-            onHover: function(e, el) { if (e.native && e.native.target) e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
-            onClick: function(e, els) {
-                if (!els.length) return;
-                var hit = els[0];
-                var ds = datasets[hit.datasetIndex];
-                var type = metricTypes[hit.index];
-                if (ds && ds.sprintName && type) filterSprintComparison(ds.sprintName, type);
-            }
-        },
-        plugins: [barValuesPlugin]
-    });
-    requestAnimationFrame(function() {
-        if (state.sprintCompareChart) state.sprintCompareChart.resize();
-    });
 }
 
 export function showUserActivity(userName, tasks) {

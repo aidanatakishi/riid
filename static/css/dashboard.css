@@ -1089,8 +1089,8 @@ input.assess-search-input:focus {
 }
 .assess-status--planned { background: #fff7ed; color: #c2410c; }
 .assess-status--progress { background: #eff6ff; color: #1d4ed8; }
-.assess-status--review,
-.assess-status--esd { background: #ecfeff; color: #0e7490; }
+.assess-status--review { background: #ecfeff; color: #0e7490; }
+.assess-status--esd { background: #eef2ff; color: #4338ca; }
 .assess-status--blocked { background: #fef2f2; color: #b91c1c; }
 .assess-status--paused { background: #fffbeb; color: #b45309; }
 .assess-status--rejected { background: #fff1f2; color: #be123c; }
@@ -1705,16 +1705,17 @@ body.assess-modal-open { overflow: hidden; }
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-width: 2.6rem;
-    height: 1.7rem;
-    padding: 0 0.5rem;
+    width: 2.4rem;
+    height: 2.4rem;
+    padding: 0;
     border-radius: 999px;
     background: #ede9fe;
     color: #5b21b6;
-    font-size: 0.65rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+}
+.sc-vs-icon {
+    width: 1.35rem;
+    height: 0.7rem;
+    display: block;
 }
 .sc-week-head {
     display: flex;
@@ -1968,45 +1969,6 @@ body.assess-modal-open { overflow: hidden; }
 .sc-ring:focus-visible[data-tip]::after {
     opacity: 1;
     transform: translateY(0);
-}
-.sc-chart-panel {
-    margin-top: 1rem;
-    background: #fff;
-    border: 1px solid #e8edf3;
-    border-radius: 16px;
-    padding: 0.85rem 0.9rem 0.7rem;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-}
-.sc-chart-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.35rem 1rem;
-    margin-bottom: 0.35rem;
-}
-.sc-chart-head h4 {
-    margin: 0;
-    font-size: 0.82rem;
-    font-weight: 800;
-    color: #1e293b;
-}
-.sc-chart-head p {
-    margin: 0;
-    font-size: 0.7rem;
-    color: #94a3b8;
-}
-.sc-chart-scroll {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-}
-.sc-chart-box {
-    position: relative;
-    height: 210px;
-    min-width: 320px;
-}
-@media (min-width: 768px) {
-    .sc-chart-box { height: 230px; min-width: 0; }
 }
 @media (max-width: 640px) {
     .sc-metric[data-tip]::after,

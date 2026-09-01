@@ -5,7 +5,7 @@ import {
     formatAssessmentFieldText,
     getAssessmentQurumLabel,
     getAssessmentTaskTime,
-    listAssessmentYears,
+    getAssessmentYear,
     getDiagHeadline,
     getDiagScore,
     getExqServiceCount,
@@ -108,16 +108,13 @@ function getRowCache() {
             var q = qurum || getQurumName(t) || 'Təyin edilməyib';
             if (q !== qf) continue;
         }
-        var yearsList = listAssessmentYears(t);
-        var year = yearsList.length ? yearsList[0] : null;
-        yearsList.forEach(function(y) {
-            if (y != null && isFinite(y) && y >= 2015 && y <= 2035) years[Number(y)] = true;
-        });
+        var year = getAssessmentYear(t);
+        if (year != null && isFinite(year) && year >= 2015 && year <= 2035) years[Number(year)] = true;
         byCat[cat].push({
             task: t,
             qurum: qurum,
             year: year,
-            years: yearsList,
+            years: year != null ? [year] : [],
             hasResult: hasAssessmentResult(cat, t),
             time: getAssessmentTaskTime(t)
         });
@@ -143,10 +140,7 @@ function collectGlobalYears() {
 function yearsForSection(section) {
     var set = {};
     (getRowCache().byCat[section] || []).forEach(function(r) {
-        var list = (r.years && r.years.length) ? r.years : (r.year != null ? [r.year] : []);
-        list.forEach(function(y) {
-            if (y != null && isFinite(y)) set[Number(y)] = true;
-        });
+        if (r.year != null && isFinite(r.year)) set[Number(r.year)] = true;
     });
     return Object.keys(set).map(Number).sort(function(a, b) { return b - a; });
 }
@@ -157,9 +151,8 @@ function isAllYears(year) {
 
 function rowMatchesYear(r, year, includeUndated) {
     if (isAllYears(year)) return true;
-    var list = (r.years && r.years.length) ? r.years : (r.year != null ? [r.year] : []);
-    if (list.some(function(y) { return Number(y) === Number(year); })) return true;
-    if (includeUndated && !list.length) return true;
+    if (r.year != null && Number(r.year) === Number(year)) return true;
+    if (includeUndated && (r.year == null || r.year === '')) return true;
     return false;
 }
 
@@ -460,6 +453,10 @@ function setAssessChartVisible(wrapId, emptyId, show) {
 
 function collectDashModel() {
     var years = collectGlobalYears();
+    if (!isAllYears(selectedYear)) {
+        var yNum = Number(selectedYear);
+        years = isFinite(yNum) ? [yNum] : [];
+    }
     var yearCounts = years.map(function(y) {
         var total = 0;
         var parts = SECTIONS.map(function(s) {
@@ -916,7 +913,8 @@ export function openDiagModal(key, btn) {
     if (!r) {
         var found = (state.allTasks || []).filter(isTaskType).filter(function(t) { return t.key === key; })[0];
         if (!found) return;
-        r = { task: found, qurum: getAssessmentQurumLabel(found), year: (listAssessmentYears(found)[0] || null), years: listAssessmentYears(found) };
+        var y = getAssessmentYear(found);
+        r = { task: found, qurum: getAssessmentQurumLabel(found), year: y, years: y != null ? [y] : [] };
     }
     openDiagKey = key;
     lastEyeBtn = btn || null;

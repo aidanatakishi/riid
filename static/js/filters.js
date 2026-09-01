@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
@@ -666,8 +666,7 @@ export function filterQurumByStatus(qName, statusType) {
         if (statusType === 'done') return getStatusGroup(t.fields.status.name) === 'done';
         if (statusType === 'planned') return getStatusGroup(t.fields.status.name) === 'planned';
         if (statusType === 'progress') {
-            var g = getStatusGroup(t.fields.status.name);
-            return g === 'progress' || g === 'esd' || g === 'review';
+            return isActiveExecutionGroup(getStatusGroup(t.fields.status.name));
         }
         return false;
     });
@@ -866,10 +865,13 @@ export function filterTasks(type) {
         });
     }
     if (type === 'planned') { f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }); title = 'Növbəti həftə iş yükü (Planlaşdırılıb)'; }
-    else if (type === 'sprint') { f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'progress'; }); title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar'; }
+    else if (type === 'sprint') {
+        f = units.filter(function(t) { return isActiveExecutionGroup(getStatusGroup(t.fields.status.name)); });
+        title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar';
+    }
     else if(type==='done') { 
         f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
-        title = "Tamamlanmış (Həll edilib) Tapşırıqlar"; 
+        title = 'Tamamlanmış (İcra edilib) Tapşırıqlar'; 
     }
     else if (type === 'blocked') {
         showDifficulties();

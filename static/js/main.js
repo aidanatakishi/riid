@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { showToast, animateValue, normalizeStr, toggleSettings, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js';
-import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js';
+import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js';
 import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig } from './api.js';
 import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, filterTasks, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js';
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
@@ -26,6 +26,7 @@ window.isKomplaynsName = isKomplaynsName;
 window.hasKomplaynsComponent = hasKomplaynsComponent;
 window.belongsToDept = belongsToDept;
 window.getStatusGroup = getStatusGroup;
+window.isActiveExecutionGroup = isActiveExecutionGroup;
 window.isDueThisWeek = isDueThisWeek;
 window.isDueInSelectedWeek = isDueInSelectedWeek;
 window.getHistoricalStatus = getHistoricalStatus;

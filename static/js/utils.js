@@ -128,7 +128,6 @@ export function toggleDropdown(id) {
                 if (typeof state.epicChart !== 'undefined' && state.epicChart) state.epicChart.resize();
                 if (typeof state.labelChart !== 'undefined' && state.labelChart) state.labelChart.resize();
                 if (typeof state.qurumChart !== 'undefined' && state.qurumChart) state.qurumChart.resize();
-                if (typeof state.sprintCompareChart !== 'undefined' && state.sprintCompareChart) state.sprintCompareChart.resize();
                 if (typeof state.assessYearChart !== 'undefined' && state.assessYearChart) state.assessYearChart.resize();
                 if (typeof state.assessCatChart !== 'undefined' && state.assessCatChart) state.assessCatChart.resize();
             } catch (err2) {}
