@@ -378,8 +378,8 @@ function dueInRangePool() {
                 if (!dir || dir.key !== state.currentDirectionFilter) return false;
             }
             if (state.currentQurumFilter) {
-                var q = getQurumName(t) || 'Təyin edilməyib';
-                if (q !== state.currentQurumFilter) return false;
+                var q = getQurumName(t) || QURUM_UNASSIGNED;
+                if (!sameQurum(q, state.currentQurumFilter)) return false;
             }
             if (state.currentAssigneeFilter) {
                 if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
@@ -889,21 +889,185 @@ export function formatPhaseEntriesText(entries) {
     }).join(' ');
 }
 
+var QURUM_UNASSIGNED = 'Təyin edilməyib';
+var qurumCanonCache = { fp: '', map: {} };
+
+function cleanQurumDisplay(raw) {
+    var s = decodeHtmlEntities(String(raw == null ? '' : raw));
+    s = s.replace(/[\u00A0\u1680\u2000-\u200B\u202F\u205F\u3000\uFEFF]/g, ' ');
+    s = s.replace(/[«»„“”‟‹›]/g, '"').replace(/[‘’‛]/g, "'");
+    s = s.replace(/["']+/g, '');
+    s = s.replace(/[–—−]/g, '-');
+    s = s.replace(/\s*([,;|/])\s*/g, '$1 ');
+    s = s.replace(/\s+/g, ' ').trim();
+    s = s.replace(/^[-,;.|/]+|[-,;.|/]+$/g, '').trim();
+    return s;
+}
+
+function qurumStemKey(folded) {
+    var s = String(folded || '')
+        .replace(/\brespublikasinin\b/g, 'respublikasi')
+        .replace(/\brespublikasina\b/g, 'respublikasi')
+        .replace(/\brespublikasinda\b/g, 'respublikasi')
+        .replace(/\brespublikasindan\b/g, 'respublikasi');
+    var stripped = s.replace(/^(azerbaycan\s+respublikasi)\s+/, '').trim();
+    if (stripped) s = stripped;
+    return s
+        .replace(/\bnazirliyi\b/g, 'nazirlik')
+        .replace(/\bagentliyi\b/g, 'agentlik')
+        .replace(/\bkomitesi\b/g, 'komite')
+        .replace(/\bidareetmesi\b/g, 'idareetme')
+        .replace(/\bidarasi\b/g, 'idare')
+        .replace(/\bxidmeti\b/g, 'xidmet')
+        .replace(/\baciq\s+sehmdar\s+cemiyyeti?\b/g, ' ')
+        .replace(/\bqapali\s+sehmdar\s+cemiyyeti?\b/g, ' ')
+        .replace(/\bmehdud\s+mesuliyyetli\s+cemiyyeti?\b/g, ' ')
+        .replace(/\bsehmdar\s+cemiyyeti?\b/g, ' ')
+        .replace(/\b(mmc|qsc|asc|llc|ltd|ojsc)\b/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function hasOfficialQurumPrefix(lab) {
+    return /azerbaycan\s+respublikasi/.test(foldAz(lab));
+}
+
+function qurumLabelScore(lab, count) {
+    var f = foldAz(lab);
+    var score = 0;
+    if (hasOfficialQurumPrefix(lab)) score += 10000;
+    if (/\brespublikasinin\b/.test(f)) score -= 200;
+    if (/\baciq\s+sehmdar\s+cemiyyet/.test(f) || /\bqapali\s+sehmdar\s+cemiyyet/.test(f)
+        || /\bmehdud\s+mesuliyyetli\s+cemiyyet/.test(f)) score += 800;
+    score += String(lab || '').length;
+    score += (count || 0) / 100;
+    return score;
+}
+
+export function qurumMatchKey(raw) {
+    var s = cleanQurumDisplay(raw);
+    if (!s) return '';
+    var parts = s.split(/\s*,\s*/).map(function(part) {
+        return qurumStemKey(foldAz(part));
+    }).filter(Boolean).sort();
+    return parts.join('|');
+}
+
+function collectQurumFieldParts(val, out) {
+    if (val == null || val === '') return;
+    if (Array.isArray(val)) {
+        for (var i = 0; i < val.length; i++) collectQurumFieldParts(val[i], out);
+        return;
+    }
+    if (typeof val === 'object') {
+        collectQurumFieldParts(val.value || val.name || '', out);
+        return;
+    }
+    if (typeof val === 'string' || typeof val === 'number') {
+        var chunks = String(val).split(/\s*;\s*|\s*\|\s*/);
+        for (var j = 0; j < chunks.length; j++) {
+            var p = cleanQurumDisplay(chunks[j]);
+            if (p) out.push(p);
+        }
+    }
+}
+
+function extractQurumParts(t) {
+    if (!t || !t.fields) return [];
+    var parts = [];
+    collectQurumFieldParts(t.fields['customfield_13608'], parts);
+    if (!parts.length) collectQurumFieldParts(t.fields['customfield_12424'], parts);
+    var seen = {};
+    var uniq = [];
+    for (var i = 0; i < parts.length; i++) {
+        var key = qurumMatchKey(parts[i]);
+        if (!key || seen[key]) continue;
+        seen[key] = true;
+        uniq.push(parts[i]);
+    }
+    return uniq;
+}
+
+function qurumCanonFingerprint() {
+    var tasks = state.allTasks || [];
+    var idx = state.issueIndex || {};
+    var keys = Object.keys(idx);
+    return tasks.length + ':' + keys.length + ':'
+        + ((tasks[0] && tasks[0].key) || '') + ':'
+        + ((tasks[tasks.length - 1] && tasks[tasks.length - 1].key) || '');
+}
+
+function preferredQurumLabel(variants) {
+    var best = '';
+    var bestScore = -Infinity;
+    Object.keys(variants).forEach(function(lab) {
+        var score = qurumLabelScore(lab, variants[lab]);
+        if (score > bestScore || (score === bestScore && lab.localeCompare(best, 'az') < 0)) {
+            best = lab;
+            bestScore = score;
+        }
+    });
+    return best;
+}
+
+function qurumCanonMap() {
+    var fp = qurumCanonFingerprint();
+    if (qurumCanonCache.fp === fp) return qurumCanonCache.map;
+    var counts = {};
+    function addIssue(t) {
+        var parts = extractQurumParts(t);
+        for (var i = 0; i < parts.length; i++) {
+            var key = qurumMatchKey(parts[i]);
+            if (!key) continue;
+            if (!counts[key]) counts[key] = {};
+            counts[key][parts[i]] = (counts[key][parts[i]] || 0) + 1;
+        }
+    }
+    var tasks = state.allTasks || [];
+    for (var i = 0; i < tasks.length; i++) addIssue(tasks[i]);
+    var idx = state.issueIndex || {};
+    Object.keys(idx).forEach(function(k) { addIssue(idx[k]); });
+    var map = {};
+    Object.keys(counts).forEach(function(key) {
+        map[key] = preferredQurumLabel(counts[key]);
+    });
+    qurumCanonCache = { fp: fp, map: map };
+    return map;
+}
+
+export function canonicalQurumName(name) {
+    if (name == null) return name;
+    var cleaned = cleanQurumDisplay(name);
+    if (!cleaned) return '';
+    if (qurumMatchKey(cleaned) === qurumMatchKey(QURUM_UNASSIGNED)) return QURUM_UNASSIGNED;
+    var key = qurumMatchKey(cleaned);
+    if (!key) return cleaned;
+    return qurumCanonMap()[key] || cleaned;
+}
+
+export function sameQurum(a, b) {
+    var ka = qurumMatchKey(a || '');
+    var kb = qurumMatchKey(b || '');
+    if (!ka && !kb) return true;
+    return ka === kb;
+}
+
 export function getQurumName(t) {
-    if (!t.fields) return null;
-    var val1 = t.fields['customfield_13608'];
-    if (val1) {
-        if (Array.isArray(val1)) { var names = val1.map(function(v) { return v.name || v.value || (typeof v === 'string' ? v : ''); }).filter(Boolean); if (names.length > 0) return names.join(', '); }
-        if (typeof val1 === 'object' && (val1.value || val1.name)) return val1.value || val1.name;
-        if (typeof val1 === 'string' && val1.trim() !== '') return val1;
+    var parts = extractQurumParts(t);
+    if (!parts.length) return null;
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+        var label = canonicalQurumName(parts[i]);
+        var key = qurumMatchKey(label);
+        if (!key || seen[key]) continue;
+        seen[key] = true;
+        out.push(label);
     }
-    var val2 = t.fields['customfield_12424'];
-    if (val2) {
-        if (Array.isArray(val2)) { var names2 = val2.map(function(v) { return v.name || v.value || (typeof v === 'string' ? v : ''); }).filter(Boolean); if (names2.length > 0) return names2.join(', '); }
-        if (typeof val2 === 'object' && (val2.value || val2.name)) return val2.value || val2.name;
-        if (typeof val2 === 'string' && val2.trim() !== '') return val2;
-    }
-    return null;
+    if (!out.length) return null;
+    if (out.length === 1) return out[0];
+    out.sort(function(a, b) { return a.localeCompare(b, 'az'); });
+    return out.join(', ');
 }
 
 function getStatusAsOfDate() {

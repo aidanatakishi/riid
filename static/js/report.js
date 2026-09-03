@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInSelectedWeek, isSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInSelectedWeek, isSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -519,7 +519,7 @@ export async function exportTasksToWord(title) {
         }
         if (state.currentQurumFilter) {
             var q = getQurumName(t) || 'Təyin edilməyib';
-            if (q !== state.currentQurumFilter) return false;
+            if (!sameQurum(q, state.currentQurumFilter)) return false;
         }
         if (state.currentAssigneeFilter) {
             if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
@@ -729,8 +729,8 @@ export async function exportTasksToWord(title) {
             var qurum = row.qurum || resolvePhaseQurum(t);
             var name = taskSummary(t);
             var key = byQurumOnly
-                ? normalizeStr(qurum)
-                : (normalizeStr(qurum) + '|' + normalizeStr(name));
+                ? qurumMatchKey(qurum)
+                : (qurumMatchKey(qurum) + '|' + normalizeStr(name));
             if (!key) return;
             if (!groups[key]) {
                 groups[key] = { qurum: qurum, name: name, tasks: [], entries: [] };

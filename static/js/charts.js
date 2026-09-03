@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
-import { countableWorkUnits, currentSprintName, getQurumName, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
+import { countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, filterQurumList, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 
@@ -290,29 +290,35 @@ export function renderQurumChart(tasks) {
 function drawQurumChart(tasks) {
     var qurumData = {};
     countableWorkUnits(tasks).forEach(function(t) {
-        var qName = getQurumName(t) || 'Təyin edilməyib';
-        if (!qurumData[qName]) qurumData[qName] = { total: 0, done: 0, inProgress: 0, planned: 0, blocked: 0 };
-        qurumData[qName].total++;
+        var rawName = getQurumName(t) || 'Təyin edilməyib';
+        var qName = canonicalQurumName(rawName) || rawName;
+        var qKey = qurumMatchKey(qName) || qName;
+        if (!qurumData[qKey]) qurumData[qKey] = { name: qName, total: 0, done: 0, inProgress: 0, planned: 0, blocked: 0 };
+        var bucket = qurumData[qKey];
+        if (qName && qName !== 'Təyin edilməyib') bucket.name = qName;
+        bucket.total++;
         var g = getStatusGroup(t.fields.status.name);
-        if (g === 'done') qurumData[qName].done++;
-        else if (isActiveExecutionGroup(g)) qurumData[qName].inProgress++;
-        else if (g === 'planned') qurumData[qName].planned++;
-        else if (g === 'blocked' || hasValidDifficulty(t)) qurumData[qName].blocked++;
+        if (g === 'done') bucket.done++;
+        else if (isActiveExecutionGroup(g)) bucket.inProgress++;
+        else if (g === 'planned') bucket.planned++;
+        else if (g === 'blocked' || hasValidDifficulty(t)) bucket.blocked++;
     });
-    var sortedQurums = Object.keys(qurumData).sort(function(a, b) { return qurumData[b].total - qurumData[a].total; });
+    var sortedKeys = Object.keys(qurumData).sort(function(a, b) { return qurumData[b].total - qurumData[a].total; });
+    var sortedQurums = sortedKeys.map(function(k) { return qurumData[k].name; });
     var tbody = document.getElementById('qurumTableBody');
     tbody.innerHTML = '';
     var PALETTE = ['#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#a855f7', '#0d9488', '#b45309'];
-    var colors = sortedQurums.map(function(qName, i) { if (qName === state.currentQurumFilter) return '#f59e0b'; return PALETTE[i % PALETTE.length]; });
+    var colors = sortedQurums.map(function(qName, i) { if (sameQurum(qName, state.currentQurumFilter)) return '#f59e0b'; return PALETTE[i % PALETTE.length]; });
     if (sortedQurums.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-slate-400">Məlumat yoxdur.</td></tr>';
     } else {
-        sortedQurums.forEach(function(qName, index) {
-            var d = qurumData[qName];
+        sortedKeys.forEach(function(qKey, index) {
+            var d = qurumData[qKey];
+            var qName = d.name;
             var donePercent = d.total > 0 ? Math.round((d.done / d.total) * 100) : 0;
             var color = colors[index];
             var safeName = qName.replace(/'/g, "\\'");
-            var isActive = qName === state.currentQurumFilter;
+            var isActive = sameQurum(qName, state.currentQurumFilter);
             var tr = document.createElement('tr');
             tr.className = 'transition ' + (isActive ? 'bg-amber-50 ring-2 ring-amber-300' : 'hover:bg-indigo-50/50');
             tr.innerHTML = '<td class="py-3 px-4 font-medium text-slate-700 cursor-pointer hover:bg-indigo-100/50 rounded-l-lg transition ' + (isActive ? 'text-amber-700' : '') + '" onclick="setQurumFilter(\'' + safeName + '\')"><div class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ' + color + '"></span><span class="break-words">' + qName + '</span>' + (isActive ? '<span class="text-[9px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full ml-1 shrink-0">AKTİV</span>' : '') + '</div></td><td class="py-3 px-2 text-center font-bold text-slate-800 cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'all\')">' + d.total + '</td><td class="py-3 px-2 text-center text-orange-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'planned\')">' + d.planned + '</td><td class="py-3 px-2 text-center text-blue-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'progress\')">' + d.inProgress + '</td><td class="py-3 px-2 text-center cursor-pointer hover:bg-indigo-100/50 rounded-r-lg transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'done\')"><div class="flex items-center justify-center gap-2"><span class="text-emerald-600 font-medium">' + d.done + '</span><div class="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block"><div class="h-full bg-emerald-500 rounded-full" style="width: ' + donePercent + '%"></div></div></div></td>';
@@ -329,14 +335,14 @@ function drawQurumChart(tasks) {
     var ctx = canvas.getContext('2d');
     var ex = Chart.getChart(ctx); if (ex) ex.destroy();
     var labels = sortedQurums;
-    var data = labels.map(function(q) { return qurumData[q].total; });
+    var data = sortedKeys.map(function(k) { return qurumData[k].total; });
     var centerTextPlugin = {
         id: 'centerText',
         afterDraw: function(chart) {
             var ctx2 = chart.ctx;
             var area = chart.chartArea;
             ctx2.save();
-            var total = data.reduce(function(a, b) { return a + b; }, 0);
+            var total = sortedKeys.length;
             ctx2.font = 'bold 24px Inter';
             ctx2.fillStyle = '#1e293b';
             ctx2.textAlign = 'center';
@@ -344,7 +350,7 @@ function drawQurumChart(tasks) {
             ctx2.fillText(total, area.left + area.width / 2, area.top + area.height / 2 - 10);
             ctx2.font = '500 10px Inter';
             ctx2.fillStyle = '#64748b';
-            ctx2.fillText('Toplam Task', area.left + area.width / 2, area.top + area.height / 2 + 10);
+            ctx2.fillText('Qurum', area.left + area.width / 2, area.top + area.height / 2 + 10);
             ctx2.restore();
         }
     };
@@ -358,7 +364,7 @@ function drawQurumChart(tasks) {
                 tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', padding: 12, cornerRadius: 8, titleFont: { family: 'Inter', size: 12, weight: 'bold' }, bodyFont: { family: 'Inter', size: 11 },
                     callbacks: { label: function(context) { var label = context.label || ''; if (label) label += ': '; if (context.parsed !== null) label += context.parsed + ' task'; return label; } } }
             },
-            onClick: function(e, c) { if (c.length > 0) { var clicked = labels[c[0].index]; if (clicked === state.currentQurumFilter) { state.currentQurumFilter = null; } else { state.currentQurumFilter = clicked; } applyFilters(); } }
+            onClick: function(e, c) { if (c.length > 0) { var clicked = labels[c[0].index]; if (sameQurum(clicked, state.currentQurumFilter)) { state.currentQurumFilter = null; } else { state.currentQurumFilter = clicked; } applyFilters(); } }
         },
         plugins: [centerTextPlugin]
     });

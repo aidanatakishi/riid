@@ -13,7 +13,10 @@ import {
     getPhaseFieldText,
     PHASE_FIELDS,
     getMeqsedInfo,
+    qurumMatchKey,
+    canonicalQurumName,
     getQurumName,
+    sameQurum,
     getSelfAssessInfo,
     getStatusGroup,
     hasAssessmentResult,
@@ -105,9 +108,10 @@ function getRowCache() {
         var cat = classifyAssessmentCategory(t);
         if (!cat || !byCat[cat]) continue;
         var qurum = getAssessmentQurumLabel(t) || t.key || '—';
+        qurum = canonicalQurumName(qurum) || qurum;
         if (qf) {
             var q = qurum || getQurumName(t) || 'Təyin edilməyib';
-            if (q !== qf) continue;
+            if (!sameQurum(q, qf)) continue;
         }
         var year = getAssessmentYear(t);
         if (year != null && isFinite(year) && year >= 2015 && year <= 2035) years[Number(year)] = true;
@@ -172,7 +176,7 @@ function pickBestPerQurumYear(rows, year, includeUndated) {
     var all = isAllYears(year);
     rows.forEach(function(r) {
         if (!rowMatchesYear(r, year, includeUndated)) return;
-        var qKey = r.qurum || (r.task && r.task.key) || '—';
+        var qKey = qurumMatchKey(r.qurum) || r.qurum || (r.task && r.task.key) || '—';
         var key = all ? (qKey + '::' + (r.year == null ? 'na' : r.year)) : qKey;
         if (!groups[key]) groups[key] = [];
         groups[key].push(r);

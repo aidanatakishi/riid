@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
@@ -258,7 +258,7 @@ function tasksWithoutStartDate() {
         }
         if (state.currentQurumFilter) {
             var q = getQurumName(t) || 'Təyin edilməyib';
-            if (q !== state.currentQurumFilter) return false;
+            if (!sameQurum(q, state.currentQurumFilter)) return false;
         }
         if (state.currentAssigneeFilter) {
             if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
@@ -418,6 +418,9 @@ export function resetAllFilters() {
 }
 
 export function applyFilters() {
+    if (state.currentQurumFilter) {
+        state.currentQurumFilter = canonicalQurumName(state.currentQurumFilter) || state.currentQurumFilter;
+    }
     state.currentPage = 1;
     var sprintSelectEl = document.getElementById('sprintFilter');
     var sprintVal = sprintSelectEl.value;
@@ -459,7 +462,7 @@ export function applyFilters() {
         }
         if (state.currentQurumFilter) {
             var q = getQurumName(t) || 'Təyin edilməyib';
-            if (q !== state.currentQurumFilter) return false;
+            if (!sameQurum(q, state.currentQurumFilter)) return false;
         }
         if (state.currentAssigneeFilter) {
             if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
@@ -491,7 +494,7 @@ export function applyFilters() {
     }
 
     state.epicChartTasks = countableWorkUnits(state.sprintDateFiltered.filter(function(t) {
-        if (state.currentQurumFilter) { var q = getQurumName(t) || 'Təyin edilməyib'; if (q !== state.currentQurumFilter) return false; }
+        if (state.currentQurumFilter) { var q = getQurumName(t) || 'Təyin edilməyib'; if (!sameQurum(q, state.currentQurumFilter)) return false; }
         if (state.currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false; }
         return true;
     }));
@@ -631,7 +634,8 @@ export function saveFiltersToStorage() {
 export function loadFiltersFromStorage() {
     state.currentAssigneeFilter = localStorage.getItem('dgd_filter_assignee') || null;
     state.currentDirectionFilter = localStorage.getItem('dgd_filter_direction') || null;
-    state.currentQurumFilter = localStorage.getItem('dgd_filter_qurum') || null;
+    var storedQurum = localStorage.getItem('dgd_filter_qurum') || null;
+    state.currentQurumFilter = storedQurum ? (canonicalQurumName(storedQurum) || storedQurum) : null;
     updateSprintFilterState();
 }
 
@@ -654,14 +658,15 @@ export function clearQurumFilter() {
 }
 
 export function setQurumFilter(qName) {
-    if (state.currentQurumFilter === qName) { state.currentQurumFilter = null; } else { state.currentQurumFilter = qName; }
+    var name = canonicalQurumName(qName) || qName;
+    if (sameQurum(state.currentQurumFilter, name)) { state.currentQurumFilter = null; } else { state.currentQurumFilter = name; }
     applyFilters();
 }
 
 export function filterQurumByStatus(qName, statusType) {
     var fTasks = state.qurumChartTasks.filter(function(t) {
         var q = getQurumName(t) || 'Təyin edilməyib';
-        if (q !== qName) return false;
+        if (!sameQurum(q, qName)) return false;
         if (statusType === 'all') return true;
         if (statusType === 'done') return getStatusGroup(t.fields.status.name) === 'done';
         if (statusType === 'planned') return getStatusGroup(t.fields.status.name) === 'planned';
