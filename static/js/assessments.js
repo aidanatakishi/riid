@@ -7,6 +7,7 @@ import {
     getAssessmentTaskTime,
     getAssessmentYear,
     getDiagHeadline,
+    getTaskDueDate,
     getDiagScore,
     getExqServiceCount,
     getPhaseFieldText,
@@ -193,12 +194,22 @@ function pickBestPerQurumYear(rows, year, includeUndated) {
     return picked;
 }
 
+function meqsedSearchHaystack(r) {
+    var parts = [r && r.qurum ? String(r.qurum) : ''];
+    var info = getMeqsedInfo(r && r.task);
+    if (info && info.xidmetMelumat && info.xidmetMelumat !== '—') {
+        parts.push(info.xidmetMelumat);
+    }
+    return parts.join(' ');
+}
+
 function filterBySearch(rows, section) {
     var q = (searchState[section] || '').trim();
     if (!q) return rows;
     var normQ = normalizeStr(q);
     return rows.filter(function(r) {
-        return normalizeStr(r.qurum || '').includes(normQ);
+        var hay = section === 'meqsed' ? meqsedSearchHaystack(r) : (r.qurum || '');
+        return normalizeStr(hay).includes(normQ);
     });
 }
 
@@ -290,6 +301,7 @@ function syncSearchInput() {
     if (!input) return;
     var val = searchState[activeTab] || '';
     input.value = val;
+    input.placeholder = activeTab === 'meqsed' ? 'Qurum və ya xidmət axtar...' : 'Qurum axtar...';
     if (clearBtn) clearBtn.classList.toggle('hidden', !val);
 }
 
@@ -307,8 +319,10 @@ function getSectionRows(section) {
     var globalYears = collectGlobalYears();
     var year = resolveSelectedYear(section, globalYears);
     var includeUndated = isAllYears(year);
-    var rows = pickBestPerQurumYear(allRows, year, includeUndated);
-    return { allRows: allRows, years: globalYears, year: year, rows: rows };
+    var searchActive = !!(searchState[section] || '').trim();
+    var pool = (section === 'meqsed' && searchActive) ? filterBySearch(allRows, section) : allRows;
+    var rows = pickBestPerQurumYear(pool, year, includeUndated);
+    return { allRows: allRows, years: globalYears, year: year, rows: rows, searchApplied: section === 'meqsed' && searchActive };
 }
 
 function updateTabCounts() {
@@ -316,7 +330,7 @@ function updateTabCounts() {
         var btn = document.querySelector('.assess-tab[data-tab="' + section + '"]');
         if (!btn) return;
         var data = getSectionRows(section);
-        var count = filterBySearch(data.rows, section).length;
+        var count = data.searchApplied ? data.rows.length : filterBySearch(data.rows, section).length;
         var badge = btn.querySelector('.assess-tab-count');
         if (count > 0) {
             if (!badge) {
@@ -850,11 +864,19 @@ function modalFieldBlocks(items) {
     }).join('') + '</div>';
 }
 
-function fillModalChrome(r, kicker) {
+var AZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun', 'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
+
+function formatDueMonthYear(d) {
+    if (!d || isNaN(d.getTime())) return '';
+    return AZ_MONTHS[d.getMonth()] + ' ' + d.getFullYear();
+}
+
+function fillModalChrome(r, kicker, showDueDate) {
     var t = (r && r.task) || {};
     var titleEl = document.getElementById('assessDiagModalTitle');
     var subEl = document.getElementById('assessDiagModalSub');
     var keyEl = document.getElementById('assessDiagModalKey');
+    var dateEl = document.getElementById('assessDiagModalDate');
     var yearLabel = r && r.year ? String(r.year) : '';
     var qurum = (r && r.qurum) || '—';
     if (titleEl) titleEl.textContent = yearLabel ? (qurum + ' · ' + yearLabel) : qurum;
@@ -864,6 +886,17 @@ function fillModalChrome(r, kicker) {
         keyEl.textContent = t.key || '';
         keyEl.href = base && t.key ? (base + '/browse/' + encodeURIComponent(t.key)) : '#';
         keyEl.classList.toggle('hidden', !t.key);
+    }
+    if (dateEl) {
+        if (showDueDate) {
+            var due = getTaskDueDate(t);
+            dateEl.innerHTML = '<span class="assess-modal-date-label">Göndərilmə tarixi</span>'
+                + '<span class="assess-modal-date-value">' + escapeHtml(due ? formatDueMonthYear(due) : '—') + '</span>';
+            dateEl.classList.remove('hidden');
+        } else {
+            dateEl.textContent = '';
+            dateEl.classList.add('hidden');
+        }
     }
 }
 
@@ -963,7 +996,7 @@ function fillDiagModal(r) {
     var overlay = document.getElementById(DIAG_MODAL_ID);
     var panel = overlay && overlay.querySelector('.assess-modal-panel');
     if (panel) panel.classList.toggle('assess-modal-panel--compact', cat === 'meqsed');
-    fillModalChrome(r, SECTION_LABELS[cat] || 'Ətraflı baxış');
+    fillModalChrome(r, SECTION_LABELS[cat] || 'Ətraflı baxış', cat === 'diag' || cat === 'meqsed');
     var bodyEl = document.getElementById('assessDiagModalBody');
     if (!bodyEl) return;
     if (cat === 'meqsed') bodyEl.innerHTML = meqsedModalBodyHtml(t);
@@ -1062,9 +1095,14 @@ function renderOne(section) {
     fillYearSelect(globalYears, year);
     var includeUndated = isAllYears(year);
     var allRows = collectCategoryTasks(section);
-    var rows = pickBestPerQurumYear(allRows, year, includeUndated);
     var searchActive = !!(searchState[section] || '').trim();
-    var filtered = filterBySearch(rows, section);
+    var yearRows = pickBestPerQurumYear(allRows, year, includeUndated);
+    var filtered;
+    if (section === 'meqsed' && searchActive) {
+        filtered = pickBestPerQurumYear(filterBySearch(allRows, section), year, includeUndated);
+    } else {
+        filtered = filterBySearch(yearRows, section);
+    }
     if (section === 'diag') filtered = sortDiagRows(filtered);
     renderAssessDash();
 
@@ -1074,7 +1112,7 @@ function renderOne(section) {
 
     if (!filtered.length) {
         rememberHubRows([]);
-        bodyEl.innerHTML = (searchActive && rows.length) ? searchEmptyHtml() : emptyHtml();
+        bodyEl.innerHTML = (searchActive && yearRows.length) ? searchEmptyHtml() : emptyHtml();
         if (openDiagKey) closeDiagModal();
         return;
     }
