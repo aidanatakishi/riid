@@ -20,7 +20,8 @@ import {
     getSelfAssessInfo,
     getStatusGroup,
     hasAssessmentResult,
-    isTaskType,
+    belongsToDept,
+    isTaskOrSubtaskType,
     isDiagOverallLabel,
     parseDiagUmumiNetice,
     parseTaskUmumiNetice
@@ -94,17 +95,41 @@ function statusPill(name, task) {
         + '</span>';
 }
 
+function assessmentSourceIssues() {
+    var idx = state.issueIndex || {};
+    var keys = Object.keys(idx);
+    var out = [];
+    var seen = {};
+    var excluded = state.EXCLUDED_USERS || [];
+    for (var i = 0; i < keys.length; i++) {
+        var t = idx[keys[i]];
+        if (!t || !t.key || seen[t.key]) continue;
+        seen[t.key] = true;
+        if (!isTaskOrSubtaskType(t)) continue;
+        if (!belongsToDept(t)) continue;
+        var assigneeName = t.fields && t.fields.assignee ? normalizeStr(t.fields.assignee.displayName) : '';
+        var skipUser = false;
+        for (var u = 0; u < excluded.length; u++) {
+            if (assigneeName.includes(excluded[u])) { skipUser = true; break; }
+        }
+        if (skipUser) continue;
+        out.push(t);
+    }
+    return out;
+}
+
 function getRowCache() {
-    var tasks = state.allTasks || [];
+    var tasks = assessmentSourceIssues();
     var qf = state.currentQurumFilter || '';
-    if (rowCache && rowCache.tasks === tasks && rowCache.qurum === qf && rowCache.len === tasks.length) {
+    var srcRef = state.issueIndex;
+    var srcLen = tasks.length;
+    if (rowCache && rowCache.src === srcRef && rowCache.qurum === qf && rowCache.len === srcLen) {
         return rowCache;
     }
     var byCat = { diag: [], isq: [], self: [], exq: [], meqsed: [] };
     var years = {};
     for (var i = 0; i < tasks.length; i++) {
         var t = tasks[i];
-        if (!t || !isTaskType(t)) continue;
         var cat = classifyAssessmentCategory(t);
         if (!cat || !byCat[cat]) continue;
         var qurum = getAssessmentQurumLabel(t) || t.key || '—';
@@ -125,9 +150,9 @@ function getRowCache() {
         });
     }
     rowCache = {
-        tasks: tasks,
+        src: srcRef,
         qurum: qf,
-        len: tasks.length,
+        len: srcLen,
         byCat: byCat,
         years: Object.keys(years).map(Number).sort(function(a, b) { return b - a; })
     };
@@ -196,6 +221,21 @@ function pickBestPerQurumYear(rows, year, includeUndated) {
         return String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
     });
     return picked;
+}
+
+function pickSectionRows(section, rows, year, includeUndated) {
+    var out = (rows || []).filter(function(r) {
+        return rowMatchesYear(r, year, includeUndated);
+    });
+    out.sort(function(a, b) {
+        var ya = a.year == null ? 0 : Number(a.year);
+        var yb = b.year == null ? 0 : Number(b.year);
+        if (yb !== ya) return yb - ya;
+        var q = String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
+        if (q) return q;
+        return String((a.task && a.task.key) || '').localeCompare(String((b.task && b.task.key) || ''));
+    });
+    return out;
 }
 
 function meqsedSearchHaystack(r) {
@@ -294,7 +334,7 @@ function updateHubMeta(count, searchActive, year) {
         meta.textContent = yearBit + ' · ' + (count === 1 ? '1 nəticə tapıldı' : count + ' nəticə tapıldı');
         meta.classList.add('is-search');
     } else if (count > 0) {
-        meta.textContent = yearBit + ' · ' + (count === 1 ? '1 qurum' : count + ' qurum');
+        meta.textContent = yearBit + ' · ' + (count === 1 ? '1 qeyd' : count + ' qeyd');
         meta.classList.remove('is-search');
     } else {
         meta.textContent = yearBit + ' · qeyd yoxdur';
@@ -328,7 +368,7 @@ function getSectionRows(section) {
     var includeUndated = isAllYears(year);
     var searchActive = !!(searchState[section] || '').trim();
     var pool = (section === 'meqsed' && searchActive) ? filterBySearch(allRows, section) : allRows;
-    var rows = pickBestPerQurumYear(pool, year, includeUndated);
+    var rows = pickSectionRows(section, pool, year, includeUndated);
     return { allRows: allRows, years: globalYears, year: year, rows: rows, searchApplied: section === 'meqsed' && searchActive };
 }
 
@@ -481,7 +521,7 @@ function collectDashModel() {
     var yearCounts = years.map(function(y) {
         var total = 0;
         var parts = SECTIONS.map(function(s) {
-            var n = pickBestPerQurumYear(collectCategoryTasks(s), y, false).length;
+            var n = pickSectionRows(s, collectCategoryTasks(s), y, false).length;
             total += n;
             return { s: s, n: n };
         });
@@ -489,7 +529,7 @@ function collectDashModel() {
     }).filter(function(row) { return row.total > 0; });
     yearCounts.sort(function(a, b) { return a.y - b.y; });
     var catCounts = SECTIONS.map(function(s) {
-        var n = pickBestPerQurumYear(collectCategoryTasks(s), selectedYear, isAllYears(selectedYear)).length;
+        var n = pickSectionRows(s, collectCategoryTasks(s), selectedYear, isAllYears(selectedYear)).length;
         return { s: s, n: n };
     });
     return { yearCounts: yearCounts, catCounts: catCounts };
@@ -1034,7 +1074,8 @@ export function openDiagModal(key, btn) {
     }
     var r = hubRowByKey[key];
     if (!r) {
-        var found = (state.allTasks || []).filter(isTaskType).filter(function(t) { return t.key === key; })[0];
+        var found = (state.issueIndex && state.issueIndex[key])
+            || (state.allTasks || []).filter(function(t) { return t.key === key; })[0];
         if (!found) return;
         var y = getAssessmentYear(found);
         r = { task: found, qurum: getAssessmentQurumLabel(found), year: y, years: y != null ? [y] : [] };
@@ -1104,10 +1145,10 @@ function renderOne(section) {
     var includeUndated = isAllYears(year);
     var allRows = collectCategoryTasks(section);
     var searchActive = !!(searchState[section] || '').trim();
-    var yearRows = pickBestPerQurumYear(allRows, year, includeUndated);
+    var yearRows = pickSectionRows(section, allRows, year, includeUndated);
     var filtered;
     if (section === 'meqsed' && searchActive) {
-        filtered = pickBestPerQurumYear(filterBySearch(allRows, section), year, includeUndated);
+        filtered = pickSectionRows(section, filterBySearch(allRows, section), year, includeUndated);
     } else {
         filtered = filterBySearch(yearRows, section);
     }

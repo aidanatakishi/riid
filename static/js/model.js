@@ -1334,6 +1334,45 @@ function hasSelfLabel(t) {
     return false;
 }
 
+function hasIsqLabel(t) {
+    var labs = issueLabelTexts(t);
+    for (var i = 0; i < labs.length; i++) {
+        if (foldAz(labs[i]) === 'isq') return true;
+    }
+    return false;
+}
+
+function hasMeqsedLabel(t) {
+    var labs = issueLabelTexts(t);
+    for (var i = 0; i < labs.length; i++) {
+        var f = foldAz(labs[i]);
+        if (!f) continue;
+        if (f === 'meqseduygunluq' || f === 'meqseduygun') return true;
+        if (matchesMaqsadHay(f)) return true;
+    }
+    return false;
+}
+
+function isReyestrQeydiyyatLabel(raw) {
+    var f = foldAz(raw);
+    if (!f || f.indexOf('qeydiyyat') === -1) return false;
+    return f.indexOf('iesr') !== -1 || f.indexOf('vrq') !== -1 || f.indexOf('reyestr') !== -1;
+}
+
+function hasReyestrQeydiyyatLabel(t) {
+    var cur = t;
+    var depth = 0;
+    while (cur && depth < 10) {
+        var labs = issueLabelTexts(cur);
+        for (var i = 0; i < labs.length; i++) {
+            if (isReyestrQeydiyyatLabel(labs[i])) return true;
+        }
+        cur = getParentIssue(cur);
+        depth++;
+    }
+    return false;
+}
+
 function looksLikeActivityDirectionName(name) {
     var folded = foldAz(name);
     if (!folded) return false;
@@ -1386,6 +1425,10 @@ function collectJiraOptionTexts(val, out) {
 }
 
 function mapActivityDirectionToCategory(val) {
+    if (val && typeof val === 'object' && !Array.isArray(val) && val.child) {
+        var leaf = mapActivityDirectionToCategory(val.child);
+        if (leaf) return leaf;
+    }
     var texts = [];
     collectJiraOptionTexts(val, texts);
     var i;
@@ -1393,9 +1436,10 @@ function mapActivityDirectionToCategory(val) {
         var hay = foldAz(texts[i]);
         if (!hay) continue;
         if (matchesMaqsadHay(hay)) return 'meqsed';
-        if (hayHasWord(hay, 'isq')) return 'isq';
-        if (hayHasWord(hay, 'exq')) return 'exq';
-        if (hayHasPhrase(hay, 'diaqnostika')) return 'diag';
+        if (matchesSelfAssessHay(hay) || hayHasWord(hay, 'self')) return 'self';
+        if (matchesExqHay(hay)) return 'exq';
+        if (matchesDiagHay(hay)) return 'diag';
+        if (hayHasWord(hay, 'isq') || matchesIsqDirectionHay(hay)) return 'isq';
     }
     return null;
 }
@@ -1616,7 +1660,7 @@ function directionSummaryHay(dir) {
 
 function categoryFromDirectionHay(hay) {
     if (!hay) return null;
-    if (matchesMaqsadHay(hay)) return null;
+    if (matchesMaqsadHay(hay)) return 'meqsed';
     if (matchesSelfAssessHay(hay)) return 'self';
     if (matchesExqHay(hay)) return 'exq';
     if (matchesDiagHay(hay)) return 'diag';
@@ -1687,7 +1731,6 @@ function qurumFromDescendants(t) {
 
 export function classifyAssessmentCategory(t) {
     if (!t || !isTaskOrSubtaskType(t)) return null;
-    if (hasSelfLabel(t)) return 'self';
     return mapActivityDirectionToCategory(readActivityDirectionValue(t));
 }
 
@@ -1719,28 +1762,25 @@ export function listAssessmentYears(t) {
     var years = [];
     if (!t) return years;
     var f = t.fields || {};
-    yearsFromText(f.summary).forEach(function(y) { pushUniqueYear(years, y); });
-    issueLabelTexts(t).forEach(function(lab) {
-        yearsFromText(lab).forEach(function(y) { pushUniqueYear(years, y); });
-    });
-    var parent = getParentIssue(t);
-    if (parent && parent.fields) {
-        yearsFromText(parent.fields.summary).forEach(function(y) { pushUniqueYear(years, y); });
+    function addTextYears(s) {
+        yearsFromText(s).forEach(function(y) { pushUniqueYear(years, y); });
     }
-    getSprintNames(t).forEach(function(n) {
-        yearsFromText(n).forEach(function(y) { pushUniqueYear(years, y); });
-    });
-    pushYearFromDate(years, getTaskStartDate(t));
-    pushYearFromDate(years, getTaskDueDate(t));
+    addTextYears(f.summary);
+    issueLabelTexts(t).forEach(addTextYears);
+    if (years.length) return years.slice(0, 1);
+
+    var created = [];
+    pushYearFromDate(created, getTaskCreatedDate(t));
+    if (created.length) return created;
+
+    var dated = [];
+    pushYearFromDate(dated, getTaskStartDate(t));
+    pushYearFromDate(dated, getTaskDueDate(t));
     PHASE_FIELDS.forEach(function(pf) {
-        pushYearFromDate(years, parsePhaseDate(f[pf.date]));
+        pushYearFromDate(dated, parsePhaseDate(f[pf.date]));
     });
-    pushYearFromDate(years, parsePhaseDate(f.resolutiondate));
-    // Created is fallback only — never dual-match a 2025 assessment created in 2026.
-    if (!years.length) {
-        pushYearFromDate(years, getTaskCreatedDate(t));
-    }
-    return years;
+    pushYearFromDate(dated, parsePhaseDate(f.resolutiondate));
+    return dated.length ? [dated[0]] : years;
 }
 
 export function getAssessmentYear(t) {
