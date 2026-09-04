@@ -1459,28 +1459,36 @@ function isMeqsedXidmetMelumatFieldName(folded) {
     return folded.indexOf('melumat') !== -1 || folded.indexOf('barede') !== -1 || folded.indexOf('haqqinda') !== -1;
 }
 
+function isMeqsedSistemAdiFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('sistem') === -1) return false;
+    return folded.indexOf('ad') !== -1 || folded.indexOf('name') !== -1;
+}
+
 function isMeqsedDisplayFieldName(folded) {
     return isMeqsedNovuFieldName(folded)
         || isMeqsedNeticeFieldName(folded)
         || isMeqsedXidmetSayiFieldName(folded)
-        || isMeqsedXidmetMelumatFieldName(folded);
+        || isMeqsedXidmetMelumatFieldName(folded)
+        || isMeqsedSistemAdiFieldName(folded);
 }
 
 export function collectMeqsedDisplayFieldIds() {
     var ids = [];
     var seen = {};
+    function add(id) {
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        ids.push(id);
+    }
+    add('customfield_17435');
     var names = state.jiraFieldNames || {};
     var key;
     for (key in names) {
         if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
         if (ASSESS_RESERVED_IDS[key]) continue;
         var folded = foldAz(names[key]);
-        if (isMeqsedDisplayFieldName(folded)) {
-            if (!seen[key]) {
-                seen[key] = true;
-                ids.push(key);
-            }
-        }
+        if (isMeqsedDisplayFieldName(folded)) add(key);
     }
     return ids;
 }
@@ -1530,11 +1538,16 @@ export function getMeqsedInfo(t) {
     var netice = readFirstMatchingNamedField(t, isMeqsedNeticeFieldName);
     var xidmetSayi = readFirstMatchingNamedField(t, isMeqsedXidmetSayiFieldName);
     var xidmetMelumat = readFirstMatchingNamedField(t, isMeqsedXidmetMelumatFieldName);
+    var sistemRaw = readIssueField(t, 'customfield_17435');
+    if (isEmptyJiraValue(sistemRaw)) {
+        sistemRaw = readFirstMatchingNamedField(t, isMeqsedSistemAdiFieldName);
+    }
     return {
         novu: formatJiraOptionText(novu),
         netice: formatJiraOptionText(netice),
         xidmetSayi: formatMeqsedSayi(xidmetSayi),
-        xidmetMelumat: formatJiraOptionText(xidmetMelumat)
+        xidmetMelumat: formatJiraOptionText(xidmetMelumat),
+        sistemAdi: formatJiraOptionText(sistemRaw)
     };
 }
 
@@ -2955,7 +2968,8 @@ export function hasAssessmentResult(category, t) {
         return (m.novu && m.novu !== '—')
             || (m.netice && m.netice !== '—')
             || (m.xidmetSayi && m.xidmetSayi !== '—')
-            || (m.xidmetMelumat && m.xidmetMelumat !== '—');
+            || (m.xidmetMelumat && m.xidmetMelumat !== '—')
+            || (m.sistemAdi && m.sistemAdi !== '—');
     }
     return false;
 }

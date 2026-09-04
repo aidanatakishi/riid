@@ -17,7 +17,7 @@ var SEARCH_FIELDS = [
     'customfield_10015', 'customfield_10016', 'customfield_12703', 'customfield_13608',
     'customfield_12424',
     'customfield_17315', 'customfield_17316', 'customfield_17317', 'customfield_17318',
-    'customfield_17319', 'customfield_17320',
+    'customfield_17319', 'customfield_17320', 'customfield_17435',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ].join(',');
 

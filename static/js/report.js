@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInSelectedWeek, isSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -15,7 +15,7 @@ export function loadDocxLib() {
 }
 
 var AZ_MONTHS_LOWER = ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avqust', 'sentyabr', 'oktyabr', 'noyabr', 'dekabr'];
-var AZ_MONTHS_FILE = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'Iyun', 'Iyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
+var AZ_MONTHS_FILE = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun', 'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
 
 function parseReportIsoDate(iso) {
     if (!iso) return null;
@@ -37,23 +37,246 @@ function azYearMark(year) {
     return year + '-ci';
 }
 
+function isCalendarMonthStart(d) {
+    return d && d.getDate() === 1;
+}
+
+function isCalendarMonthEnd(d) {
+    if (!d) return false;
+    return d.getDate() === new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+}
+
+function listCoveredMonths(start, end) {
+    var out = [];
+    var y = start.getFullYear();
+    var m = start.getMonth();
+    var endY = end.getFullYear();
+    var endM = end.getMonth();
+    while (y < endY || (y === endY && m <= endM)) {
+        out.push({
+            year: y,
+            month: m,
+            monthName: AZ_MONTHS_LOWER[m],
+            fileMonth: AZ_MONTHS_FILE[m]
+        });
+        m += 1;
+        if (m > 11) {
+            m = 0;
+            y += 1;
+        }
+    }
+    return out;
+}
+
 export function getMonthRangeInfo(startIso, endIso) {
     var start = parseReportIsoDate(startIso);
     var end = parseReportIsoDate(endIso);
-    if (!start || !end) return null;
-    if (start.getFullYear() !== end.getFullYear() || start.getMonth() !== end.getMonth()) return null;
-    var lastDay = new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate();
+    if (!start || !end || end < start) return null;
+    var covered = listCoveredMonths(start, end);
+    if (!covered.length) return null;
+    var lastDayOfEndMonth = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
     var days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
-    var fromFirst = start.getDate() === 1 && end.getDate() >= Math.min(28, lastDay);
-    if (!fromFirst && days < 28) return null;
+    var fullSpan = isCalendarMonthStart(start) && isCalendarMonthEnd(end);
+    var singleMonthOk = covered.length === 1 && (
+        fullSpan
+        || (isCalendarMonthStart(start) && end.getDate() >= Math.min(28, lastDayOfEndMonth))
+        || days >= 28
+    );
+    var multiMonthOk = covered.length >= 2 && (
+        fullSpan
+        || (isCalendarMonthStart(start) && end.getDate() >= Math.min(28, lastDayOfEndMonth))
+        || days >= 45
+    );
+    if (!singleMonthOk && !multiMonthOk) return null;
+    var names = covered.map(function(c) { return c.monthName; });
+    var fileNames = covered.map(function(c) { return c.fileMonth; });
+    var monthName = names.length === 1 ? names[0] : (names[0] + '–' + names[names.length - 1]);
+    var fileMonth = fileNames.length === 1 ? fileNames[0] : (fileNames[0] + '-' + fileNames[fileNames.length - 1]);
     return {
-        year: start.getFullYear(),
-        month: start.getMonth(),
+        year: covered[0].year,
+        endYear: covered[covered.length - 1].year,
+        month: covered[0].month,
         start: start,
         end: end,
-        monthName: AZ_MONTHS_LOWER[start.getMonth()],
-        fileMonth: AZ_MONTHS_FILE[start.getMonth()]
+        monthName: monthName,
+        monthNames: names,
+        monthCount: covered.length,
+        fileMonth: fileMonth,
+        months: covered
     };
+}
+
+function monthInfoForCovered(item) {
+    if (!item || typeof item.month !== 'number' || typeof item.year !== 'number') return null;
+    var start = new Date(item.year, item.month, 1);
+    start.setHours(0, 0, 0, 0);
+    var end = new Date(item.year, item.month + 1, 0);
+    end.setHours(0, 0, 0, 0);
+    var monthName = item.monthName || AZ_MONTHS_LOWER[item.month];
+    var fileMonth = item.fileMonth || AZ_MONTHS_FILE[item.month];
+    return {
+        year: item.year,
+        endYear: item.year,
+        month: item.month,
+        start: start,
+        end: end,
+        monthName: monthName,
+        monthNames: [monthName],
+        monthCount: 1,
+        fileMonth: fileMonth,
+        months: [{
+            year: item.year,
+            month: item.month,
+            monthName: monthName,
+            fileMonth: fileMonth
+        }]
+    };
+}
+
+function startOfDay(d) {
+    if (!d) return null;
+    var out = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    out.setHours(0, 0, 0, 0);
+    return out;
+}
+
+function weekInfoFromDates(start, end, extra) {
+    var s = startOfDay(start);
+    var e = startOfDay(end);
+    if (!s || !e) return null;
+    return Object.assign({
+        start: s,
+        end: e,
+        year: s.getFullYear(),
+        endYear: e.getFullYear()
+    }, extra || {});
+}
+
+function mondayOnOrBefore(d) {
+    var day = d.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    var m = new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff);
+    m.setHours(0, 0, 0, 0);
+    return m;
+}
+
+function listCoveredCalendarWeeks(start, end) {
+    var out = [];
+    var cursor = mondayOnOrBefore(start);
+    var last = startOfDay(end);
+    while (cursor <= last) {
+        var wStart = new Date(cursor);
+        var wEnd = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 6);
+        wEnd.setHours(0, 0, 0, 0);
+        var clipStart = wStart < start ? startOfDay(start) : wStart;
+        var clipEnd = wEnd > last ? last : wEnd;
+        if (clipEnd >= clipStart) out.push(weekInfoFromDates(clipStart, clipEnd));
+        cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 7);
+    }
+    return out;
+}
+
+export function getWeekRangeInfo(startIso, endIso) {
+    if (getMonthRangeInfo(startIso, endIso)) return null;
+    var start = parseReportIsoDate(startIso);
+    var end = parseReportIsoDate(endIso);
+    if (!start || !end || end < start) return null;
+    var days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+    var covered = listCoveredCalendarWeeks(start, end);
+    if (days >= 5 && days <= 9) {
+        return { weeks: [weekInfoFromDates(start, end)], weekCount: 1, start: start, end: end };
+    }
+    if (covered.length >= 2) {
+        return { weeks: covered, weekCount: covered.length, start: start, end: end };
+    }
+    return null;
+}
+
+export function isCustomDateFilterActive() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    return !!((startEl && startEl.value) || (endEl && endEl.value));
+}
+
+function selectedSprintFilterName() {
+    var el = document.getElementById('sprintFilter');
+    var val = el && el.value;
+    if (!val || val === 'all') return '';
+    return val;
+}
+
+function listedSprintNames() {
+    var el = document.getElementById('sprintFilter');
+    if (!el) return [];
+    return Array.from(el.options).slice(1).map(function(o) { return o.value; }).filter(Boolean);
+}
+
+export function isBuHefteMode() {
+    if (isCustomDateFilterActive()) return false;
+    var sprintVal = selectedSprintFilterName();
+    if (!sprintVal) return false;
+    var current = currentSprintName(listedSprintNames());
+    return !!(current && sprintVal === current);
+}
+
+export function isSprintWeekMode() {
+    return !isCustomDateFilterActive() && !!selectedSprintFilterName();
+}
+
+function getSprintWeeklyExport() {
+    if (!isSprintWeekMode()) return null;
+    var sprintName = selectedSprintFilterName();
+    if (!sprintName) return null;
+    var range = getSprintDateRange(sprintName);
+    var start;
+    var end;
+    if (range && range.start && range.end) {
+        start = startOfDay(range.start);
+        end = startOfDay(range.end);
+    } else {
+        var baku = getBakuWeekRange(0);
+        start = startOfDay(baku.start);
+        end = startOfDay(baku.end);
+    }
+    return {
+        info: weekInfoFromDates(start, end, { sprintName: sprintName }),
+        opts: {
+            kind: 'week',
+            sourceMode: 'sprint',
+            sprintName: sprintName,
+            icmalMode: 'week'
+        }
+    };
+}
+
+function weeklyFileName(info) {
+    var a = formatDateObj(info.start);
+    var b = formatDateObj(info.end);
+    return 'Həftəlik hesabat ' + a.slice(0, 5) + '-' + b + '.docx';
+}
+
+function weeklyDownloadToast(infos) {
+    if (!infos || !infos.length) return 'Həftəlik hesabat (.docx) uğurla yükləndi!';
+    if (infos.length === 1) return 'Həftəlik hesabat (.docx) uğurla yükləndi!';
+    return infos.length + ' həftəlik hesabat yükləndi.';
+}
+
+function delayMs(ms) {
+    return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+function joinAzNames(names) {
+    if (!names || !names.length) return '';
+    if (names.length === 1) return names[0];
+    if (names.length === 2) return names[0] + ' və ' + names[1];
+    return names.slice(0, -1).join(', ') + ' və ' + names[names.length - 1];
+}
+
+function monthlyPeriodPhrase(info) {
+    var item = info && info.months && info.months.length ? info.months[0] : info;
+    var year = item && item.year;
+    var name = item && item.monthName;
+    return azYearMark(year) + ' ilin ' + name + ' ayı';
 }
 
 export function updateReportButtonLabel() {
@@ -61,8 +284,23 @@ export function updateReportButtonLabel() {
     if (!el) return;
     var startEl = document.getElementById('startDate');
     var endEl = document.getElementById('endDate');
-    var month = getMonthRangeInfo(startEl && startEl.value, endEl && endEl.value);
-    el.textContent = month ? 'Aylıq hesabatı yüklə' : 'Hesabatı yüklə';
+    var startIso = startEl && startEl.value;
+    var endIso = endEl && endEl.value;
+    var month = getMonthRangeInfo(startIso, endIso);
+    if (month) {
+        el.textContent = month.monthCount > 1 ? 'Aylıq hesabatları yüklə' : 'Aylıq hesabatı yüklə';
+        return;
+    }
+    if (isSprintWeekMode()) {
+        el.textContent = 'Həftəlik hesabatı yüklə';
+        return;
+    }
+    var week = getWeekRangeInfo(startIso, endIso);
+    if (week) {
+        el.textContent = week.weekCount > 1 ? 'Həftəlik hesabatları yüklə' : 'Həftəlik hesabatı yüklə';
+        return;
+    }
+    el.textContent = 'Hesabatı yüklə';
 }
 
 export function isSelectedMonthRange() {
@@ -72,7 +310,11 @@ export function isSelectedMonthRange() {
 }
 
 export function duePeriodLabel() {
-    return isSelectedMonthRange() ? 'Bu ay bitməli' : 'Bu həftə bitməli';
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var month = getMonthRangeInfo(startEl && startEl.value, endEl && endEl.value);
+    if (!month) return 'Bu həftə bitməli';
+    return month.monthCount > 1 ? 'Bu dövr bitməli' : 'Bu ay bitməli';
 }
 
 var CANON_ORDER = ['reyestr', 'meqsed', 'diag', 'isq', 'exq', 'inteqrasiya', 'diger'];
@@ -97,8 +339,7 @@ function canonicalSectionId(dirName) {
     return 'diger';
 }
 
-function monthlyIntroForCanon(id, yearMark, monthName) {
-    var period = yearMark + ' ilin ' + monthName + ' ayı';
+function monthlyIntroForCanon(id, period) {
     if (id === 'reyestr') {
         return '“Dövlət informasiya ehtiyatlarının, sistemlərinin və elektron xidmətlərin vahid reyestri”nin (bundan sonra - Reyestr) “İnformasiya ehtiyat və sistemləri reyestri” modulu vasitəsilə ' + period + ' ərzində aşağıdakı sistemlər qeydiyyata alınmışdır:';
     }
@@ -133,7 +374,7 @@ export async function exportTasksToWord(title) {
         return;
     }
     var { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-          HeadingLevel, AlignmentType, WidthType, ShadingType, BorderStyle, VerticalAlign,
+          AlignmentType, WidthType, ShadingType, BorderStyle, VerticalAlign,
           Header, Footer, PageNumber } = docxLib;
 
     var COL_INK = '1A1A1A';
@@ -146,9 +387,9 @@ export async function exportTasksToWord(title) {
     var REPORT_FONT = 'Arial';
     var FONT_TITLE = 32;
     var FONT_H1 = 24;
-    var FONT_SIZE = 24;
-    var FONT_SMALL = 24;
-    var FONT_PHASE = 24;
+    var FONT_SIZE = 22;
+    var FONT_SMALL = 18;
+    var FONT_PHASE = 20;
 
     var noBorder = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
     var hairBorder = { style: BorderStyle.SINGLE, size: 4, color: COL_LINE_SOFT }; 
@@ -235,6 +476,226 @@ export async function exportTasksToWord(title) {
         return st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
     }
 
+    function hasDiffDash(t) {
+        var g = getStatusGroup(t.fields.status.name);
+        var diff = hasValidDifficulty(t);
+        return diff && g !== 'done' && g !== 'rejected';
+    }
+
+    function collectDashboardKpis(units, dueFn) {
+        units = units || [];
+        dueFn = dueFn || isDueInSelectedWeek;
+        var due = 0, blocked = 0, done = 0, planned = 0;
+        var doneInPeriod = 0, rejected = 0, notDoneDue = 0, duePool = 0;
+        units.forEach(function(t) {
+            if (!t || !t.fields || !t.fields.status) return;
+            var g = getStatusGroup(t.fields.status.name);
+            var diff = hasDiffDash(t);
+            var inDue = !!dueFn(t);
+            if (g === 'done') done++;
+            if (g === 'rejected') rejected++;
+            if (g === 'blocked' || diff) blocked++;
+            if (g !== 'done' && g !== 'rejected' && !diff && inDue) due++;
+            if (g === 'planned' && !diff) planned++;
+            if (g === 'done' && inDue) doneInPeriod++;
+            if (g !== 'done' && g !== 'rejected' && inDue) notDoneDue++;
+            if (inDue && g !== 'rejected') duePool++;
+        });
+        var total = units.length;
+        var carryover = total - done;
+        if (carryover < 0) carryover = 0;
+        return {
+            total: total,
+            due: due,
+            blocked: blocked,
+            done: done,
+            planned: planned,
+            doneInPeriod: doneInPeriod,
+            rejected: rejected,
+            notDoneDue: notDoneDue,
+            carryover: carryover,
+            dueDisplay: String(doneInPeriod) + ' / ' + String(duePool)
+        };
+    }
+
+    function collectVisibleDashboardKpis() {
+        var tasks = state.filteredTasks || [];
+        var validTasks = countableWorkUnits(tasks);
+        function hasDiff(t) {
+            var g = getStatusGroup(t.fields.status.name || '');
+            return hasValidDifficulty(t) && g !== 'done' && g !== 'rejected';
+        }
+        var total = validTasks.length;
+        var done = 0;
+        var blocked = 0;
+        var planned = 0;
+        validTasks.forEach(function(t) {
+            var g = getStatusGroup(t.fields.status.name || '');
+            var diff = hasDiff(t);
+            if (g === 'done') done++;
+            if (g === 'blocked' || diff) blocked++;
+            if (g === 'planned' && !diff) planned++;
+        });
+        var rejected = tasks.filter(function(t) {
+            return isTaskType(t) && getStatusGroup(t.fields.status.name || '') === 'rejected';
+        }).length;
+        var due = collectDueThisWeekTasks().length;
+        var doneInPeriod = collectDueThisWeekDoneTasks().length;
+        var notDoneDue = due - doneInPeriod;
+        if (notDoneDue < 0) notDoneDue = 0;
+        var carryover = total - done;
+        if (carryover < 0) carryover = 0;
+        return {
+            total: total,
+            due: due,
+            blocked: blocked,
+            done: done,
+            planned: planned,
+            doneInPeriod: doneInPeriod,
+            rejected: rejected,
+            notDoneDue: notDoneDue,
+            carryover: carryover,
+            dueDisplay: String(doneInPeriod) + ' / ' + String(due)
+        };
+    }
+
+    function icmalPeriodCopy(mode) {
+        if (mode === true || mode === 'month') {
+            return {
+                empty: 'Bu ay ərzində icra olunan tapşırıq qeydə alınmayıb.',
+                during: 'Bu ay ərzində ümumilikdə ',
+                thisPeriod: 'bu ay',
+                overdueEmpty: 'Bu ay bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.',
+                overduePrefix: 'Bu ay bitməli olub, lakin tamamlanmayan ',
+                nextEmpty: 'Növbəti aya keçid edəcək tapşırıq yoxdur.',
+                nextPrefix: 'Növbəti aya ',
+                dueLabel: 'İcrası bu ay tamamlanmalı',
+                nextLabel: 'Növbəti aya tamamlanan olmalıdır'
+            };
+        }
+        if (mode === 'period') {
+            return {
+                empty: 'Bu aylar ərzində icra olunan tapşırıq qeydə alınmayıb.',
+                during: 'Bu aylar ərzində ümumilikdə ',
+                thisPeriod: 'bu dövr',
+                overdueEmpty: 'Bu dövrdə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.',
+                overduePrefix: 'Bu dövrdə bitməli olub, lakin tamamlanmayan ',
+                nextEmpty: 'Növbəti dövrə keçid edəcək tapşırıq yoxdur.',
+                nextPrefix: 'Növbəti dövrə ',
+                dueLabel: 'İcrası bu dövrdə tamamlanmalı',
+                nextLabel: 'Növbəti dövrə tamamlanan olmalıdır'
+            };
+        }
+        return {
+            empty: 'Bu həftə ərzində icra olunan tapşırıq qeydə alınmayıb.',
+            during: 'Bu həftə ərzində ümumilikdə ',
+            thisPeriod: 'bu həftə',
+            overdueEmpty: 'Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.',
+            overduePrefix: 'Bu həftə bitməli olub, lakin tamamlanmayan ',
+            nextEmpty: 'Növbəti həftəyə keçid edəcək tapşırıq yoxdur.',
+            nextPrefix: 'Növbəti həftəyə ',
+            dueLabel: 'İcrası bu həftə tamamlanmalı',
+            nextLabel: 'Növbəti həftəyə tamamlanan olmalıdır'
+        };
+    }
+
+    function buildIcmalSummaryText(kpis, isMonth) {
+        var w = icmalPeriodCopy(isMonth);
+        var parts = [];
+        if (kpis.total === 0) {
+            parts.push(w.empty);
+        } else {
+            var doneClause = '';
+            if (kpis.done === 0) {
+                doneClause = 'onlardan heç biri tamamlanmayıb';
+            } else if (kpis.doneInPeriod === 0) {
+                doneClause = 'onlardan ' + kpis.done + ' tapşırıq tamamlanıb';
+            } else {
+                doneClause = 'onlardan ' + kpis.done + ' tapşırıq tamamlanıb (bunlardan ' + kpis.doneInPeriod + '-i məhz ' + w.thisPeriod + ' olanlardır)';
+            }
+            parts.push(w.during + kpis.total + ' tapşırıq üzərində iş aparılıb, ' + doneClause + '.');
+        }
+        if (kpis.notDoneDue === 0) {
+            parts.push(w.overdueEmpty);
+        } else {
+            parts.push(w.overduePrefix + kpis.notDoneDue + ' tapşırıq var.');
+        }
+        if (kpis.blocked === 0 && kpis.rejected === 0) {
+            parts.push('Hazırda çətinlik mövcud deyil və imtina edilən tapşırıq yoxdur.');
+        } else if (kpis.blocked === 0) {
+            parts.push('Hazırda çətinlik mövcud deyil, ' + kpis.rejected + ' tapşırıqdan isə imtina edilib.');
+        } else if (kpis.rejected === 0) {
+            parts.push('Hazırda ' + kpis.blocked + ' tapşırıq üzrə çətinlik mövcuddur, imtina edilən tapşırıq isə yoxdur.');
+        } else {
+            parts.push('Hazırda ' + kpis.blocked + ' tapşırıq üzrə çətinlik mövcuddur, ' + kpis.rejected + ' tapşırıqdan isə imtina edilib.');
+        }
+        if (kpis.carryover === 0) {
+            parts.push(w.nextEmpty);
+        } else {
+            parts.push(w.nextPrefix + kpis.carryover + ' tapşırıq keçid edəcək.');
+        }
+        return parts.join(' ');
+    }
+
+    function statCell(numberText, labelText, isLast, fontName) {
+        fontName = fontName || REPORT_FONT;
+        return new TableCell({
+            width: { size: 25, type: WidthType.PERCENTAGE },
+            verticalAlign: VerticalAlign.CENTER,
+            shading: { fill: FILL_ROW, type: ShadingType.CLEAR, color: 'auto' },
+            margins: { top: 160, bottom: 160, left: 140, right: 140 },
+            borders: {
+                top: { style: BorderStyle.SINGLE, size: 12, color: COL_INK },
+                bottom: hairBorder,
+                right: isLast ? noBorder : hairBorder,
+                left: noBorder
+            },
+            children: [
+                new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 40 },
+                    children: [new TextRun({ text: String(numberText), bold: true, font: fontName, size: FONT_SIZE, color: COL_INK })] }),
+                new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 0 },
+                    children: [new TextRun({ text: labelText, font: fontName, size: FONT_SMALL, color: COL_MUTED })] })
+            ]
+        });
+    }
+
+    function appendIcmalAndStats(target, kpis, isMonth, fontName) {
+        fontName = fontName || REPORT_FONT;
+        var w = icmalPeriodCopy(isMonth);
+        var summaryText = buildIcmalSummaryText(kpis, isMonth);
+        target.push(new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [ new TableRow({ children: [
+                new TableCell({
+                    width: { size: 100, type: WidthType.PERCENTAGE },
+                    shading: { fill: FILL_SOFT, type: ShadingType.CLEAR, color: 'auto' },
+                    margins: { top: 180, bottom: 180, left: 220, right: 220 },
+                    borders: {
+                        top: noBorder,
+                        bottom: noBorder,
+                        left: { style: BorderStyle.SINGLE, size: 24, color: COL_INK },
+                        right: noBorder
+                    },
+                    children: [
+                        new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: 'HESABATIN İCMALI', bold: true, font: fontName, size: FONT_SMALL, color: COL_MUTED })] }),
+                        new Paragraph({ spacing: { after: 0, line: 300 }, children: [new TextRun({ text: summaryText, font: fontName, size: FONT_SIZE, color: COL_BODY })] })
+                    ]
+                })
+            ] }) ]
+        }));
+        target.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+        target.push(new Table({
+            width: { size: 100, type: WidthType.PERCENTAGE },
+            rows: [ new TableRow({ children: [
+                statCell(kpis.dueDisplay || kpis.due, w.dueLabel, false, fontName),
+                statCell(kpis.blocked, 'Mövcud çətinliklər', false, fontName),
+                statCell(kpis.done, 'Ümumi tamamlanan tapşırıq sayı', false, fontName),
+                statCell(kpis.planned, w.nextLabel, true, fontName)
+            ] }) ]
+        }));
+        target.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+    }
+
     function resolveIssue(issue) {
         if (!issue || !issue.key) return issue;
         if (state.issueIndex[issue.key]) return state.issueIndex[issue.key];
@@ -318,7 +779,13 @@ export async function exportTasksToWord(title) {
                 if (fallback) allDated.push({ date: fallback, text: name });
             });
         }
-        return selectPhasesForReport(uniquePhaseEntries(allDated), periodStart, periodEnd);
+        var unique = uniquePhaseEntries(allDated);
+        if (restrictToPeriod) {
+            return unique.filter(function(e) {
+                return e && e.date && isDateInReportPeriod(e.date, periodStart, periodEnd);
+            });
+        }
+        return selectPhasesForReport(unique, periodStart, periodEnd);
     }
 
     function formatEntryLine(entry) {
@@ -351,6 +818,27 @@ export async function exportTasksToWord(title) {
             seen[key] = true;
             childLines.push(line);
         });
+    }
+
+    function collectWeekPhaseLines(t, childIssues, periodStart, periodEnd) {
+        var lines = [];
+        var seen = {};
+        var info = { start: periodStart, end: periodEnd };
+        function addIssue(issue) {
+            if (!issue) return;
+            var entries = issueMonthPhaseEntries(issue, info);
+            (entries || []).forEach(function(entry) {
+                var line = formatEntryLine(entry);
+                if (!line) return;
+                var key = (issue.key || '') + '|' + normalizeStr(line);
+                if (seen[key]) return;
+                seen[key] = true;
+                lines.push(line);
+            });
+        }
+        addIssue(t);
+        (childIssues || []).forEach(addIssue);
+        return lines;
     }
 
     function appendProblemReason(childLines, issue) {
@@ -402,7 +890,7 @@ export async function exportTasksToWord(title) {
         return printList;
     }
 
-    function buildSection(tasks, isProblemSection, periodStart, periodEnd, filterFn, restrictToPeriod) {
+    function buildSection(tasks, isProblemSection, periodStart, periodEnd, filterFn, restrictToPeriod, skipIfNoPhases) {
         var nodes = [];
         var groups = groupByDirection(tasks);
         var dirNames = Object.keys(groups);
@@ -428,10 +916,20 @@ export async function exportTasksToWord(title) {
 
                 var childLines = [];
 
-                if (isProblemSection) appendProblemReason(childLines, t);
-                var groupIssues = phaseIssuesForGroup(t, childIssues, isOwnDone, restrictToPeriod, filterFn);
-                appendEntryLines(childLines, groupPhaseEntries(t, groupIssues, periodStart, periodEnd, restrictToPeriod));
-                if (!restrictToPeriod) {
+                if (restrictToPeriod) {
+                    collectWeekPhaseLines(t, childIssues, periodStart, periodEnd).forEach(function(line) {
+                        childLines.push(line);
+                    });
+                    if (isProblemSection) {
+                        childIssues.forEach(function(subIssue) {
+                            appendProblemReason(childLines, subIssue);
+                        });
+                    }
+                    if (skipIfNoPhases && childLines.length === 0) return;
+                } else {
+                    if (isProblemSection) appendProblemReason(childLines, t);
+                    var groupIssues = phaseIssuesForGroup(t, childIssues, isOwnDone, restrictToPeriod, filterFn);
+                    appendEntryLines(childLines, groupPhaseEntries(t, groupIssues, periodStart, periodEnd, restrictToPeriod));
                     groupIssues.forEach(function(subIssue) {
                         if (subIssue.key === t.key) return;
                         if (hasPhaseText(subIssue)) return;
@@ -440,16 +938,12 @@ export async function exportTasksToWord(title) {
                         var name = (subIssue.fields && subIssue.fields.summary) ? subIssue.fields.summary : subIssue.key;
                         if (name) childLines.push(name.endsWith('.') ? name : name + '.');
                     });
-                }
-                childIssues.forEach(function(subIssue) {
-                    if (restrictToPeriod && !isOwnDone && !issueMatches(subIssue, filterFn)) return;
-                    if (isProblemSection && issueMatches(subIssue, filterFn) && hasPhaseText(subIssue)) {
-                        appendProblemReason(childLines, subIssue);
-                    }
-                });
-
-                if (childLines.length === 0) {
-                    if (restrictToPeriod || !isOwnDone) return;
+                    childIssues.forEach(function(subIssue) {
+                        if (isProblemSection && issueMatches(subIssue, filterFn) && hasPhaseText(subIssue)) {
+                            appendProblemReason(childLines, subIssue);
+                        }
+                    });
+                    if (childLines.length === 0 && !isOwnDone) return;
                 }
 
                 dirNodes.push(new Paragraph({
@@ -470,8 +964,6 @@ export async function exportTasksToWord(title) {
                             ]
                         }));
                     });
-                } else {
-                    dirNodes.push(new Paragraph({ spacing: { after: 80 }, children: [] }));
                 }
             });
             if (dirNodes.length === 0) return;
@@ -490,7 +982,16 @@ export async function exportTasksToWord(title) {
     }
 
     function monthlyFileName(info) {
-        return info.fileMonth + ' ayı hesabatı.docx';
+        var name = (info && info.fileMonth) || 'Aylıq';
+        if (info && info.months && info.months.length) name = info.months[0].fileMonth;
+        return name + ' ayı hesabatı.docx';
+    }
+
+    function monthlyDownloadToast(infos) {
+        var names = (infos || []).map(function(info) { return info.fileMonth; }).filter(Boolean);
+        if (!names.length) return 'Aylıq hesabat (.docx) uğurla yükləndi!';
+        if (names.length === 1) return names[0] + ' ayı hesabatı (.docx) uğurla yükləndi!';
+        return joinAzNames(names) + ' aylıq hesabatları yükləndi.';
     }
 
     async function downloadGeneratedDoc(doc, filename, toastMsg) {
@@ -504,10 +1005,12 @@ export async function exportTasksToWord(title) {
             fileDownload.click();
             document.body.removeChild(fileDownload);
             URL.revokeObjectURL(url);
-            showToast(toastMsg, 'success');
+            if (toastMsg) showToast(toastMsg, 'success');
+            return true;
         } catch (err) {
             console.error(err);
             showToast('Hesabat yaradılarkən xəta baş verdi: ' + err.message, 'error');
+            return false;
         }
     }
 
@@ -553,9 +1056,45 @@ export async function exportTasksToWord(title) {
             seen[t.key] = true;
             out.push(t);
         }
-        (state.filteredTasks || []).forEach(add);
+        (state.filteredTasks || []).forEach(function(t) {
+            if (taskHasMonthActivity(t, info.start, info.end)) add(t);
+        });
         (state.allTasks || []).forEach(function(t) {
             if (taskHasMonthActivity(t, info.start, info.end)) add(t);
+        });
+        return out;
+    }
+
+    function issueBelongsToSprint(t, sprintName) {
+        if (!t || !sprintName) return false;
+        if (getSprintNames(t).indexOf(sprintName) !== -1) return true;
+        if (isSubtaskType(t)) {
+            var parent = getParentIssue(t);
+            if (parent && getSprintNames(parent).indexOf(sprintName) !== -1) return true;
+        }
+        return false;
+    }
+
+    function collectSprintSource(sprintName) {
+        var seen = {};
+        var out = [];
+        function add(t) {
+            if (!t || !t.key || seen[t.key] || isPausedTask(t)) return;
+            if (!isTaskOrSubtaskType(t)) return;
+            if (!matchesReportSideFilters(t)) return;
+            var st = t.fields && t.fields.status ? normalizeStr(t.fields.status.name) : '';
+            if (st.includes('başlanmamış') || st.includes('baslanmamis')) return;
+            seen[t.key] = true;
+            out.push(t);
+        }
+        (state.allTasks || []).forEach(function(t) {
+            if (!issueBelongsToSprint(t, sprintName)) return;
+            add(t);
+            if (isTaskType(t)) {
+                collectChildIssues(t).forEach(function(child) {
+                    if (isSubtaskType(child) || isTaskOrSubtaskType(child)) add(child);
+                });
+            }
         });
         return out;
     }
@@ -588,10 +1127,27 @@ export async function exportTasksToWord(title) {
         return Object.keys(byKey).map(function(k) { return byKey[k]; });
     }
 
+    function expandPhaseEntry(e) {
+        if (!e || !e.text) return [];
+        var parts = parsePhaseEntriesFromText(e.text, e.date);
+        if (!parts.length) return [e];
+        return parts.map(function(p) {
+            return {
+                date: p.date || e.date,
+                text: p.text,
+                fieldIndex: e.fieldIndex
+            };
+        });
+    }
+
     function issueMonthPhaseEntries(t, info) {
         if (!t || !info) return [];
         var collected = (getDatedPhaseEntries(t) || []).concat(getRawPhaseEntries(t, info.start, info.end) || []);
-        var inPeriod = uniqueMonthlyPhaseEntries(collected).filter(function(entry) {
+        var expanded = [];
+        collected.forEach(function(e) {
+            expandPhaseEntry(e).forEach(function(p) { expanded.push(p); });
+        });
+        var inPeriod = uniqueMonthlyPhaseEntries(expanded).filter(function(entry) {
             return entry && entry.date && isDateInReportPeriod(entry.date, info.start, info.end);
         });
         inPeriod.sort(function(a, b) {
@@ -664,7 +1220,7 @@ export async function exportTasksToWord(title) {
         return formatEntryLine(entry);
     }
 
-    function collectMonthlyWorkUnits(dirTasks, info) {
+    function collectMonthlyWorkUnits(dirTasks, info, allowedKeys) {
         var seen = {};
         var units = [];
         function walk(t) {
@@ -677,6 +1233,7 @@ export async function exportTasksToWord(title) {
             if (kids.length > 0) {
                 kids.forEach(walk);
             }
+            if (allowedKeys && !allowedKeys[t.key]) return;
             var entries = issueMonthPhaseEntries(t, info);
             if (entries.length === 0) return;
             var qurum = resolvePhaseQurum(t);
@@ -938,11 +1495,29 @@ export async function exportTasksToWord(title) {
         });
     }
 
-    function buildMonthlyDocument(info) {
+    function buildMonthlyDocument(info, opts) {
+        opts = opts || {};
+        var kind = opts.kind || 'month';
+        var sourceMode = opts.sourceMode || 'date';
+        var sprintName = opts.sprintName || info.sprintName || '';
         var MONTH_FONT = 'Times New Roman';
-        var yearMark = azYearMark(info.year);
-        var titleLine = yearMark + ' ilin ' + info.monthName + ' ayı üzrə fəaliyyətinə dair hesabat';
-        var monthSource = collectMonthlySource(info);
+        var periodPhrase = kind === 'month'
+            ? monthlyPeriodPhrase(info)
+            : (formatDateObj(info.start) + ' – ' + formatDateObj(info.end) + ' tarixləri');
+        var titleLine;
+        if (kind === 'week') titleLine = 'Həftəlik İcra Hesabatı';
+        else if (kind === 'period') titleLine = 'İcra Hesabatı';
+        else titleLine = periodPhrase + ' üzrə fəaliyyətinə dair hesabat';
+        var monthSource = sourceMode === 'sprint'
+            ? collectSprintSource(sprintName)
+            : collectMonthlySource(info);
+        var allowedKeys = null;
+        if (sourceMode === 'sprint') {
+            allowedKeys = {};
+            (monthSource || []).forEach(function(t) {
+                if (t && t.key) allowedKeys[t.key] = true;
+            });
+        }
         var allParents = getPrintTasks(function() { return true; }, monthSource);
         var seenParent = {};
         var uniqueParents = [];
@@ -965,15 +1540,17 @@ export async function exportTasksToWord(title) {
         }
         uniqueParents.forEach(addToBucket);
         (monthSource || []).forEach(addToBucket);
-        (state.allTasks || []).forEach(function(t) {
-            var dir = resolveDirection(t);
-            var name = dir ? (dir.fields.summary || '').trim() : '';
-            if (name && (isReyestrDirection(name) || isMaqsadDirection(name))) addToBucket(t);
-        });
+        if (sourceMode !== 'sprint') {
+            (state.allTasks || []).forEach(function(t) {
+                var dir = resolveDirection(t);
+                var name = dir ? (dir.fields.summary || '').trim() : '';
+                if (name && (isReyestrDirection(name) || isMaqsadDirection(name))) addToBucket(t);
+            });
+        }
 
         var unitsByCanon = {};
         CANON_ORDER.forEach(function(id) {
-            unitsByCanon[id] = collectMonthlyWorkUnits(buckets[id] || [], info);
+            unitsByCanon[id] = collectMonthlyWorkUnits(buckets[id] || [], info, allowedKeys);
         });
 
         var monthChildren = [];
@@ -984,18 +1561,57 @@ export async function exportTasksToWord(title) {
             spacing: { after: 80 },
             children: [new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsinin', bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
         }));
-        monthChildren.push(new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { after: 360 },
-            border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 12 } },
-            children: [new TextRun({ text: titleLine, bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
-        }));
+        if (kind === 'week' || kind === 'period') {
+            monthChildren.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 80 },
+                children: [new TextRun({ text: titleLine, bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
+            }));
+            var weekSub = formatDateObj(info.start) + ' – ' + formatDateObj(info.end);
+            if (sprintName) weekSub += '  ·  ' + sprintName;
+            monthChildren.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 360 },
+                border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 12 } },
+                children: [new TextRun({ text: weekSub, font: MONTH_FONT, size: 22, color: COL_MUTED })]
+            }));
+        } else {
+            monthChildren.push(new Paragraph({
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 360 },
+                border: { bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 12 } },
+                children: [new TextRun({ text: titleLine, bold: true, font: MONTH_FONT, size: 28, color: COL_INK })]
+            }));
+        }
+
+        var icmalMode = opts.icmalMode || (kind === 'month' ? 'month' : (kind === 'period' ? 'period' : 'week'));
+        var monthKpis;
+        if (kind === 'week' && !opts.splitWeekKpis) {
+            monthKpis = collectVisibleDashboardKpis();
+        } else if (kind === 'period') {
+            monthKpis = collectVisibleDashboardKpis();
+        } else if (kind === 'month') {
+            var kpiUnits = (reportUnits || []).filter(function(t) {
+                return taskBelongsToDateRange(t, info.start, info.end);
+            });
+            monthKpis = collectDashboardKpis(kpiUnits, function(t) {
+                return isDueInDateRange(t, info.start, info.end);
+            });
+        } else {
+            var weekUnits = countableWorkUnits((state.filteredTasks || []).filter(function(t) {
+                return taskBelongsToDateRange(t, info.start, info.end);
+            }));
+            monthKpis = collectDashboardKpis(weekUnits, function(t) {
+                return isDueInDateRange(t, info.start, info.end);
+            });
+        }
+        appendIcmalAndStats(monthChildren, monthKpis, icmalMode, MONTH_FONT);
 
         var anySection = false;
 
         function emitSectionTitle(id) {
             monthChildren.push(sectionHeadingParagraph(CANON_TITLES[id], MONTH_FONT));
-            var intro = monthlyIntroForCanon(id, yearMark, info.monthName);
+            var intro = monthlyIntroForCanon(id, periodPhrase);
             if (intro) monthChildren.push(bodyParagraph(intro, MONTH_FONT));
             anySection = true;
         }
@@ -1021,7 +1637,7 @@ export async function exportTasksToWord(title) {
             monthChildren.push(sectionHeadingParagraph(CANON_TITLES.reyestr, MONTH_FONT));
             anySection = true;
             if (systems.length) {
-                monthChildren.push(bodyParagraph(monthlyIntroForCanon('reyestr', yearMark, info.monthName), MONTH_FONT));
+                monthChildren.push(bodyParagraph(monthlyIntroForCanon('reyestr', periodPhrase), MONTH_FONT));
                 systems.forEach(function(name, idx) {
                     var line = formatRegistryItem(name, idx === systems.length - 1);
                     if (line) monthChildren.push(bodyParagraph(line, MONTH_FONT));
@@ -1087,7 +1703,7 @@ export async function exportTasksToWord(title) {
         if (!anySection) {
             monthChildren.push(new Paragraph({
                 spacing: { before: 200 },
-                children: [new TextRun({ text: yearMark + ' ilin ' + info.monthName + ' ayı üzrə qeydə alınmış fəaliyyət tapılmadı.', font: MONTH_FONT, size: 22, color: COL_BODY })]
+                children: [new TextRun({ text: periodPhrase + ' üzrə qeydə alınmış fəaliyyət tapılmadı.', font: MONTH_FONT, size: 22, color: COL_BODY })]
             }));
         }
 
@@ -1123,312 +1739,232 @@ export async function exportTasksToWord(title) {
         });
     }
 
+    function buildWeeklyDocument(info, opts) {
+        opts = opts || {};
+        var sprintName = opts.sprintName || info.sprintName || '';
+        var pStart = info.start;
+        var pEnd = info.end;
+        var periodLabel = formatDateObj(pStart) + ' – ' + formatDateObj(pEnd);
+        if (sprintName) periodLabel += '  ·  ' + sprintName;
+        var dueFn = function(t) { return isDueInDateRange(t, pStart, pEnd); };
+        var source = state.filteredTasks || [];
+        var weekKpis = (opts.splitWeekKpis || opts.icmalMode === 'period')
+            ? collectDashboardKpis(countableWorkUnits(source.filter(function(t) {
+                return taskBelongsToDateRange(t, pStart, pEnd);
+            })), dueFn)
+            : collectVisibleDashboardKpis();
+
+        function sectionHeading(num, t, desc) {
+            var out = [new Paragraph({
+                spacing: { before: 360, after: 40 },
+                border: {
+                    bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 }
+                },
+                children: [
+                    new TextRun({ text: num + '  ', font: REPORT_FONT, size: FONT_H1, color: COL_MUTED }),
+                    new TextRun({ text: t, bold: true, font: REPORT_FONT, size: FONT_H1, color: COL_INK })
+                ]
+            })];
+            if (desc) out.push(new Paragraph({
+                spacing: { before: 80, after: 140 },
+                children: [new TextRun({ text: desc, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })]
+            }));
+            return out;
+        }
+
+        var weekSource = state.filteredTasks || [];
+
+        function appendWeeklySection(headingNodes, sectionNodes, emptyText) {
+            children.push.apply(children, headingNodes);
+            if (!sectionNodes || sectionNodes.length === 0) {
+                children.push(new Paragraph({
+                    spacing: { before: 80, after: 120 },
+                    children: [new TextRun({ text: emptyText, font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED })]
+                }));
+            } else {
+                children.push.apply(children, sectionNodes);
+            }
+            children.push(new Paragraph({ spacing: { before: 80, after: 40 }, children: [] }));
+        }
+
+        var children = [];
+        children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 20 },
+            children: [new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsinin', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })]
+        }));
+        children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 40 },
+            children: [new TextRun({ text: 'Həftəlik İcra Hesabatı', bold: true, font: REPORT_FONT, size: FONT_TITLE, color: COL_INK })]
+        }));
+        children.push(new Paragraph({
+            alignment: AlignmentType.CENTER,
+            spacing: { after: 280 },
+            border: {
+                bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 10 }
+            },
+            children: [new TextRun({ text: 'Əhatə olunan dövr  ·  ' + periodLabel, font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED })]
+        }));
+
+        appendIcmalAndStats(children, weekKpis, opts.icmalMode || 'week', REPORT_FONT);
+
+        var isDoneFn = function(t) { return getStatusGroup(t.fields.status.name) === 'done'; };
+        var isNotDoneDueFn = function(t) {
+            var g = getStatusGroup(t.fields.status.name);
+            return g !== 'done' && g !== 'rejected' && dueFn(t);
+        };
+        var isProgressFn = function(t) {
+            var g = getStatusGroup(t.fields.status.name);
+            return (isActiveExecutionGroup(g) || g === 'other') && !dueFn(t);
+        };
+        var isProblemFn = function(t) {
+            var g = getStatusGroup(t.fields.status.name);
+            return g === 'blocked' || g === 'rejected' || hasDiffDash(t);
+        };
+        var isPlannedFn = function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; };
+
+        appendWeeklySection(
+            sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'),
+            buildSection(getPrintTasks(isDoneFn, weekSource), false, pStart, pEnd, isDoneFn, true, true),
+            'Bu həftə tamamlanmış iş qeydə alınmayıb.'
+        );
+        appendWeeklySection(
+            sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'),
+            buildSection(getPrintTasks(isNotDoneDueFn, weekSource), false, pStart, pEnd, isNotDoneDueFn, true, false),
+            'Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.'
+        );
+        appendWeeklySection(
+            sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'),
+            buildSection(getPrintTasks(isProgressFn, weekSource), false, pStart, pEnd, isProgressFn, true, true),
+            'İcra mərhələsində yarımçıq qalan tapşırıq yoxdur.'
+        );
+        appendWeeklySection(
+            sectionHeading('4', 'Mövcud çətinliklər', 'İcra prosesində qarşılaşılan çətinliklər, bloklanan və imtina edilmiş işlər.'),
+            buildSection(getPrintTasks(isProblemFn, weekSource), true, pStart, pEnd, isProblemFn, true, false),
+            'Bu həftə mövcud çətinlik yaşanmamışdır.'
+        );
+        appendWeeklySection(
+            sectionHeading('5', 'Gələn həftə ərzində planlaşdırılanlar', 'Növbəti həftə üçün əsas iş istiqamətləri və tapşırıqlar.'),
+            buildSection(getPrintTasks(isPlannedFn, weekSource), false, pStart, pEnd, isPlannedFn, true, false),
+            'Növbəti həftəyə planlaşdırılan tapşırıq yoxdur.'
+        );
+
+        return new Document({
+            sections: [{
+                properties: {
+                    titlePage: true,
+                    page: { margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 } }
+                },
+                headers: {
+                    first: new Header({ children: [new Paragraph({ children: [] })] }),
+                    default: new Header({
+                        children: [
+                            new Paragraph({
+                                border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 } },
+                                spacing: { after: 80 },
+                                children: [
+                                    new TextRun({ text: 'Həftəlik İcra Hesabatı', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED }),
+                                    new TextRun({ text: '   ·   ' + periodLabel, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })
+                                ]
+                            })
+                        ]
+                    })
+                },
+                footers: {
+                    default: new Footer({
+                        children: [
+                            new Paragraph({
+                                border: { top: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 8 } },
+                                spacing: { before: 60 },
+                                children: [
+                                    new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsi  ·  səhifə ', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED }),
+                                    new TextRun({ children: [PageNumber.CURRENT], font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })
+                                ]
+                            })
+                        ]
+                    })
+                },
+                children: children
+            }],
+            styles: {
+                default: {
+                    document: { run: { color: COL_BODY, font: REPORT_FONT, size: FONT_SIZE } },
+                    title: { run: { font: REPORT_FONT, size: FONT_TITLE, color: COL_INK } },
+                    heading1: { run: { font: REPORT_FONT, size: FONT_H1, color: COL_INK } }
+                }
+            }
+        });
+    }
+
     var monthInfo = getMonthRangeInfo(startDate, endDate);
     if (monthInfo) {
-        await downloadGeneratedDoc(buildMonthlyDocument(monthInfo), monthlyFileName(monthInfo), 'Aylıq hesabat (.docx) uğurla yükləndi!');
+        var covered = (monthInfo.months && monthInfo.months.length) ? monthInfo.months : [monthInfo];
+        var downloaded = [];
+        var failed = false;
+        for (var mi = 0; mi < covered.length; mi++) {
+            var one = monthInfoForCovered(covered[mi]);
+            if (!one) continue;
+            var ok = await downloadGeneratedDoc(buildMonthlyDocument(one), monthlyFileName(one));
+            if (!ok) {
+                failed = true;
+                break;
+            }
+            downloaded.push(one);
+            if (mi < covered.length - 1) await delayMs(600);
+        }
+        if (!failed && downloaded.length) {
+            showToast(monthlyDownloadToast(downloaded), 'success');
+        }
         return;
     }
 
-    function hasDiffDash(t) {
-        var g = getStatusGroup(t.fields.status.name);
-        var diff = hasValidDifficulty(t);
-        return diff && g !== 'done' && g !== 'rejected';
+    var sprintWeekly = getSprintWeeklyExport();
+    if (sprintWeekly) {
+        var sprintOk = await downloadGeneratedDoc(
+            buildWeeklyDocument(sprintWeekly.info, sprintWeekly.opts),
+            weeklyFileName(sprintWeekly.info)
+        );
+        if (sprintOk) showToast(weeklyDownloadToast([sprintWeekly.info]), 'success');
+        return;
     }
 
-    var dashDueWeek = reportUnits.filter(function(t) {
-        var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && !hasDiffDash(t) && isDueInSelectedWeek(t);
-    }).length;
-    var dashBlocked = reportUnits.filter(function(t) {
-        var g = getStatusGroup(t.fields.status.name);
-        return g === 'blocked' || hasDiffDash(t);
-    }).length;
-    var dashDone = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }).length;
-    var dashPlanned = reportUnits.filter(function(t) {
-        var g = getStatusGroup(t.fields.status.name);
-        return g === 'planned' && !hasDiffDash(t);
-    }).length;
-
-    var totalTasksCount = reportUnits.length;
-    var doneOnTimeCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done' && isDueInSelectedWeek(t); }).length;
-    var rejectedCount = reportUnits.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'rejected'; }).length;
-    var notDoneDueWeekCount = reportUnits.filter(function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && isDueInSelectedWeek(t); 
-    }).length;
-
-    var summaryParts = [];
-    if (totalTasksCount === 0) {
-        summaryParts.push('Bu həftə ərzində icra olunan tapşırıq qeydə alınmayıb.');
-    } else {
-        var doneClause = '';
-        if (dashDone === 0) {
-            doneClause = 'onlardan heç biri tamamlanmayıb';
-        } else if (doneOnTimeCount === 0) {
-            doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb';
-        } else {
-            doneClause = 'onlardan ' + dashDone + ' tapşırıq tamamlanıb (bunlardan ' + doneOnTimeCount + '-i məhz bu həftə olanlardır)';
-        }
-        summaryParts.push('Bu həftə ərzində ümumilikdə ' + totalTasksCount + ' tapşırıq üzərində iş aparılıb, ' + doneClause + '.');
-    }
-
-    if (notDoneDueWeekCount === 0) {
-        summaryParts.push('Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.');
-    } else {
-        summaryParts.push('Bu həftə bitməli olub, lakin tamamlanmayan ' + notDoneDueWeekCount + ' tapşırıq var.');
-    }
-
-    if (dashBlocked === 0 && rejectedCount === 0) {
-        summaryParts.push('Hazırda çətinlik mövcud deyil və imtina edilən tapşırıq yoxdur.');
-    } else if (dashBlocked === 0) {
-        summaryParts.push('Hazırda çətinlik mövcud deyil, ' + rejectedCount + ' tapşırıqdan isə imtina edilib.');
-    } else if (rejectedCount === 0) {
-        summaryParts.push('Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, imtina edilən tapşırıq isə yoxdur.');
-    } else {
-        summaryParts.push('Hazırda ' + dashBlocked + ' tapşırıq üzrə çətinlik mövcuddur, ' + rejectedCount + ' tapşırıqdan isə imtina edilib.');
-    }
-
-    var carryoverCount = totalTasksCount - dashDone;
-    if (carryoverCount < 0) carryoverCount = 0;
-    if (carryoverCount === 0) {
-        summaryParts.push('Növbəti həftəyə keçid edəcək tapşırıq yoxdur.');
-    } else {
-        summaryParts.push('Növbəti həftəyə ' + carryoverCount + ' tapşırıq keçid edəcək.');
-    }
-
-    var summaryText = summaryParts.join(' ');
-
-    function statCell(numberText, labelText, isLast) {
-        return new TableCell({
-            width: { size: 25, type: WidthType.PERCENTAGE },
-            verticalAlign: VerticalAlign.CENTER,
-            shading: { fill: FILL_ROW, type: ShadingType.CLEAR, color: 'auto' },
-            margins: { top: 160, bottom: 160, left: 140, right: 140 },
-            borders: {
-                top: { style: BorderStyle.SINGLE, size: 12, color: COL_INK },
-                bottom: hairBorder,
-                right: isLast ? noBorder : hairBorder,
-                left: noBorder
-            },
-            children: [
-                new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 40 },
-                    children: [new TextRun({ text: String(numberText), bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_INK })] }),
-                new Paragraph({ alignment: AlignmentType.LEFT, spacing: { after: 0 },
-                    children: [new TextRun({ text: labelText, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })] })
-            ]
-        });
-    }
-
-    var statsTable = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [ new TableRow({ children: [
-            statCell(dashDueWeek, 'İcrası bu həftə tamamlanmalı', false),
-            statCell(dashBlocked, 'Mövcud çətinliklər', false),
-            statCell(dashDone, 'Ümumi tamamlanan tapşırıq sayı', false),
-            statCell(dashPlanned, 'Növbəti həftəyə tamamlanan olmalıdır', true)
-        ] }) ]
-    });
-
-    function sectionHeading(num, t, desc) {
-        var out = [new Paragraph({
-            heading: HeadingLevel.HEADING_1,
-            spacing: { before: 360, after: 40 },
-            border: {
-                bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 }
-            },
-            children: [
-                new TextRun({ text: num + '  ', font: REPORT_FONT, size: FONT_H1, color: COL_MUTED }),
-                new TextRun({ text: t, bold: true, font: REPORT_FONT, size: FONT_H1, color: COL_INK })
-            ]
-        })];
-        if (desc) out.push(new Paragraph({
-            spacing: { before: 80, after: 140 },
-            children: [new TextRun({ text: desc, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })]
-        }));
-        return out;
-    }
-
-    function emptySectionNote(text) {
-        return new Paragraph({
-            spacing: { before: 80, after: 120 },
-            children: [new TextRun({ text: text, font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED })]
-        });
-    }
-
-    function appendReportSection(headingNodes, sectionNodes, emptyText) {
-        children.push.apply(children, headingNodes);
-        if (!sectionNodes || sectionNodes.length === 0) {
-            children.push(emptySectionNote(emptyText));
-        } else {
-            children.push.apply(children, sectionNodes);
-        }
-    }
-
-    function sectionDivider() {
-        return new Paragraph({
-            spacing: { before: 80, after: 40 },
-            children: []
-        });
-    }
-
-    var children = [];
-
-    children.push(new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 20 },
-        children: [new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsi', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })]
-    }));
-    children.push(new Paragraph({
-        heading: HeadingLevel.TITLE,
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 40 },
-        children: [new TextRun({ text: 'Həftəlik İcra Hesabatı', bold: true, font: REPORT_FONT, size: FONT_TITLE, color: COL_INK })]
-    }));
-    children.push(new Paragraph({
-        alignment: AlignmentType.CENTER,
-        spacing: { after: 280 },
-        border: {
-            bottom: { style: BorderStyle.SINGLE, size: 12, color: COL_INK, space: 10 }
-        },
-        children: [new TextRun({ text: 'Əhatə olunan dövr  ·  ' + periodText, font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED })]
-    }));
-
-    children.push(new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: [ new TableRow({ children: [
-            new TableCell({
-                width: { size: 100, type: WidthType.PERCENTAGE },
-                shading: { fill: FILL_SOFT, type: ShadingType.CLEAR, color: 'auto' },
-                margins: { top: 180, bottom: 180, left: 220, right: 220 },
-                borders: {
-                    top: noBorder,
-                    bottom: noBorder,
-                    left: { style: BorderStyle.SINGLE, size: 24, color: COL_INK },
-                    right: noBorder
-                },
-                children: [
-                    new Paragraph({ spacing: { after: 80 }, children: [new TextRun({ text: 'HESABATIN İCMALI', bold: true, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })] }),
-                    new Paragraph({ spacing: { after: 0, line: 300 }, children: [new TextRun({ text: summaryText, font: REPORT_FONT, size: FONT_SIZE, color: COL_BODY })] })
-                ]
-            })
-        ] }) ]
-    }));
-    children.push(new Paragraph({ text: '', spacing: { after: 200 } }));
-    children.push(statsTable);
-
-    // 1. Görülən işlər
-    var doneTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; });
-    appendReportSection(
-        sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'),
-        buildSection(doneTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }, true),
-        'Bu həftə tamamlanmış iş qeydə alınmayıb.'
-    );
-    children.push(sectionDivider());
-
-    // 2. Nəyi edə bilmədik
-    var notDoneDueTasksPrint = getPrintTasks(function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return g !== 'done' && g !== 'rejected' && isDueInSelectedWeek(t); 
-    });
-    appendReportSection(
-        sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'),
-        buildSection(notDoneDueTasksPrint, false, periodStart, periodEnd, function(t) { 
-            var g = getStatusGroup(t.fields.status.name);
-            return g !== 'done' && g !== 'rejected' && isDueInSelectedWeek(t); 
-        }),
-        'Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.'
-    );
-    children.push(sectionDivider());
-
-    // 3. İcra mərhələsində olan və yarımçıq qalanlar
-    var progressTasksPrint = getPrintTasks(function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return (isActiveExecutionGroup(g) || g === 'other') && !isDueInSelectedWeek(t); 
-    });
-    appendReportSection(
-        sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'),
-        buildSection(progressTasksPrint, false, periodStart, periodEnd, function(t) { 
-            var g = getStatusGroup(t.fields.status.name);
-            return (isActiveExecutionGroup(g) || g === 'other') && !isDueInSelectedWeek(t); 
-        }),
-        'İcra mərhələsində yarımçıq qalan tapşırıq yoxdur.'
-    );
-    children.push(sectionDivider());
-
-    // 4. Mövcud çətinliklər
-    var problemTasksPrint = getPrintTasks(function(t) { 
-        var g = getStatusGroup(t.fields.status.name);
-        return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
-    });
-    appendReportSection(
-        sectionHeading('4', 'Mövcud çətinliklər', 'İcra prosesində qarşılaşılan çətinliklər, bloklanan və imtina edilmiş işlər.'),
-        buildSection(problemTasksPrint, true, periodStart, periodEnd, function(t) { 
-            var g = getStatusGroup(t.fields.status.name);
-            return g === 'blocked' || g === 'rejected' || hasValidDifficulty(t); 
-        }),
-        'Bu həftə mövcud çətinlik yaşanmamışdır.'
-    );
-    children.push(sectionDivider());
-
-    // 5. Gələn həftə ərzində planlaşdırılanlar
-    var plannedTasksPrint = getPrintTasks(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
-    appendReportSection(
-        sectionHeading('5', 'Gələn həftə ərzində planlaşdırılanlar', 'Növbəti həftə üçün əsas iş istiqamətləri və tapşırıqlar.'),
-        buildSection(plannedTasksPrint, false, periodStart, periodEnd, function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }),
-        'Növbəti həftəyə planlaşdırılan tapşırıq yoxdur.'
-    );
-
-    var doc = new Document({
-        sections: [{
-            properties: {
-                titlePage: true,
-                page: {
-                    margin: { top: 1134, right: 1134, bottom: 1134, left: 1134 }
-                }
-            },
-            headers: {
-                first: new Header({ children: [new Paragraph({ children: [] })] }),
-                default: new Header({
-                    children: [
-                        new Paragraph({
-                            border: {
-                                bottom: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 6 }
-                            },
-                            spacing: { after: 80 },
-                            children: [
-                                new TextRun({ text: 'Həftəlik İcra Hesabatı', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED }),
-                                new TextRun({ text: '   ·   ' + periodText, font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })
-                            ]
-                        })
-                    ]
-                })
-            },
-            footers: {
-                default: new Footer({
-                    children: [
-                        new Paragraph({
-                            border: {
-                                top: { style: BorderStyle.SINGLE, size: 6, color: COL_LINE, space: 8 }
-                            },
-                            spacing: { before: 60 },
-                            children: [
-                                new TextRun({ text: 'Qiymətləndirmə və komplayens şöbəsi  ·  səhifə ', font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED }),
-                                new TextRun({ children: [PageNumber.CURRENT], font: REPORT_FONT, size: FONT_SMALL, color: COL_MUTED })
-                            ]
-                        })
-                    ]
-                })
-            },
-            children: children
-        }],
-        styles: {
-            default: {
-                document: { run: { color: COL_BODY, font: REPORT_FONT, size: FONT_SIZE } },
-                title: { run: { font: REPORT_FONT, size: FONT_TITLE, color: COL_INK } },
-                heading1: { run: { font: REPORT_FONT, size: FONT_H1, color: COL_INK } }
+    var weekRange = getWeekRangeInfo(startDate, endDate);
+    if (weekRange && weekRange.weeks && weekRange.weeks.length) {
+        var weekDownloaded = [];
+        var weekFailed = false;
+        for (var wi = 0; wi < weekRange.weeks.length; wi++) {
+            var weekOne = weekRange.weeks[wi];
+            var weekOk = await downloadGeneratedDoc(
+                buildWeeklyDocument(weekOne, {
+                    kind: 'week',
+                    icmalMode: 'week',
+                    splitWeekKpis: weekRange.weeks.length > 1
+                }),
+                weeklyFileName(weekOne)
+            );
+            if (!weekOk) {
+                weekFailed = true;
+                break;
             }
+            weekDownloaded.push(weekOne);
+            if (wi < weekRange.weeks.length - 1) await delayMs(600);
         }
-    });
+        if (!weekFailed && weekDownloaded.length) {
+            showToast(weeklyDownloadToast(weekDownloaded), 'success');
+        }
+        return;
+    }
 
-    await downloadGeneratedDoc(doc, 'IRIA_Heftelik_Icra_Hesabati_' + dateStr.replace(/\//g, '_') + '.docx', 'Hesabat (.docx) uğurla yükləndi!');
+    if (periodStart && periodEnd) {
+        var periodInfo = weekInfoFromDates(periodStart, periodEnd);
+        var periodOk = await downloadGeneratedDoc(
+            buildWeeklyDocument(periodInfo, { kind: 'period', icmalMode: 'period' }),
+            'Hesabat ' + formatDateObj(periodInfo.start).slice(0, 5) + '-' + formatDateObj(periodInfo.end) + '.docx'
+        );
+        if (periodOk) showToast('Hesabat (.docx) uğurla yükləndi!', 'success');
+        return;
+    }
+
+    showToast('Hesabat üçün sprint və ya tarix aralığı seçin.', 'error');
 }

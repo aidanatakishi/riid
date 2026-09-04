@@ -201,6 +201,9 @@ function pickBestPerQurumYear(rows, year, includeUndated) {
 function meqsedSearchHaystack(r) {
     var parts = [r && r.qurum ? String(r.qurum) : ''];
     var info = getMeqsedInfo(r && r.task);
+    if (info && info.sistemAdi && info.sistemAdi !== '—') {
+        parts.push(info.sistemAdi);
+    }
     if (info && info.xidmetMelumat && info.xidmetMelumat !== '—') {
         parts.push(info.xidmetMelumat);
     }
@@ -941,6 +944,7 @@ function diagModalBodyHtml(r) {
 function meqsedModalBodyHtml(t) {
     var info = getMeqsedInfo(t);
     return modalFieldBlocks([
+        { label: 'Sistemin adı', value: info.sistemAdi },
         { label: 'Xidmət sayı', value: info.xidmetSayi },
         { label: 'Məqsədəuyğunluq Rəyi Nəticə', value: info.netice },
         { label: 'Məqsədəuyğunluq üzrə müraciətin növü', value: info.novu },
