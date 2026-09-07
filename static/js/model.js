@@ -57,17 +57,34 @@ export function isTaskOrSubtaskType(t) {
 
 export function isExcludedFromDashboardTotal(t) {
     if (!t || !t.fields || !t.fields.status) return true;
-    var st = normalizeStr(t.fields.status.name || '');
-    if (getStatusGroup(st) === 'rejected') return true;
-    if (st.includes('başlanmamış') || st.includes('baslanmamis')) return true;
-    if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return true;
     return false;
 }
 
+/**
+ * Jira sprint lövhəsi: hər Tapşırıq və hər Alt tapşırıq ayrı kartdır, ayrıca sayılır.
+ */
 export function countableWorkUnits(tasks) {
-    return (tasks || []).filter(function(t) {
-        return isTaskType(t) && !isExcludedFromDashboardTotal(t);
+    var seen = {};
+    var out = [];
+    (tasks || []).forEach(function(t) {
+        if (!t || !t.key || seen[t.key]) return;
+        if (!isTaskOrSubtaskType(t)) return;
+        if (isExcludedFromDashboardTotal(t)) return;
+        seen[t.key] = true;
+        out.push(t);
     });
+    return out;
+}
+
+/** Jira Scrum lövhə sütunları: Planlaşdırılıb, İcradadır, Rəy, ESD, Bloklanıb, İmtina, İcra edilib. */
+export function isJiraBoardColumnStatus(t) {
+    var g = getStatusGroup(t && t.fields && t.fields.status ? t.fields.status.name : '');
+    return g === 'planned' || g === 'progress' || g === 'review' || g === 'esd'
+        || g === 'blocked' || g === 'rejected' || g === 'done';
+}
+
+export function jiraBoardWorkUnits(tasks) {
+    return countableWorkUnits(tasks).filter(isJiraBoardColumnStatus);
 }
 
 export function getParentIssue(t) {
@@ -252,9 +269,9 @@ export function isDueNextWeek(t) {
 
 /**
  * Növbəti həftə KPI: unikal birlik (union)
- * 1) Bu həftə bitməli — eyni məntiq: getTaskDueDate (10807 → duedate) + isDueThisWeek
- * 2) Status Planlaşdırılıb — getStatusGroup === planned
- * done / rejected / çətinlik istisna.
+ * 1) Status Planlaşdırılıb
+ * 2) Bitmə vaxtı (customfield_10807) növbəti həftəyə (Bazar ertəsi–Bazar) düşən
+ * Bu həftə bitənlər daxil deyil. done / rejected / çətinlik istisna.
  */
 export function isNextWeekBoxTask(t) {
     if (!t || !t.fields || !t.fields.status) return false;
@@ -263,7 +280,7 @@ export function isNextWeekBoxTask(t) {
     if (g === 'done' || g === 'rejected') return false;
     if (hasValidDifficulty(t)) return false;
     if (g === 'planned') return true;
-    return isDueThisWeek(t);
+    return isDueNextWeek(t);
 }
 
 export function getTaskStartDate(t) {
@@ -357,14 +374,27 @@ export function isDueInSprint(t, sprintName) {
     return isDueInDateRange(t, range.start, range.end);
 }
 
+function resolvedDuringSprint(t, sprintName) {
+    var range = getSprintDateRange(sprintName);
+    if (!range || !range.start) return false;
+    var resolved = parsePhaseDate(t && t.fields && t.fields.resolutiondate);
+    if (!resolved) return false;
+    var start = parseLocalDay(range.start);
+    var end = parseLocalDay(range.end);
+    var day = parseLocalDay(resolved);
+    if (!day) return false;
+    if (start && day < start) return false;
+    if (end) {
+        end.setHours(23, 59, 59, 999);
+        if (day > end) return false;
+    }
+    return true;
+}
+
 export function wasCompletedInSprint(t, sprintName, statusName) {
     var status = statusName || (t && t.fields && t.fields.status && t.fields.status.name) || '';
     if (getStatusGroup(status) !== 'done') return false;
-    var range = getSprintDateRange(sprintName);
-    if (!range || !range.end) return true;
-    var resolved = parsePhaseDate(t && t.fields && t.fields.resolutiondate);
-    if (!resolved) return true;
-    return dateKey(resolved) <= dateKey(range.end);
+    return resolvedDuringSprint(t, sprintName);
 }
 
 export function getSelectedSprintName() {
@@ -1265,6 +1295,31 @@ export function getSprintNames(t) {
     return getSprintItemsOnIssue(t).map(function(s) { return s.name; }).filter(Boolean);
 }
 
+function getIssueCurrentSprintName(t) {
+    var items = getSprintItemsOnIssue(t);
+    if (!items.length) return '';
+    var active = '';
+    var i;
+    for (i = 0; i < items.length; i++) {
+        if (items[i].state && String(items[i].state).toUpperCase() === 'ACTIVE') {
+            active = items[i].name;
+        }
+    }
+    if (active) return active;
+    return items[items.length - 1].name || '';
+}
+
+/** Jira lövhəsi: issue-nun cari sprinti. Bitmiş iş keçmiş sprint tarixinə görə əlavə olunmur. */
+export function issueBelongsToSprint(t, sprintName) {
+    if (!t || !sprintName || sprintName === 'all') return true;
+    if (getIssueCurrentSprintName(t) === sprintName) return true;
+    var g = getStatusGroup(t.fields && t.fields.status ? t.fields.status.name : '');
+    if (g === 'done' || g === 'rejected') return false;
+    if (!isSubtaskType(t)) return false;
+    var parent = getParentIssue(t);
+    return !!(parent && getIssueCurrentSprintName(parent) === sprintName);
+}
+
 export function sprintSequenceNumber(name) {
     var m = String(name || '').match(/(\d+)\s*$/);
     if (!m) m = String(name || '').match(/\d+/);
@@ -1868,22 +1923,8 @@ function pushYearFromDate(list, d) {
 export function listAssessmentYears(t) {
     var years = [];
     if (!t) return years;
-    pushYearFromDate(years, getTaskCreatedDate(t));
-    if (years.length) return years;
-    var f = t.fields || {};
-    function addTextYears(s) {
-        yearsFromText(s).forEach(function(y) { pushUniqueYear(years, y); });
-    }
-    addTextYears(f.summary);
-    issueLabelTexts(t).forEach(addTextYears);
-    if (years.length) return years.slice(0, 1);
     pushYearFromDate(years, getTaskStartDate(t));
-    pushYearFromDate(years, getTaskDueDate(t));
-    PHASE_FIELDS.forEach(function(pf) {
-        pushYearFromDate(years, parsePhaseDate(f[pf.date]));
-    });
-    pushYearFromDate(years, parsePhaseDate(f.resolutiondate));
-    return years.length ? [years[0]] : years;
+    return years;
 }
 
 export function getAssessmentYear(t) {
@@ -3090,6 +3131,90 @@ export function getExqServiceCount(t) {
     return null;
 }
 
+function isExqServiceCountFieldName(folded) {
+    if (!folded) return false;
+    var hasX = folded.indexOf('xidmet') !== -1;
+    var hasC = folded.indexOf('say') !== -1 || folded.indexOf('count') !== -1
+        || folded.indexOf('eded') !== -1 || folded.indexOf('number') !== -1;
+    return hasX && hasC;
+}
+
+function isExqScoreFieldName(folded) {
+    if (!folded || isExqServiceCountFieldName(folded)) return false;
+    var hasExq = folded.indexOf('exq') !== -1
+        || (folded.indexOf('elektron') !== -1 && folded.indexOf('xidmet') !== -1);
+    var hasBal = folded.indexOf('bal') !== -1 || folded.indexOf('score') !== -1;
+    if (hasExq && hasBal) return true;
+    return hasExq && folded.indexOf('netice') !== -1;
+}
+
+function scoreFromExqRaw(val) {
+    if (isEmptyJiraValue(val)) return null;
+    var n = coerceScoreNumber(val);
+    if (n != null) return formatAssessmentScore(val);
+    var text = jiraValuePlainText(val) || formatAssessmentFieldText(val);
+    if (!text || text === '—') return null;
+    var split = splitScoreAndResult(text);
+    if (split.score) return split.score;
+    var blocks = parseAssessmentNetice(val);
+    var i;
+    for (i = 0; i < blocks.length; i++) {
+        var lf = foldAz(blocks[i].label);
+        if (lf.indexOf('umumi') !== -1 || lf.indexOf('yekun') !== -1 || lf.indexOf('cem') !== -1
+            || lf.indexOf('total') !== -1 || lf.indexOf('bal') !== -1 || lf.indexOf('exq') !== -1) {
+            var bn = coerceScoreNumber(blocks[i].value);
+            if (bn != null) return formatAssessmentScore(blocks[i].value);
+        }
+    }
+    return null;
+}
+
+export function getExqScore(t) {
+    var preferBal = [];
+    var fallbackNetice = [];
+    var seen = {};
+    function consider(id, name, prefer) {
+        if (!id || seen[id]) return;
+        if (isExqServiceCountFieldName(foldAz(name))) return;
+        seen[id] = true;
+        (prefer ? preferBal : fallbackNetice).push(id);
+    }
+    var named = findJiraFieldsByNeedles([
+        'exq bal', 'exq balı', 'exq bali',
+        'elektron xidmət bal', 'elektron xidmet bali',
+        'exq nəticə', 'exq netice', 'exq nəticəsi',
+        'elektron xidmət nəticə', 'elektron xidmet netice'
+    ]);
+    var i;
+    for (i = 0; i < named.length; i++) {
+        var fn = foldAz(named[i].name);
+        consider(named[i].id, named[i].name, fn.indexOf('bal') !== -1 || fn.indexOf('score') !== -1);
+    }
+    var names = state.jiraFieldNames || {};
+    consider('customfield_17317', names.customfield_17317 || 'EXQ Nəticəsi', false);
+    var key;
+    for (key in names) {
+        var nfold = foldAz(names[key]);
+        if (!isExqScoreFieldName(nfold)) continue;
+        consider(key, names[key], nfold.indexOf('bal') !== -1 || nfold.indexOf('score') !== -1);
+    }
+    for (i = 0; i < ASSESS_NEARBY_IDS.length; i++) {
+        var nid = ASSESS_NEARBY_IDS[i];
+        var nn = fieldNameFold(nid);
+        if (!isExqScoreFieldName(nn)) continue;
+        consider(nid, names[nid] || '', nn.indexOf('bal') !== -1 || nn.indexOf('score') !== -1);
+    }
+    function firstScore(ids) {
+        var j, s;
+        for (j = 0; j < ids.length; j++) {
+            s = scoreFromExqRaw(readIssueField(t, ids[j]));
+            if (s) return s;
+        }
+        return null;
+    }
+    return firstScore(preferBal) || firstScore(fallbackNetice) || '—';
+}
+
 export function hasAssessmentResult(category, t) {
     var f = t && t.fields ? t.fields : {};
     if (category === 'diag') return !isEmptyJiraValue(f.customfield_17319) || getDiagScore(t) !== '—';
@@ -3105,7 +3230,11 @@ export function hasAssessmentResult(category, t) {
             return d && ((d.score && d.score !== '—') || d.text);
         });
     }
-    if (category === 'exq') return !isEmptyJiraValue(f.customfield_17317) || getExqServiceCount(t) != null;
+    if (category === 'exq') {
+        return !isEmptyJiraValue(f.customfield_17317)
+            || getExqScore(t) !== '—'
+            || getExqServiceCount(t) != null;
+    }
     if (category === 'meqsed') {
         var m = getMeqsedInfo(t);
         return (m.novu && m.novu !== '—')

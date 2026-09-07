@@ -26,6 +26,8 @@ export const state = {
     meqsedOpinionDonutChart: null,
     exqStatusChart: null,
     assessListDonutChart: null,
+    assessScoreBandChart: null,
+    exqQurumSvcChart: null,
     autoRefreshInterval: null,
     isInitialLoad: true,
     jiraFieldNames: {},

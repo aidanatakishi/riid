@@ -1,11 +1,12 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
 import { duePeriodLabel } from './report.js';
 
 export function renderStats(tasks) {
-    var validTasks = countableWorkUnits(tasks);
+    var allUnits = countableWorkUnits(tasks);
+    var validTasks = jiraBoardWorkUnits(tasks);
     var total = validTasks.length;
     var rejected = (tasks || []).filter(function(t) {
         return isTaskType(t) && getStatusGroup(t.fields.status.name || '') === 'rejected';
@@ -44,7 +45,7 @@ export function renderStats(tasks) {
     var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
     
     var planned = validTasks.filter(function(t) { return isNextWeekBoxTask(t); }).length;
-    var other = validTasks.filter(function(t) {
+    var other = allUnits.filter(function(t) {
         var g = getStatusGroup(t.fields.status.name || '');
         return g === 'other' && !hasDiff(t);
     }).length;
@@ -207,13 +208,17 @@ function flattenTaskListSubtasks(source) {
 function uniqueTaskListCounts(source, flattenedSubs) {
     var seen = {};
     var taskCount = 0;
+    var sourceCount = 0;
+    var sourceSubCount = 0;
     (source || []).forEach(function(t) {
         if (!t || !t.key || seen[t.key]) return;
         seen[t.key] = true;
+        sourceCount++;
         if (isTaskType(t)) taskCount++;
+        else if (isSubtaskType(t)) sourceSubCount++;
     });
     var subCount = (flattenedSubs || flattenTaskListSubtasks(source)).length;
-    return { tasks: taskCount, subtasks: subCount };
+    return { tasks: taskCount, subtasks: subCount, sourceSubs: sourceSubCount, all: sourceCount };
 }
 
 function hideNestedSubtasks(sourceTasks) {
@@ -254,13 +259,14 @@ export function renderTaskList(tasks, title, opts) {
     var displayTitle = state.taskListTitle || title || 'Tapşırıqların Siyahısı';
     var flattenedSubs = flattenTaskListSubtasks(sourceTasks);
     var counts = uniqueTaskListCounts(sourceTasks, flattenedSubs);
-    var allCount = counts.tasks + counts.subtasks;
+    var allCount = counts.all;
+    var subCount = state.taskListKeepNested ? counts.sourceSubs : counts.subtasks;
     var taskCountEl = document.getElementById('taskListTaskCount');
     var subCountEl = document.getElementById('taskListSubtaskCount');
     var allCountEl = document.getElementById('taskListAllCount');
     var headerCountEl = document.getElementById('taskListHeaderCount');
     if (taskCountEl) taskCountEl.innerText = counts.tasks;
-    if (subCountEl) subCountEl.innerText = counts.subtasks;
+    if (subCountEl) subCountEl.innerText = subCount;
     if (allCountEl) allCountEl.innerText = allCount;
     if (headerCountEl) headerCountEl.innerText = allCount;
     setTaskListTabActive(state.taskListView || 'mixed');
@@ -270,7 +276,7 @@ export function renderTaskList(tasks, title, opts) {
     if (state.taskListView === 'tasks') {
         listTasks = sourceTasks.filter(isTaskType);
     } else if (state.taskListView === 'subtasks') {
-        listTasks = flattenedSubs;
+        listTasks = state.taskListKeepNested ? sourceTasks.filter(isSubtaskType) : flattenedSubs;
     } else if (state.taskListKeepNested) {
         listTasks = sourceTasks;
     } else {

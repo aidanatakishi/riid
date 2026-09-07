@@ -226,7 +226,7 @@
                     </div>
                     <div class="flex items-end justify-between mt-auto">
                         <p id="plannedTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
-                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Plan / bitmə</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Plan / növbəti həftə</p>
                     </div>
                 </div>
             </div>
@@ -343,13 +343,13 @@
                 </div>
             </div>
         </div>
-        <div id="assessSectionLoading" class="assess-section-loading hidden" hidden aria-live="polite" aria-busy="false">
-            <div class="assess-section-loading-inner">
-                <span class="assess-section-spinner" aria-hidden="true"></span>
-                <span>Dövr yüklənir...</span>
-            </div>
-        </div>
         <div id="assessDash" class="assess-dash" onclick="event.stopPropagation();">
+            <div id="assessSectionLoading" class="assess-section-loading hidden" hidden aria-live="polite" aria-busy="false">
+                <div class="assess-section-loading-inner">
+                    <span class="assess-section-spinner" aria-hidden="true"></span>
+                    <span>Dövr yüklənir...</span>
+                </div>
+            </div>
             <div class="assess-year-filter">
                 <div class="assess-period-bar">
                     <span class="assess-year-filter-label">Dövr</span>
@@ -369,13 +369,13 @@
             <div class="assess-dash-grid assess-dash-grid--single">
                 <div class="assess-dash-card assess-dash-card--cat assess-dash-card--hero">
                     <div class="assess-dash-card-head">
-                        <h3 id="assessCatChartTitle">Bölmələr üzrə</h3>
+                        <h3 id="assessCatChartTitle">Bölmələr üzrə qurum sayı</h3>
                         <p id="assessCatPeriodHint" class="assess-dash-period-hint"></p>
                     </div>
                     <p id="assessCatEmpty" class="assess-dash-empty hidden">Qeyd yoxdur.</p>
                     <div class="assess-cat-layout">
                         <div id="assessCatChartWrap" class="assess-chart-box assess-chart-box--cat">
-                            <canvas id="assessCatChart" aria-label="Bölmələr üzrə"></canvas>
+                            <canvas id="assessCatChart" aria-label="Bölmələr üzrə qurum sayı"></canvas>
                         </div>
                         <div id="assessCatLegend" class="assess-cat-legend" role="list"></div>
                     </div>
@@ -407,9 +407,14 @@
                         <button type="button" id="assessSearchClear" class="assess-search-clear hidden" onclick="clearAssessmentSearch()" aria-label="Axtarışı təmizlə">✕</button>
                     </div>
                 </div>
-                <div id="assessListDash" class="meqsed-list-dash hidden" hidden></div>
-                <div class="assess-table-shell">
-                    <div id="assessmentHubBody"></div>
+                <div class="assess-list-results">
+                    <div id="assessListDashBusy" class="assess-list-dash-busy hidden" hidden aria-hidden="true">
+                        <span class="assess-section-spinner" aria-hidden="true"></span>
+                    </div>
+                    <div id="assessListDash" class="meqsed-list-dash hidden" hidden></div>
+                    <div class="assess-table-shell">
+                        <div id="assessmentHubBody"></div>
+                    </div>
                 </div>
             </div>
         </div>

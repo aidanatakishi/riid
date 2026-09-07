@@ -116,6 +116,7 @@ export function toggleDropdown(id) {
         var openId = id;
         requestAnimationFrame(function() {
             try {
+                if (openId === 'assessmentHubContent') return;
                 if (typeof state.onSectionOpen === 'function') state.onSectionOpen(openId);
             } catch (err) {
                 console.error('Section open failed:', openId, err);
@@ -123,6 +124,12 @@ export function toggleDropdown(id) {
         });
         setTimeout(function() {
             try {
+                if (id === 'assessmentHubContent') {
+                    if (state.assessListDonutChart) state.assessListDonutChart.resize();
+                    if (state.meqsedOpinionBarChart) state.meqsedOpinionBarChart.resize();
+                    if (state.assessScoreBandChart) state.assessScoreBandChart.resize();
+                    return;
+                }
                 if (typeof state.statusChart !== 'undefined' && state.statusChart) state.statusChart.resize();
                 if (typeof state.assigneeChart !== 'undefined' && state.assigneeChart) state.assigneeChart.resize();
                 if (typeof state.epicChart !== 'undefined' && state.epicChart) state.epicChart.resize();

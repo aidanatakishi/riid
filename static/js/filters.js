@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
@@ -247,8 +247,7 @@ function tasksWithoutStartDate() {
     var useDateFilter = !!(document.getElementById('startDate').value || document.getElementById('endDate').value);
     return state.allTasks.filter(function(t) {
         if (!useDateFilter && sprintVal && sprintVal !== 'all') {
-            var sprints = getSprintNames(t);
-            if (!sprints.includes(sprintVal)) return false;
+            if (!issueBelongsToSprint(t, sprintVal)) return false;
         }
         if (getTaskStartDate(t)) return false;
         if (!isTaskType(t)) return false;
@@ -446,8 +445,7 @@ export function applyFilters() {
 
     state.sprintDateFiltered = state.allTasks.filter(function(t) {
         if (!useDateFilter && sprintVal && sprintVal !== 'all') {
-            var sprints = getSprintNames(t);
-            if (!sprints.includes(sprintVal)) return false;
+            if (!issueBelongsToSprint(t, sprintVal)) return false;
         }
         if (useDateFilter) {
             if (!taskBelongsToDateRange(t, startDateObj, endDateObj)) return false;
@@ -467,9 +465,6 @@ export function applyFilters() {
         if (state.currentAssigneeFilter) {
             if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
         }
-        var st = normalizeStr(t.fields.status.name);
-        if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
-        if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
         return true;
     });
 
@@ -575,12 +570,17 @@ function updateCollapsedCounts() {
 var lastHubQurumFilter = undefined;
 var lastHubTasks = undefined;
 
-function maybeRenderAssessmentHub() {
+function assessmentHubNeedsRender() {
     var qf = state.currentQurumFilter || '';
     var tasks = state.allTasks || [];
-    if (lastHubQurumFilter === qf && lastHubTasks === tasks) return;
+    if (lastHubQurumFilter === qf && lastHubTasks === tasks) return false;
     lastHubQurumFilter = qf;
     lastHubTasks = tasks;
+    return true;
+}
+
+function maybeRenderAssessmentHub() {
+    if (!assessmentHubNeedsRender()) return;
     try { renderAssessmentSections(); } catch (err) { console.error(err); }
 }
 
@@ -610,6 +610,8 @@ export function renderLazySection(id, force) {
     if (id === 'pausedContent') { renderPausedTasks(); return; }
     if (id === 'cetinliklerContent') { renderDifficulties(state.filteredTasks); return; }
     if (id === 'assessmentHubContent') {
+        var dash = document.getElementById('assessListDash');
+        if (dash && dash.getAttribute('data-section')) return;
         lastHubQurumFilter = state.currentQurumFilter || '';
         lastHubTasks = state.allTasks || [];
         try { renderAssessmentSections(); } catch (err) { console.error(err); }
@@ -875,13 +877,19 @@ export function filterTasks(type) {
     var f = units, title = 'Ümumi Tapşırıqların Siyahısı';
     
     if (type === 'all') { 
-        f = (state.filteredTasks || []).filter(function(t) {
-            return getStatusGroup(t.fields.status.name) !== 'rejected';
-        });
+        f = jiraBoardWorkUnits(state.filteredTasks);
+        title = 'Ümumi Tapşırıqların Siyahısı';
+        renderTaskList(f, title, { keepNested: true });
+        if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
+        var allListEl = document.getElementById('taskListContent');
+        allListEl.classList.remove('hidden');
+        allListEl.classList.add('slide-down');
+        allListEl.scrollIntoView({ behavior: 'smooth' });
+        return;
     }
     if (type === 'planned') {
         f = units.filter(function(t) { return isNextWeekBoxTask(t); });
-        title = 'Növbəti həftə (Bu həftə bitməli ∪ Planlaşdırılıb)';
+        title = 'Növbəti həftə (Planlaşdırılıb ∪ bitmə növbəti həftə)';
     }
     else if (type === 'sprint') {
         f = units.filter(function(t) { return isActiveExecutionGroup(getStatusGroup(t.fields.status.name)); });

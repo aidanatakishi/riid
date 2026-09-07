@@ -450,11 +450,8 @@ export async function fetchTodayChanges() {
                 if (idx !== -1) { state.allTasks.splice(idx, 1); updatedCount++; }
                 return;
             }
-            var statusNorm = normalizeStr(t.fields.status.name);
-            var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti');
-            var shouldInclude = !statusNorm.includes('başlanmamış') && !statusNorm.includes('baslanmamis');
             if (idx !== -1) { state.allTasks[idx] = t; updatedCount++; }
-            else if (shouldInclude || isPaused) { state.allTasks.unshift(t); updatedCount++; }
+            else { state.allTasks.unshift(t); updatedCount++; }
         });
         if (updatedCount > 0) applyFilters();
     } catch (error) {
@@ -499,9 +496,7 @@ function rebuildDashboardListsFromIndex() {
         if (isExcluded) continue;
         if (state.STRUCTURE_TYPES.includes(typeName2)) continue;
         if (!belongsToDept(t2)) continue;
-        var statusNorm = normalizeStr(t2.fields.status && t2.fields.status.name ? t2.fields.status.name : '');
-        var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti');
-        if ((!statusNorm.includes('başlanmamış') && !statusNorm.includes('baslanmamis')) || isPaused) state.allTasks.push(t2);
+        state.allTasks.push(t2);
     }
 }
 
@@ -533,7 +528,7 @@ function applyDashboardPayload(data) {
     refreshTodayTasks();
 }
 
-function mergeFetchedIssues(data) {
+function mergeFetchedIssues(data, opts) {
     if (data.names) mergeFieldNames(data.names);
     (data.issues || []).forEach(function(t) {
         if (!t || !t.key) return;
@@ -541,10 +536,12 @@ function mergeFetchedIssues(data) {
         if (prev && prev.changelog && !t.changelog) t.changelog = prev.changelog;
         indexIssue(t);
     });
-    rebuildDashboardListsFromIndex();
+    state.parentCache = {};
     bumpDataEpoch();
-    applyFilters();
+    if (opts && opts.skipDashboardRefresh) return;
+    rebuildDashboardListsFromIndex();
     refreshTodayTasks();
+    applyFilters();
 }
 
 function readDashboardCredentials() {
@@ -576,9 +573,7 @@ export async function loadAssessmentCreatedRange(startIso, endIso) {
     }
     try {
         var data = await fetchIssuesCreatedRange(state.currentBaseUrl, creds.pat, creds.projectKey, startIso, endIso);
-        mergeFetchedIssues(data);
-        var n = (data.issues || []).length;
-        showToast((n === 1 ? '1 tapşırıq' : n + ' tapşırıq') + ' yükləndi (' + startIso + ' – ' + endIso + ').', 'success');
+        mergeFetchedIssues(data, { skipDashboardRefresh: true });
         return true;
     } catch (error) {
         showToast(error.message, 'error');
