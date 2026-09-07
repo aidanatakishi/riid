@@ -1866,9 +1866,14 @@ var SCORE_BAND_DEFS = [
     { key: 'score_none', label: 'Balsız', color: '#94a3b8' }
 ];
 
-function scoreBandItems(byBand) {
+function scoreBandDefs(hideNone) {
+    if (!hideNone) return SCORE_BAND_DEFS;
+    return SCORE_BAND_DEFS.filter(function(def) { return def.key !== 'score_none'; });
+}
+
+function scoreBandItems(byBand, hideNone) {
     byBand = byBand || {};
-    return SCORE_BAND_DEFS.map(function(def) {
+    return scoreBandDefs(hideNone).map(function(def) {
         return {
             key: def.key,
             label: def.label,
@@ -1879,8 +1884,8 @@ function scoreBandItems(byBand) {
     });
 }
 
-function hasScoreBandData(byBand) {
-    return SCORE_BAND_DEFS.some(function(def) { return ((byBand && byBand[def.key]) || 0) > 0; });
+function hasScoreBandData(byBand, hideNone) {
+    return scoreBandDefs(hideNone).some(function(def) { return ((byBand && byBand[def.key]) || 0) > 0; });
 }
 
 function diagListDashHtml(stats) {
@@ -1889,7 +1894,7 @@ function diagListDashHtml(stats) {
         + ldSideMeta('Orta', formatAvg(stats.avg), '')
         + '</div>'
         + '<div class="meqsed-ld-chart-box assess-ld-score-chart">'
-        + (hasScoreBandData(stats.byBand)
+        + (hasScoreBandData(stats.byBand, true)
             ? '<canvas id="assessScoreBandChart" aria-label="Diaqnostika bal diapazonu"></canvas>'
             : '<p class="meqsed-ld-chart-empty">Bal məlumatı yoxdur.</p>')
         + '</div>';
@@ -1965,7 +1970,7 @@ function exqListDashHtml(stats) {
         + '<div class="meqsed-ld-card assess-ld-panel exq-ld-combo assess-ld-combo">'
         + '<div class="exq-overview">'
         + exqSvcHeroHtml(svcSum, qurumWithSvc, 'svc_sum')
-        + exqScoreMeterHtml(overall, { label: 'Bal ortalaması' })
+        + exqScoreMeterHtml(overall, { label: 'Ölkə üzrə bal ortalaması' })
         + '</div>'
         + '<p class="exq-overview-summary">' + escapeHtml(summary) + '</p>'
         + '<p class="assess-ld-block-label">Qurumların balları</p>'
@@ -2393,12 +2398,12 @@ function chartPointerCursor(evt, els) {
     if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
 }
 
-function drawScoreBandChart(byBand) {
+function drawScoreBandChart(byBand, hideNone) {
     if (typeof Chart === 'undefined') return;
     destroyAssessChart('assessScoreBandChart', 'assessScoreBandChart');
     var canvas = document.getElementById('assessScoreBandChart');
-    var items = scoreBandItems(byBand);
-    if (!canvas || !hasScoreBandData(byBand)) return;
+    var items = scoreBandItems(byBand, hideNone);
+    if (!canvas || !hasScoreBandData(byBand, hideNone)) return;
     var total = items.reduce(function(s, item) { return s + item.n; }, 0);
     var barValuesPlugin = {
         id: 'assessScoreBandValues',
@@ -2488,7 +2493,7 @@ function drawMeqsedOpinionCharts(stats) {
 function drawDiagStatusChart(stats) {
     if (!stats) return;
     drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
-    drawScoreBandChart(stats.byBand);
+    drawScoreBandChart(stats.byBand, true);
 }
 
 function drawIsqStatusChart(stats) {
@@ -2849,6 +2854,9 @@ function getSectionView(section) {
         filtered = filterBySearch(yearRows, section);
     }
     if (LIST_DASH_SECTIONS[section]) filtered = filterRowsByListDash(section, filtered);
+    if (section === 'diag') {
+        filtered = (filtered || []).filter(function(r) { return diagNumericScore(r) != null; });
+    }
     filtered = applyListSort(section, filtered);
     var dashFiltered = !!(LIST_DASH_SECTIONS[section] && listDashFilter(section));
     return {
