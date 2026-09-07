@@ -226,7 +226,7 @@
                     </div>
                     <div class="flex items-end justify-between mt-auto">
                         <p id="plannedTasks" class="text-3xl md:text-4xl font-extrabold text-slate-800 leading-none">0</p>
-                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Planlaşdırılıb</p>
+                        <p class="text-[8px] md:text-[10px] text-slate-400 font-medium mb-1">Bitirilməli</p>
                     </div>
                 </div>
             </div>
@@ -332,7 +332,7 @@
         </div>
     </div>
 
-    <div class="card mb-6 fade-in assess-hub-card">
+    <div class="card mb-6 fade-in assess-hub-card" id="assessHubCard">
         <div class="assess-hub-head bg-slate-50 p-4 md:p-5 flex justify-between items-center gap-3 border-b border-slate-200">
             <div class="flex items-center gap-3 min-w-0">
                 <span class="assess-hub-icon shrink-0">
@@ -343,23 +343,39 @@
                 </div>
             </div>
         </div>
+        <div id="assessSectionLoading" class="assess-section-loading hidden" hidden aria-live="polite" aria-busy="false">
+            <div class="assess-section-loading-inner">
+                <span class="assess-section-spinner" aria-hidden="true"></span>
+                <span>Dövr yüklənir...</span>
+            </div>
+        </div>
         <div id="assessDash" class="assess-dash" onclick="event.stopPropagation();">
             <div class="assess-year-filter">
-                <span class="assess-year-filter-label">İl</span>
-                <div id="assessmentYearPills" class="assess-year-pills" role="group" aria-label="İl"></div>
-                <select id="assessmentYearSelect" class="assess-year-fallback" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
+                <div class="assess-period-bar">
+                    <span class="assess-year-filter-label">Dövr</span>
+                    <div id="assessmentYearPills" class="assess-year-pills" role="group" aria-label="İl"></div>
+                    <select id="assessmentYearSelect" class="assess-year-fallback" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
+                </div>
+                <div class="assess-period-bar assess-period-bar--tools">
+                    <div class="assess-period-range" role="group" aria-label="Tarix aralığı">
+                        <input type="date" id="assessStartDate" min="2023-01-01" aria-label="Başlanğıc" title="Başlanğıc" onchange="onAssessDatesChange()">
+                        <span class="assess-period-sep" aria-hidden="true">–</span>
+                        <input type="date" id="assessEndDate" min="2023-01-01" aria-label="Son" title="Son" onchange="onAssessDatesChange()">
+                        <button type="button" class="assess-period-load" onclick="applyAssessmentPeriod()">Filtrlə</button>
+                    </div>
+                </div>
             </div>
             <div id="assessDashKpis" class="assess-dash-kpis"></div>
             <div class="assess-dash-grid">
                 <div class="assess-dash-card assess-dash-card--years">
-                    <h3>İllər üzrə nəticələr</h3>
+                    <h3 id="assessYearChartTitle">İllər üzrə nəticələr</h3>
                     <p id="assessYearEmpty" class="assess-dash-empty hidden">İl tapılmadı.</p>
                     <div id="assessYearChartWrap" class="assess-chart-box assess-chart-box--years">
                         <canvas id="assessYearChart" aria-label="İllər üzrə nəticələr"></canvas>
                     </div>
                 </div>
                 <div class="assess-dash-card assess-dash-card--cat">
-                    <h3>Bölmə payı</h3>
+                    <h3 id="assessCatChartTitle">Bölmə payı</h3>
                     <p id="assessCatEmpty" class="assess-dash-empty hidden">Qeyd yoxdur.</p>
                     <div id="assessCatChartWrap" class="assess-chart-box assess-chart-box--cat">
                         <canvas id="assessCatChart"></canvas>
@@ -392,6 +408,7 @@
                         <button type="button" id="assessSearchClear" class="assess-search-clear hidden" onclick="clearAssessmentSearch()" aria-label="Axtarışı təmizlə">✕</button>
                     </div>
                 </div>
+                <div id="assessListDash" class="meqsed-list-dash hidden" hidden></div>
                 <div class="assess-table-shell">
                     <div id="assessmentHubBody"></div>
                 </div>

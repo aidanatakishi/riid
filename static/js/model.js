@@ -218,6 +218,24 @@ export function isDueThisWeek(t) {
     return due >= week.start && due <= week.end;
 }
 
+export function isDueNextWeek(t) {
+    if (!t || !t.fields) return false;
+    var due = getTaskDueDate(t);
+    if (!due) return false;
+    var week = getBakuWeekRange(1);
+    return due >= week.start && due <= week.end;
+}
+
+/** Növbəti həftə boxu: Planlaşdırılıb + İcradakı (bitmə vaxtı növbəti həftəyə düşən). */
+export function isNextWeekBoxTask(t) {
+    if (!t || !t.fields || !t.fields.status) return false;
+    var g = getStatusGroup(t.fields.status.name || '');
+    if (g === 'done' || g === 'rejected') return false;
+    if (hasValidDifficulty(t)) return false;
+    if (g === 'planned') return true;
+    return isActiveExecutionGroup(g) && isDueNextWeek(t);
+}
+
 export function getTaskStartDate(t) {
     if (!t || !t.fields) return null;
     var candidates = [];
@@ -1577,6 +1595,77 @@ function formatMeqsedSayi(val) {
     return text && text !== '—' ? text : '—';
 }
 
+export var MEQSED_NOVU_KINDS = ['new_system', 'exist_system', 'new_service', 'exist_service'];
+
+export var MEQSED_NOVU_LABELS = {
+    new_system: 'Yeni yaradılan sistem',
+    exist_system: 'Mövcud sistemdə əhəmiyyətli dəyişiklik',
+    new_service: 'Yeni yaradılan xidmət',
+    exist_service: 'Mövcud xidmətdə əhəmiyyətli dəyişiklik',
+    other: 'Digər'
+};
+
+export function classifyMeqsedNovu(novu) {
+    var f = foldAz(novu);
+    if (!f || f === '-') return '';
+    var hasXidmet = f.indexOf('xidmet') !== -1;
+    var hasSistem = f.indexOf('sistem') !== -1;
+    var isExist = f.indexOf('movcud') !== -1;
+    if (hasXidmet && hasSistem) {
+        hasXidmet = f.lastIndexOf('xidmet') >= f.lastIndexOf('sistem');
+        hasSistem = !hasXidmet;
+    }
+    if (hasXidmet) return isExist ? 'exist_service' : 'new_service';
+    if (hasSistem) return isExist ? 'exist_system' : 'new_system';
+    return '';
+}
+
+export function classifyMeqsedOpinion(netice) {
+    var f = foldAz(netice);
+    if (!f || f === '-') return '';
+    if (f.indexOf('qismen') !== -1) return 'partial';
+    if (
+        f.indexOf('duzelis') !== -1
+        || f.indexOf('duzelish') !== -1
+        || (f.indexOf('gonder') !== -1 && (f.indexOf('duzel') !== -1 || f.indexOf('revision') !== -1 || f.indexOf('reviziya') !== -1))
+        || f.indexOf('revision') !== -1
+    ) return 'revision';
+    if (
+        f.indexOf('deyil') !== -1
+        || f.indexOf('menfi') !== -1
+        || f.indexOf('olumsuz') !== -1
+        || f.indexOf('negative') !== -1
+        || f.indexOf('radd') !== -1
+        || f.indexOf('redd') !== -1
+        || f === 'xeyr'
+        || f === 'no'
+    ) return 'neg';
+    if (
+        f.indexOf('musbet') !== -1
+        || f.indexOf('olumlu') !== -1
+        || f.indexOf('positive') !== -1
+        || f.indexOf('tesdiq') !== -1
+        || f.indexOf('uygundur') !== -1
+        || f.indexOf('meqseduygundur') !== -1
+        || f === 'meqseduygun'
+        || f === 'uygun'
+        || f === 'beli'
+        || f === 'yes'
+        || f === 'he'
+    ) return 'pos';
+    return '';
+}
+
+export function meqsedModalVisibility(kind) {
+    if (kind === 'new_system' || kind === 'exist_system') {
+        return { sistemAdi: true, xidmetSayi: false, xidmetMelumat: false };
+    }
+    if (kind === 'new_service' || kind === 'exist_service') {
+        return { sistemAdi: false, xidmetSayi: true, xidmetMelumat: true };
+    }
+    return { sistemAdi: true, xidmetSayi: true, xidmetMelumat: true };
+}
+
 export function getMeqsedInfo(t) {
     var novu = readFirstMatchingNamedField(t, isMeqsedNovuFieldName);
     var netice = readFirstMatchingNamedField(t, isMeqsedNeticeFieldName);
@@ -1586,9 +1675,13 @@ export function getMeqsedInfo(t) {
     if (isEmptyJiraValue(sistemRaw)) {
         sistemRaw = readFirstMatchingNamedField(t, isMeqsedSistemAdiFieldName);
     }
+    var novuText = formatJiraOptionText(novu);
+    var neticeText = formatJiraOptionText(netice);
     return {
-        novu: formatJiraOptionText(novu),
-        netice: formatJiraOptionText(netice),
+        novu: novuText,
+        novuKind: classifyMeqsedNovu(novuText),
+        netice: neticeText,
+        opinionKind: classifyMeqsedOpinion(neticeText),
         xidmetSayi: formatMeqsedSayi(xidmetSayi),
         xidmetMelumat: formatJiraOptionText(xidmetMelumat),
         sistemAdi: formatJiraOptionText(sistemRaw)
@@ -1761,6 +1854,8 @@ function pushYearFromDate(list, d) {
 export function listAssessmentYears(t) {
     var years = [];
     if (!t) return years;
+    pushYearFromDate(years, getTaskCreatedDate(t));
+    if (years.length) return years;
     var f = t.fields || {};
     function addTextYears(s) {
         yearsFromText(s).forEach(function(y) { pushUniqueYear(years, y); });
@@ -1768,19 +1863,13 @@ export function listAssessmentYears(t) {
     addTextYears(f.summary);
     issueLabelTexts(t).forEach(addTextYears);
     if (years.length) return years.slice(0, 1);
-
-    var created = [];
-    pushYearFromDate(created, getTaskCreatedDate(t));
-    if (created.length) return created;
-
-    var dated = [];
-    pushYearFromDate(dated, getTaskStartDate(t));
-    pushYearFromDate(dated, getTaskDueDate(t));
+    pushYearFromDate(years, getTaskStartDate(t));
+    pushYearFromDate(years, getTaskDueDate(t));
     PHASE_FIELDS.forEach(function(pf) {
-        pushYearFromDate(dated, parsePhaseDate(f[pf.date]));
+        pushYearFromDate(years, parsePhaseDate(f[pf.date]));
     });
-    pushYearFromDate(dated, parsePhaseDate(f.resolutiondate));
-    return dated.length ? [dated[0]] : years;
+    pushYearFromDate(years, parsePhaseDate(f.resolutiondate));
+    return years.length ? [years[0]] : years;
 }
 
 export function getAssessmentYear(t) {

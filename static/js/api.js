@@ -262,6 +262,136 @@ export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
 
 var changelogPending = {};
 
+function pad2(n) {
+    return (n < 10 ? '0' : '') + String(n);
+}
+
+var JIRA_SEARCH_SOFT_CAP = 1000;
+var ASSESS_DATA_START_YEAR = 2023;
+
+function mergeIssueBatch(byKey, names, data) {
+    (data.issues || []).forEach(function(iss) {
+        if (iss && iss.key) byKey[iss.key] = iss;
+    });
+    if (!data.names) return;
+    var k;
+    for (k in data.names) {
+        if (Object.prototype.hasOwnProperty.call(data.names, k)) names[k] = data.names[k];
+    }
+}
+
+function createdSpanJql(projectKey, startIso, endExclusiveIso) {
+    return 'project = ' + projectKey
+        + ' AND created >= "' + startIso + '"'
+        + ' AND created < "' + endExclusiveIso + '"'
+        + ' ORDER BY created ASC';
+}
+
+async function fetchCreatedSpan(baseUrl, pat, projectKey, startIso, endExclusiveIso) {
+    return fetchJQL(baseUrl, pat, createdSpanJql(projectKey, startIso, endExclusiveIso));
+}
+
+async function fetchCreatedYear(baseUrl, pat, projectKey, year) {
+    var startIso = year + '-01-01';
+    var endExclusiveIso = (year + 1) + '-01-01';
+    var data;
+    try {
+        data = await fetchCreatedSpan(baseUrl, pat, projectKey, startIso, endExclusiveIso);
+    } catch (err) {
+        return fetchCreatedYearByMonth(baseUrl, pat, projectKey, year);
+    }
+    if ((data.issues || []).length >= JIRA_SEARCH_SOFT_CAP) {
+        return fetchCreatedYearByMonth(baseUrl, pat, projectKey, year);
+    }
+    return data;
+}
+
+async function fetchCreatedYearByMonth(baseUrl, pat, projectKey, year) {
+    var byKey = {};
+    var names = {};
+    var m;
+    for (m = 1; m <= 12; m++) {
+        var startIso = year + '-' + pad2(m) + '-01';
+        var endExclusiveIso = m === 12
+            ? ((year + 1) + '-01-01')
+            : (year + '-' + pad2(m + 1) + '-01');
+        var chunk = await fetchCreatedSpan(baseUrl, pat, projectKey, startIso, endExclusiveIso);
+        mergeIssueBatch(byKey, names, chunk);
+    }
+    var issues = Object.keys(byKey).map(function(k) { return byKey[k]; });
+    return { issues: issues, total: issues.length, names: names };
+}
+
+function addDaysIso(iso, days) {
+    var p = String(iso || '').split('-');
+    var d = new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
+    d.setDate(d.getDate() + days);
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+
+function monthStartIso(year, month) {
+    return year + '-' + pad2(month) + '-01';
+}
+
+function nextMonthStartIso(year, month) {
+    if (month === 12) return (year + 1) + '-01-01';
+    return year + '-' + pad2(month + 1) + '-01';
+}
+
+async function fetchCreatedRangeByMonth(baseUrl, pat, projectKey, startIso, endIsoInclusive) {
+    var byKey = {};
+    var names = {};
+    var endExclusive = addDaysIso(endIsoInclusive, 1);
+    var y = Number(startIso.slice(0, 4));
+    var m = Number(startIso.slice(5, 7));
+    var endY = Number(endIsoInclusive.slice(0, 4));
+    var endM = Number(endIsoInclusive.slice(5, 7));
+    var guard = 0;
+    while (y < endY || (y === endY && m <= endM)) {
+        var spanStart = monthStartIso(y, m);
+        if (spanStart < startIso) spanStart = startIso;
+        var spanEndEx = nextMonthStartIso(y, m);
+        if (spanEndEx > endExclusive) spanEndEx = endExclusive;
+        if (spanStart < spanEndEx) {
+            var chunk = await fetchCreatedSpan(baseUrl, pat, projectKey, spanStart, spanEndEx);
+            mergeIssueBatch(byKey, names, chunk);
+        }
+        m += 1;
+        if (m > 12) { m = 1; y += 1; }
+        guard += 1;
+        if (guard > 240) break;
+    }
+    var issues = Object.keys(byKey).map(function(k) { return byKey[k]; });
+    return { issues: issues, total: issues.length, names: names };
+}
+
+export async function fetchIssuesCreatedRange(baseUrl, pat, projectKey, startIso, endIsoInclusive) {
+    var endExclusive = addDaysIso(endIsoInclusive, 1);
+    var data;
+    try {
+        data = await fetchCreatedSpan(baseUrl, pat, projectKey, startIso, endExclusive);
+    } catch (err) {
+        return fetchCreatedRangeByMonth(baseUrl, pat, projectKey, startIso, endIsoInclusive);
+    }
+    if ((data.issues || []).length >= JIRA_SEARCH_SOFT_CAP) {
+        return fetchCreatedRangeByMonth(baseUrl, pat, projectKey, startIso, endIsoInclusive);
+    }
+    return data;
+}
+
+async function fetchDashboardIssues(baseUrl, pat, projectKey) {
+    var endYear = new Date().getFullYear();
+    var byKey = {};
+    var names = {};
+    var y;
+    for (y = ASSESS_DATA_START_YEAR; y <= endYear; y++) {
+        var chunk = await fetchCreatedYear(baseUrl, pat, projectKey, y);
+        mergeIssueBatch(byKey, names, chunk);
+    }
+    var issues = Object.keys(byKey).map(function(k) { return byKey[k]; });
+    return { issues: issues, total: issues.length, names: names };
+}
+
 export async function ensureChangelogs(tasks) {
     var missing = (tasks || []).filter(function(t) {
         return t && t.key && !t.changelog && !changelogPending[t.key];
@@ -332,42 +462,125 @@ export async function fetchTodayChanges() {
     }
 }
 
+function isDashboardDirectionType(typeName) {
+    return !typeName.includes('alt') && (
+        typeName.includes('istiqamət') || typeName.includes('istiqamet')
+        || typeName.includes('epic') || typeName.includes('tədbir') || typeName.includes('tedbir')
+    );
+}
+
+function indexIssue(t) {
+    if (!t || !t.key) return;
+    state.issueIndex[t.key] = t;
+    if (t.id != null) state.issueIndexById[String(t.id)] = t;
+}
+
+function rebuildDashboardListsFromIndex() {
+    state.allDirections = [];
+    state.allTasks = [];
+    state.parentCache = {};
+    var keys = Object.keys(state.issueIndex);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+        var t = state.issueIndex[keys[i]];
+        if (!t || !t.fields) continue;
+        var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
+        if (isDashboardDirectionType(typeName) && hasKomplaynsComponent(t)) {
+            state.allDirections.push(t);
+        }
+    }
+    for (i = 0; i < keys.length; i++) {
+        var t2 = state.issueIndex[keys[i]];
+        if (!t2 || !t2.fields) continue;
+        var typeName2 = t2.fields.issuetype ? normalizeStr(t2.fields.issuetype.name) : '';
+        if (isDashboardDirectionType(typeName2)) continue;
+        var assigneeName = t2.fields.assignee ? normalizeStr(t2.fields.assignee.displayName) : '';
+        var isExcluded = state.EXCLUDED_USERS.some(function(ex) { return assigneeName.includes(ex); });
+        if (isExcluded) continue;
+        if (state.STRUCTURE_TYPES.includes(typeName2)) continue;
+        if (!belongsToDept(t2)) continue;
+        var statusNorm = normalizeStr(t2.fields.status && t2.fields.status.name ? t2.fields.status.name : '');
+        var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti');
+        if ((!statusNorm.includes('başlanmamış') && !statusNorm.includes('baslanmamis')) || isPaused) state.allTasks.push(t2);
+    }
+}
+
+function refreshTodayTasks() {
+    var todayTmp = new Date(); todayTmp.setHours(0, 0, 0, 0);
+    state.todayTasks = state.allTasks.filter(function(t) {
+        if (!t || !t.fields || !t.fields.updated) return false;
+        var d = new Date(t.fields.updated); d.setHours(0, 0, 0, 0);
+        return d.getTime() === todayTmp.getTime();
+    });
+}
+
+function bumpDataEpoch() {
+    state.dataEpoch = (state.dataEpoch || 0) + 1;
+}
+
 function applyDashboardPayload(data) {
     if (data.names) mergeFieldNames(data.names);
-    state.allDirections = []; state.allTasks = []; state.issueIndex = {}; state.parentCache = {};
-    (data.issues || []).forEach(function(t) {
-        state.issueIndex[t.key] = t;
-        state.issueIndexById[String(t.id)] = t;
-    });
-    (data.issues || []).forEach(function(t) {
-        var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
-        if (!typeName.includes('alt') && (typeName.includes('istiqamət') || typeName.includes('istiqamet') || typeName.includes('epic') || typeName.includes('tədbir') || typeName.includes('tedbir'))) {
-            if (hasKomplaynsComponent(t)) {
-                state.allDirections.push(t);
-            }
-            return;
-        }
-    });
-    (data.issues || []).forEach(function(t) {
-        var assigneeName = t.fields.assignee ? normalizeStr(t.fields.assignee.displayName) : '';
-        var isExcluded = state.EXCLUDED_USERS.some(function(ex) { return assigneeName.includes(ex); });
-        if (isExcluded) return;
-        var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
-        if (state.STRUCTURE_TYPES.includes(typeName)) return;
-        if (!belongsToDept(t)) return;
-        var statusNorm = normalizeStr(t.fields.status.name);
-        var isPaused = statusNorm.includes('dayandır') || statusNorm.includes('dayandir') || statusNorm.includes('müvəqqəti') || statusNorm.includes('muveqqeti');
-        if ((!statusNorm.includes('başlanmamış') && !statusNorm.includes('baslanmamis')) || isPaused) state.allTasks.push(t);
-    });
+    state.issueIndex = {};
+    state.issueIndexById = {};
+    state.parentCache = {};
+    (data.issues || []).forEach(indexIssue);
+    rebuildDashboardListsFromIndex();
+    bumpDataEpoch();
     document.getElementById('settingsPanel').classList.add('hidden');
     populateSprintFilter();
     loadFiltersFromStorage();
     applyFilters();
-    var todayTmp = new Date(); todayTmp.setHours(0,0,0,0);
-    state.todayTasks = state.allTasks.filter(function(t) {
-        var d = new Date(t.fields.updated); d.setHours(0,0,0,0);
-        return d.getTime() === todayTmp.getTime();
+    refreshTodayTasks();
+}
+
+function mergeFetchedIssues(data) {
+    if (data.names) mergeFieldNames(data.names);
+    (data.issues || []).forEach(function(t) {
+        if (!t || !t.key) return;
+        var prev = state.issueIndex[t.key];
+        if (prev && prev.changelog && !t.changelog) t.changelog = prev.changelog;
+        indexIssue(t);
     });
+    rebuildDashboardListsFromIndex();
+    bumpDataEpoch();
+    applyFilters();
+    refreshTodayTasks();
+}
+
+function readDashboardCredentials() {
+    var baseUrl = document.getElementById('baseUrl').value;
+    var pat = document.getElementById('pat').value;
+    var projectKey = document.getElementById('projectKey').value.toUpperCase();
+    return { baseUrl: baseUrl, pat: pat, projectKey: projectKey };
+}
+
+export async function loadAssessmentCreatedRange(startIso, endIso) {
+    var creds = readDashboardCredentials();
+    if (!creds.baseUrl || !creds.projectKey) {
+        toggleSettings();
+        showToast('Zəhmət olmasa Jira URL və layihə kodunu daxil edin!', 'error');
+        return false;
+    }
+    if (!creds.pat) {
+        toggleSettings();
+        showToast('Yuxarıdakı Token düyməsindən PAT daxil edin.', 'error');
+        return false;
+    }
+    saveClientCredentials(creds.baseUrl, creds.pat, creds.projectKey);
+    state.currentBaseUrl = creds.baseUrl.endsWith('/') ? creds.baseUrl.slice(0, -1) : creds.baseUrl;
+    document.getElementById('loadingOverlay').classList.remove('hidden');
+    try {
+        var data = await fetchIssuesCreatedRange(state.currentBaseUrl, creds.pat, creds.projectKey, startIso, endIso);
+        mergeFetchedIssues(data);
+        var n = (data.issues || []).length;
+        showToast((n === 1 ? '1 tapşırıq' : n + ' tapşırıq') + ' yükləndi (' + startIso + ' – ' + endIso + ').', 'success');
+        return true;
+    } catch (error) {
+        showToast(error.message, 'error');
+        return false;
+    } finally {
+        document.getElementById('loadingOverlay').classList.add('hidden');
+    }
 }
 
 export async function fetchDashboardData() {
@@ -380,10 +593,9 @@ export async function fetchDashboardData() {
      state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
      document.getElementById('loadingOverlay').classList.remove('hidden');
      try {
-         var jql = 'project = ' + projectKey + ' ORDER BY updated DESC';
          lastJqlCache.key = '';
          lastJqlCache.data = null;
-         var data = await fetchJQL(state.currentBaseUrl, pat, jql);
+         var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);
          applyDashboardPayload(data);
          document.getElementById('loadingOverlay').classList.add('hidden');
          showToast('Məlumatlar uğurla yeniləndi!', 'success');

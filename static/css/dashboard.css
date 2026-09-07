@@ -486,15 +486,26 @@ input[type="date"] { min-height: 38px; }
 }
 .assess-year-filter {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0.55rem 0.75rem;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
     margin: 0 0 0.9rem;
-    padding: 0.65rem 0.8rem;
+    padding: 0.55rem 0.7rem;
     background: #f8fafc;
     border: 1px solid #e8edf3;
     border-radius: 12px;
     position: relative;
+}
+.assess-period-bar,
+.assess-year-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.45rem 0.65rem;
+}
+.assess-period-bar--tools {
+    justify-content: flex-end;
+    gap: 0.55rem 0.85rem;
 }
 .assess-year-filter-label {
     flex: 0 0 auto;
@@ -505,6 +516,57 @@ input[type="date"] { min-height: 38px; }
     color: #6d28d9;
     padding: 0.15rem 0;
 }
+.assess-period-range {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+.assess-period-range input[type="date"] {
+    border: 1px solid #e8edf3;
+    background: #fff;
+    color: #1e293b;
+    border-radius: 10px;
+    padding: 0.32rem 0.45rem;
+    font-size: 0.8125rem;
+    font-family: inherit;
+    line-height: 1.2;
+    min-height: 2rem;
+    width: auto;
+    max-width: 9.6rem;
+}
+.assess-period-range input[type="date"]:focus {
+    border-color: #c4b5fd;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+.assess-period-sep {
+    color: #94a3b8;
+    font-weight: 700;
+    font-size: 0.85rem;
+    line-height: 1;
+}
+.assess-period-load {
+    border: 1px solid #5b21b6;
+    background: #5b21b6;
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    padding: 0.35rem 0.85rem;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    min-height: 2rem;
+    line-height: 1.2;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.assess-period-load:hover {
+    background: #4c1d95;
+    box-shadow: 0 1px 3px rgba(91, 33, 182, 0.28);
+}
+.assess-period-fields,
+.assess-period-field { display: none; }
 .assess-dash-kpis {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -636,6 +698,293 @@ input[type="date"] { min-height: 38px; }
 @media (min-width: 768px) {
     .assess-table-shell { padding: 0.75rem 0.4rem 0.85rem; }
 }
+
+.meqsed-list-dash {
+    margin: 0 0 0.9rem;
+    padding: 0.85rem 0.9rem 0.95rem;
+    background: #f8fafc;
+    border: 1px solid #e8edf3;
+    border-radius: 14px;
+}
+.meqsed-ld-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.25rem 0.75rem;
+    margin: 0 0 0.7rem;
+}
+.meqsed-ld-head h3 {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 800;
+    color: #1e293b;
+}
+.meqsed-ld-head-right {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.35rem 0.55rem;
+}
+.meqsed-ld-head p {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+}
+.meqsed-ld-kpis {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin: 0 0 0.75rem;
+}
+@media (min-width: 640px) {
+    .meqsed-ld-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+.meqsed-ld-kpi {
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
+    padding: 0.5rem 0.65rem;
+    background: #fff;
+    border: 1px solid #e8edf3;
+    border-radius: 11px;
+    text-align: left;
+    font-family: inherit;
+}
+button.meqsed-ld-kpi {
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+button.meqsed-ld-kpi:hover {
+    border-color: #f9a8d4;
+    background: #fff7fb;
+}
+.meqsed-ld-kpi.is-active {
+    border-color: #f9a8d4;
+    background: #fdf2f8;
+    box-shadow: 0 0 0 1px #fbcfe8;
+}
+.meqsed-ld-kpi span {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #64748b;
+}
+.meqsed-ld-kpi strong {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #5b21b6;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+}
+.meqsed-ld-kpi.is-pos strong { color: #047857; }
+.meqsed-ld-kpi.is-neg strong { color: #b91c1c; }
+.meqsed-ld-clear {
+    border: 1px solid #f9a8d4;
+    background: #fdf2f8;
+    color: #9d174d;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1.2;
+}
+.meqsed-ld-clear:hover { background: #fce7f3; }
+.meqsed-ld-chip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    border: 1px solid #e8edf3;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.35rem 0.5rem;
+    border-radius: 9px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.meqsed-ld-chip b {
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+.meqsed-ld-chip:hover {
+    border-color: #f9a8d4;
+    background: #fff7fb;
+    color: #9d174d;
+}
+.meqsed-ld-chip.is-active {
+    border-color: #f9a8d4;
+    background: #fdf2f8;
+    color: #9d174d;
+}
+.meqsed-ld-charts {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+    margin: 0 0 0.75rem;
+}
+@media (min-width: 860px) {
+    .meqsed-ld-charts { grid-template-columns: 1.35fr 0.9fr; }
+}
+.meqsed-ld-card--chart {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+.meqsed-ld-chart-box {
+    position: relative;
+    width: 100%;
+    height: 11.5rem;
+    margin-top: 0.15rem;
+}
+.meqsed-ld-chart-box--donut {
+    height: 12.5rem;
+    max-width: 16rem;
+    margin: 0.15rem auto 0;
+}
+.meqsed-ld-chart-empty {
+    margin: 0;
+    padding: 2.5rem 0.75rem;
+    text-align: center;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #94a3b8;
+}
+.meqsed-ld-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+}
+@media (min-width: 768px) {
+    .meqsed-ld-grid { grid-template-columns: 1.15fr 1fr; }
+}
+.meqsed-ld-card {
+    background: #fff;
+    border: 1px solid #e8edf3;
+    border-radius: 12px;
+    padding: 0.7rem 0.75rem 0.8rem;
+    min-width: 0;
+}
+.meqsed-ld-card h4 {
+    margin: 0 0 0.55rem;
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: #334155;
+}
+.meqsed-ld-note {
+    margin: -0.25rem 0 0.55rem;
+    font-size: 0.7rem;
+    color: #64748b;
+}
+.meqsed-ld-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem 0.55rem;
+    margin: 0 0 0.7rem;
+}
+.meqsed-ld-kind {
+    display: block;
+    width: 100%;
+    margin: 0 0 0.4rem;
+    padding: 0.35rem 0.4rem;
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 9px;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+.meqsed-ld-kind:hover {
+    background: #fff7fb;
+    border-color: #fce7f3;
+}
+.meqsed-ld-kind.is-active {
+    background: #fdf2f8;
+    border-color: #f9a8d4;
+}
+.meqsed-ld-kind-meta {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #475569;
+}
+.meqsed-ld-kind-meta b {
+    color: #0f172a;
+    font-variant-numeric: tabular-nums;
+}
+.meqsed-ld-kind-track {
+    height: 0.38rem;
+    margin-top: 0.22rem;
+    background: #f1f5f9;
+    border-radius: 99px;
+    overflow: hidden;
+}
+.meqsed-ld-kind-track i {
+    display: block;
+    height: 100%;
+    background: #db2777;
+    border-radius: 99px;
+}
+.meqsed-ld-rey { display: flex; flex-direction: column; gap: 0.55rem; }
+.meqsed-ld-rey-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.5rem;
+    padding: 0.55rem 0.6rem;
+    background: #f8fafc;
+    border-radius: 10px;
+}
+.meqsed-ld-rey-label {
+    font-size: 0.78rem;
+    font-weight: 800;
+    color: #1e293b;
+    min-width: 4.2rem;
+}
+.meqsed-ld-rey-n {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #64748b;
+    margin-right: auto;
+}
+.meqsed-ld-pill {
+    border: 1px solid transparent;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1.2;
+    transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+.meqsed-ld-pill.is-pos { background: #ecfdf5; color: #047857; }
+.meqsed-ld-pill.is-neg { background: #fef2f2; color: #b91c1c; }
+.meqsed-ld-pill.is-partial { background: #fffbeb; color: #b45309; }
+.meqsed-ld-pill.is-revision { background: #eff6ff; color: #1d4ed8; }
+.meqsed-ld-pill.is-other { background: #f1f5f9; color: #475569; }
+.meqsed-ld-pill.is-pos:hover,
+.meqsed-ld-pill.is-pos.is-active { border-color: #6ee7b7; box-shadow: 0 0 0 1px #a7f3d0; }
+.meqsed-ld-pill.is-neg:hover,
+.meqsed-ld-pill.is-neg.is-active { border-color: #fca5a5; box-shadow: 0 0 0 1px #fecaca; }
+.meqsed-ld-pill.is-partial:hover,
+.meqsed-ld-pill.is-partial.is-active { border-color: #fcd34d; box-shadow: 0 0 0 1px #fde68a; }
+.meqsed-ld-pill.is-revision:hover,
+.meqsed-ld-pill.is-revision.is-active { border-color: #93c5fd; box-shadow: 0 0 0 1px #bfdbfe; }
+.meqsed-ld-pill.is-other:hover,
+.meqsed-ld-pill.is-other.is-active { border-color: #cbd5e1; box-shadow: 0 0 0 1px #e2e8f0; }
 .assess-ybars, .assess-cbars {
     display: flex;
     flex-direction: column;
@@ -994,7 +1343,7 @@ input.assess-search-input:focus {
 .assess-hub-table--isq { --assess-cols: minmax(8rem, 1.25fr) minmax(0, 2.1fr); }
 .assess-hub-table--self { --assess-cols: minmax(8rem, 1.7fr) 4.75rem minmax(7rem, 0.9fr) 2.85rem; }
 .assess-hub-table--exq { --assess-cols: minmax(8rem, 1.25fr) minmax(7rem, 0.85fr) 5.5rem minmax(0, 1.6fr); }
-.assess-hub-table--meqsed { --assess-cols: minmax(8rem, 1.15fr) minmax(0, 1.05fr) minmax(0, 1.45fr) 2.85rem; }
+.assess-hub-table--meqsed { --assess-cols: minmax(7.5rem, 1.1fr) minmax(0, 1fr) minmax(0, 1.25fr) minmax(6.5rem, 0.85fr) 2.85rem; }
 .assess-hub-cell {
     min-width: 0;
     font-size: 0.875rem;
@@ -1003,6 +1352,10 @@ input.assess-search-input:focus {
 .assess-hub-cell--qurum {
     min-width: 8rem;
     color: #1e293b;
+}
+.assess-hub-cell--date {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 .assess-hub-cell--action {
     display: flex;

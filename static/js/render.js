@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
 import { duePeriodLabel } from './report.js';
 
@@ -43,7 +43,7 @@ export function renderStats(tasks) {
     var sprintDueWeek = dueWeekPool.length;
     var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
     
-    var planned = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'planned' && !hasDiff(t); }).length;
+    var planned = validTasks.filter(function(t) { return isNextWeekBoxTask(t); }).length;
     var other = validTasks.filter(function(t) {
         var g = getStatusGroup(t.fields.status.name || '');
         return g === 'other' && !hasDiff(t);
@@ -474,11 +474,11 @@ export function resetTaskListFilter() {
 
 export function renderWeeklyTasks() {
     var source = countableWorkUnits(state.filteredTasks);
-    var planned = source.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
+    var planned = source.filter(function(t) { return isNextWeekBoxTask(t); });
     var list = document.getElementById('weeklyTaskList'); 
     if (!list) return;
     list.innerHTML = '';
-    if (planned.length === 0) { list.innerHTML = '<p class="text-slate-400 text-sm text-center py-4">Statusu "Planlaşdırılıb" olan tapşırıq yoxdur.</p>'; }
+    if (planned.length === 0) { list.innerHTML = '<p class="text-slate-400 text-sm text-center py-4">Növbəti həftə üçün tapşırıq yoxdur.</p>'; }
     else {
         var weeklyHtml = '';
         planned.forEach(function(t) {

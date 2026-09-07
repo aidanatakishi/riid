@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -496,7 +496,7 @@ export async function exportTasksToWord(title) {
             if (g === 'rejected') rejected++;
             if (g === 'blocked' || diff) blocked++;
             if (g !== 'done' && g !== 'rejected' && !diff && inDue) due++;
-            if (g === 'planned' && !diff) planned++;
+            if (isNextWeekBoxTask(t)) planned++;
             if (g === 'done' && inDue) doneInPeriod++;
             if (g !== 'done' && g !== 'rejected' && inDue) notDoneDue++;
             if (inDue && g !== 'rejected') duePool++;
@@ -534,7 +534,7 @@ export async function exportTasksToWord(title) {
             var diff = hasDiff(t);
             if (g === 'done') done++;
             if (g === 'blocked' || diff) blocked++;
-            if (g === 'planned' && !diff) planned++;
+            if (isNextWeekBoxTask(t)) planned++;
         });
         var rejected = tasks.filter(function(t) {
             return isTaskType(t) && getStatusGroup(t.fields.status.name || '') === 'rejected';
@@ -1822,7 +1822,7 @@ export async function exportTasksToWord(title) {
             var g = getStatusGroup(t.fields.status.name);
             return g === 'blocked' || g === 'rejected' || hasDiffDash(t);
         };
-        var isPlannedFn = function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; };
+        var isPlannedFn = function(t) { return isNextWeekBoxTask(t); };
 
         appendWeeklySection(
             sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'),

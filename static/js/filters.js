@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
@@ -559,7 +559,7 @@ function isSectionOpen(id) {
 
 function updateCollapsedCounts() {
     var source = countableWorkUnits(state.filteredTasks);
-    var planned = source.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; });
+    var planned = source.filter(function(t) { return isNextWeekBoxTask(t); });
     var weeklyDiff = document.getElementById('weeklyDiff');
     if (weeklyDiff) weeklyDiff.innerText = 'Cəmi ' + planned.length + ' tapşırıq';
     var pausedSource = state.sprintDateFiltered || [];
@@ -879,7 +879,10 @@ export function filterTasks(type) {
             return getStatusGroup(t.fields.status.name) !== 'rejected';
         });
     }
-    if (type === 'planned') { f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'planned'; }); title = 'Növbəti həftə iş yükü (Planlaşdırılıb)'; }
+    if (type === 'planned') {
+        f = units.filter(function(t) { return isNextWeekBoxTask(t); });
+        title = 'Növbəti həftə bitirilməli olan';
+    }
     else if (type === 'sprint') {
         f = units.filter(function(t) { return isActiveExecutionGroup(getStatusGroup(t.fields.status.name)); });
         title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar';
