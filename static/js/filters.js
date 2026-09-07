@@ -881,7 +881,7 @@ export function filterTasks(type) {
     }
     if (type === 'planned') {
         f = units.filter(function(t) { return isNextWeekBoxTask(t); });
-        title = 'Növbəti həftə bitirilməli olan (Planlaşdırılıb + bitmə tarixi)';
+        title = 'Növbəti həftə (Bu həftə bitməli ∪ Planlaşdırılıb)';
     }
     else if (type === 'sprint') {
         f = units.filter(function(t) { return isActiveExecutionGroup(getStatusGroup(t.fields.status.name)); });

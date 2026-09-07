@@ -6,7 +6,7 @@ import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, se
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter } from './assessments.js';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter } from './assessments.js';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 
@@ -106,6 +106,8 @@ window.renderAssessmentSections = renderAssessmentSections;
 window.setAssessmentYear = setAssessmentYear;
 window.setAssessmentYearForActiveTab = setAssessmentYearForActiveTab;
 window.setAssessmentTab = setAssessmentTab;
+window.focusAssessmentSection = focusAssessmentSection;
+window.showAssessFullList = showAssessFullList;
 window.setAssessmentSearch = setAssessmentSearch;
 window.onAssessmentSearchInput = onAssessmentSearchInput;
 window.clearAssessmentSearch = clearAssessmentSearch;

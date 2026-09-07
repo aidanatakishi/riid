@@ -221,22 +221,49 @@ export function isDueThisWeek(t) {
     return due >= week.start && due <= week.end;
 }
 
+export function getTaskDueDate(t) {
+    if (!t || !t.fields) return null;
+    var raw = t.fields['customfield_10807'];
+    if (raw == null || raw === '') raw = t.fields['duedate'];
+    var due = parsePhaseDate(raw);
+    if (!due) return null;
+    due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    due.setHours(0, 0, 0, 0);
+    return due;
+}
+
+/** Növbəti həftə bitmə tarixi — yalnız customfield_10807 (duedate fallback yox). */
+export function getNextWeekBoxDueDate(t) {
+    if (!t || !t.fields) return null;
+    var due = parsePhaseDate(t.fields['customfield_10807']);
+    if (!due) return null;
+    due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    due.setHours(0, 0, 0, 0);
+    return due;
+}
+
 export function isDueNextWeek(t) {
     if (!t || !t.fields) return false;
-    var due = getTaskDueDate(t);
+    var due = getNextWeekBoxDueDate(t);
     if (!due) return false;
     var week = getBakuWeekRange(1);
     return due >= week.start && due <= week.end;
 }
 
-/** Növbəti həftə boxu: bitmə tarixi növbəti həftəyə düşənlər + statusu Planlaşdırılıb olanlar. */
+/**
+ * Növbəti həftə KPI: unikal birlik (union)
+ * 1) Bu həftə bitməli — eyni məntiq: getTaskDueDate (10807 → duedate) + isDueThisWeek
+ * 2) Status Planlaşdırılıb — getStatusGroup === planned
+ * done / rejected / çətinlik istisna.
+ */
 export function isNextWeekBoxTask(t) {
     if (!t || !t.fields || !t.fields.status) return false;
-    var g = getStatusGroup(t.fields.status.name || '');
+    var statusName = t.fields.status.name || '';
+    var g = getStatusGroup(statusName);
     if (g === 'done' || g === 'rejected') return false;
     if (hasValidDifficulty(t)) return false;
     if (g === 'planned') return true;
-    return isDueNextWeek(t);
+    return isDueThisWeek(t);
 }
 
 export function getTaskStartDate(t) {
@@ -258,22 +285,6 @@ export function getTaskStartDate(t) {
     }
     return parsePhaseDate(t.fields['customfield_10015'])
         || parsePhaseDate(t.fields['customfield_10808']);
-}
-
-export function getTaskDueDate(t) {
-    if (!t || !t.fields) return null;
-    var dueDateRaw = t.fields['customfield_10807'] || t.fields['duedate'];
-    if (!dueDateRaw) return null;
-    try {
-        var dueStr = String(dueDateRaw).split('T')[0];
-        var parts = dueStr.split('-');
-        if (parts.length < 3) return null;
-        var dueDate = new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10));
-        dueDate.setHours(0, 0, 0, 0);
-        return isNaN(dueDate.getTime()) ? null : dueDate;
-    } catch (e) {
-        return null;
-    }
 }
 
 export function isDueInDateRange(t, start, end) {

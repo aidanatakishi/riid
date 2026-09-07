@@ -38,6 +38,7 @@ var yearTouched = false;
 var rangeStartIso = '';
 var rangeEndIso = '';
 var periodLoadBusy = false;
+var lastLoadedPeriodKey = '';
 var ASSESS_START_YEAR = 2023;
 var searchDebounceTimer = null;
 var pageState = { diag: 1, isq: 1, self: 1, exq: 1, meqsed: 1 };
@@ -786,58 +787,54 @@ function drawAssessCatChart(catCounts) {
     destroyAssessChart('assessCatChart', 'assessCatChart');
     var labels = catCounts.map(function(c) { return SECTION_LABELS[c.s]; });
     var data = catCounts.map(function(c) { return c.n; });
-    var colors = catCounts.map(function(c) { return CAT_COLORS[c.s]; });
+    var solidColors = catCounts.map(function(c) { return CAT_COLORS[c.s]; });
     var total = data.reduce(function(a, b) { return a + b; }, 0);
     var centerPlugin = {
         id: 'assessCatCenter',
         afterDraw: function(chart) {
             var area = chart.chartArea;
+            if (!area) return;
             var c = chart.ctx;
+            var cx = (area.left + area.right) / 2;
+            var cy = (area.top + area.bottom) / 2;
             c.save();
             c.textAlign = 'center';
             c.textBaseline = 'middle';
-            c.font = '700 22px Inter, sans-serif';
-            c.fillStyle = '#1e293b';
-            c.fillText(String(total), area.left + area.width / 2, area.top + area.height / 2 - 8);
-            c.font = '500 11px Inter, sans-serif';
+            c.font = '800 26px Inter, system-ui, sans-serif';
+            c.fillStyle = '#0f172a';
+            c.fillText(String(total), cx, cy - 9);
+            c.font = '600 11px Inter, system-ui, sans-serif';
             c.fillStyle = '#64748b';
-            c.fillText('qurum', area.left + area.width / 2, area.top + area.height / 2 + 10);
+            c.fillText('qurum', cx, cy + 12);
             c.restore();
         }
     };
-    var ctx = canvas.getContext('2d');
-    state.assessCatChart = new Chart(ctx, {
+    state.assessCatChart = new Chart(canvas.getContext('2d'), {
         type: 'doughnut',
         data: {
             labels: labels,
             datasets: [{
                 data: data,
-                backgroundColor: colors,
-                borderWidth: catCounts.map(function(c) { return c.s === activeTab ? 3 : 2; }),
+                backgroundColor: solidColors.slice(),
+                borderWidth: 3,
                 borderColor: '#ffffff',
+                hoverBackgroundColor: solidColors.slice(),
                 hoverOffset: 6
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '68%',
-            layout: { padding: { top: 4, bottom: 4, left: 2, right: 8 } },
+            cutout: '62%',
+            layout: { padding: 4 },
             plugins: {
-                legend: {
-                    position: (typeof window !== 'undefined' && window.innerWidth < 768) ? 'bottom' : 'right',
-                    labels: { usePointStyle: true, padding: 10, font: { family: 'Inter', size: 11 }, boxWidth: 8, color: '#475569' },
-                    onClick: function(e, item) {
-                        var s = catCounts[item.index] && catCounts[item.index].s;
-                        if (s) setAssessmentTab(s);
-                    }
-                },
+                legend: { display: false },
                 tooltip: {
-                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    backgroundColor: '#1e293b',
+                    titleColor: '#f8fafc',
+                    bodyColor: '#e2e8f0',
                     padding: 10,
                     cornerRadius: 8,
-                    titleFont: { family: 'Inter', size: 12, weight: 'bold' },
-                    bodyFont: { family: 'Inter', size: 11 },
                     callbacks: {
                         label: function(item) {
                             var n = item.parsed || 0;
@@ -852,57 +849,85 @@ function drawAssessCatChart(catCounts) {
             },
             onClick: function(e, els) {
                 if (!els.length) return;
-                var s = catCounts[els[0].index] && catCounts[els[0].index].s;
-                if (s) setAssessmentTab(s);
+                var sec = catCounts[els[0].index] && catCounts[els[0].index].s;
+                if (sec) focusAssessmentSection(sec);
             }
         },
         plugins: [centerPlugin]
     });
 }
 
+function renderAssessCatLegend(catCounts) {
+    var el = document.getElementById('assessCatLegend');
+    if (!el) return;
+    var total = (catCounts || []).reduce(function(sum, c) { return sum + (c.n || 0); }, 0);
+    if (!total) {
+        el.innerHTML = '';
+        return;
+    }
+    el.innerHTML = catCounts.map(function(c) {
+        var pct = total ? Math.round((c.n / total) * 100) : 0;
+        var on = c.s === activeTab ? ' is-active' : '';
+        var color = CAT_COLORS[c.s] || '#64748b';
+        return '<button type="button" class="assess-cat-leg' + on + '" role="listitem"'
+            + ' style="--cat-color:' + color + '"'
+            + ' onclick="event.stopPropagation(); focusAssessmentSection(\'' + c.s + '\')">'
+            + '<span class="assess-cat-leg-dot" aria-hidden="true"></span>'
+            + '<span class="assess-cat-leg-meta">'
+            + '<span class="assess-cat-leg-label">' + escapeHtml(SECTION_LABELS[c.s]) + '</span>'
+            + '<span class="assess-cat-leg-pct">' + pct + '%</span>'
+            + '</span>'
+            + '<strong class="assess-cat-leg-n">' + c.n + '</strong>'
+            + '<span class="assess-cat-leg-bar" aria-hidden="true"><i style="width:' + pct + '%"></i></span>'
+            + '</button>';
+    }).join('');
+}
+
 function renderAssessDash() {
     var el = document.getElementById('assessDash');
     if (!el) return;
     var kpis = document.getElementById('assessDashKpis');
+    var hint = document.getElementById('assessCatPeriodHint');
+    var titleEl = document.getElementById('assessCatChartTitle');
+    var legendEl = document.getElementById('assessCatLegend');
     var hasIssues = Object.keys(state.issueIndex || {}).length > 0;
+    if (kpis) {
+        kpis.innerHTML = '';
+        kpis.classList.add('hidden');
+        kpis.setAttribute('hidden', '');
+    }
     if (!hasIssues) {
         lastDashSig = '';
         destroyAssessChart('assessYearChart', 'assessYearChart');
         destroyAssessChart('assessCatChart', 'assessCatChart');
-        if (kpis) kpis.innerHTML = '';
-        setAssessChartVisible('assessYearChartWrap', 'assessYearEmpty', false);
         setAssessChartVisible('assessCatChartWrap', 'assessCatEmpty', false);
+        if (hint) hint.textContent = '';
+        if (legendEl) legendEl.innerHTML = '';
         return;
     }
     var model = collectDashModel();
-    var yearCounts = model.yearCounts;
     var catCounts = model.catCounts;
-    if (kpis) {
-        kpis.classList.remove('is-meqsed');
-        kpis.innerHTML = catCounts.map(function(c) {
-            var on = c.s === activeTab ? ' is-active' : '';
-            return '<button type="button" class="assess-kpi' + on + '" onclick="event.stopPropagation(); setAssessmentTab(\'' + c.s + '\')">'
-                + '<span class="assess-kpi-label">' + escapeHtml(SECTION_LABELS[c.s]) + '</span>'
-                + '<strong class="assess-kpi-value">' + c.n + '</strong></button>';
-        }).join('');
-    }
-    var sig = yearCounts.map(function(r) { return r.y + ':' + r.total; }).join(',')
-        + '|' + String(selectedYear) + '|' + activeTab + '|'
+    var period = periodLabel(selectedYear);
+    if (titleEl) titleEl.textContent = 'Bölmələr üzrə';
+    if (hint) hint.textContent = period ? ('Seçilmiş dövr: ' + period) : '';
+    var sig = String(selectedYear) + '|' + activeTab + '|'
         + catCounts.map(function(c) { return c.s + ':' + c.n; }).join(',');
-    var yearOk = yearCounts.length > 0;
     var catOk = catCounts.some(function(c) { return c.n > 0; });
-    setAssessChartVisible('assessYearChartWrap', 'assessYearEmpty', yearOk);
     setAssessChartVisible('assessCatChartWrap', 'assessCatEmpty', catOk);
+    destroyAssessChart('assessYearChart', 'assessYearChart');
+    renderAssessCatLegend(catOk ? catCounts : []);
     if (sig === lastDashSig) {
-        var yearReady = !yearOk || state.assessYearChart;
-        var catReady = !catOk || state.assessCatChart;
-        if (yearReady && catReady) return;
+        if (!catOk || state.assessCatChart) return;
     }
     lastDashSig = sig;
-    if (yearOk) drawAssessYearChart(yearCounts);
-    else destroyAssessChart('assessYearChart', 'assessYearChart');
     if (catOk) drawAssessCatChart(catCounts);
     else destroyAssessChart('assessCatChart', 'assessCatChart');
+}
+
+function hubListDetailActive(section, searchActive) {
+    if (searchActive) return true;
+    if (!LIST_DASH_SECTIONS[section]) return true;
+    return !!listDashFilter(section);
 }
 
 function renderBlocks(blocks) {
@@ -1167,12 +1192,14 @@ function listDashFilter(section) {
 }
 
 function listDashFilterOn(section, key) {
-    if (key === 'all') return !listDashFilter(section);
-    return listDashFilter(section) === key;
+    var cur = listDashFilter(section);
+    if (key === 'all') return cur === 'all';
+    return cur === key;
 }
 
 function listDashFilterLabel(section, key) {
     if (!key) return '';
+    if (key === 'all') return 'Bütün qurumlar';
     if (section === 'meqsed' && MEQSED_DASH_FILTER_LABELS[key]) return MEQSED_DASH_FILTER_LABELS[key];
     if (COMMON_DASH_FILTER_LABELS[key]) return COMMON_DASH_FILTER_LABELS[key];
     return key;
@@ -1301,7 +1328,7 @@ function exqRowMatchesDashFilter(r, filter) {
 }
 
 function rowMatchesListDashFilter(section, r, filter) {
-    if (!filter) return true;
+    if (!filter || filter === 'all') return true;
     if (section === 'meqsed') return meqsedRowMatchesDashFilter(r, filter);
     if (section === 'diag') return diagRowMatchesDashFilter(r, filter);
     if (section === 'isq') return isqRowMatchesDashFilter(r, filter);
@@ -1370,8 +1397,16 @@ function ldHead(section, title) {
     var period = periodLabel(selectedYear);
     var filter = listDashFilter(section);
     var filterLabel = listDashFilterLabel(section, filter);
+    var allOn = listDashFilterOn(section, 'all');
     return '<div class="meqsed-ld-head">'
+        + '<div class="meqsed-ld-head-left">'
         + '<h3>' + escapeHtml(title) + '</h3>'
+        + '<button type="button" class="assess-ld-full-list' + (allOn ? ' is-active' : '') + '"'
+        + ' aria-pressed="' + (allOn ? 'true' : 'false') + '"'
+        + ' title="Bu fəaliyyət üzrə bütün qurum siyahısını göstər"'
+        + ' onclick="event.stopPropagation(); showAssessFullList()">'
+        + 'Bütün siyahı</button>'
+        + '</div>'
         + '<div class="meqsed-ld-head-right">'
         + '<p>' + escapeHtml(period) + '</p>'
         + (filterLabel
@@ -1382,9 +1417,25 @@ function ldHead(section, title) {
 }
 
 function ldStatusRowsHtml(section, byStatus, total) {
-    return STATUS_GROUP_ORDER.filter(function(g) { return (byStatus[g] || 0) > 0; }).map(function(g) {
-        return ldKindRow(section, STATUS_GROUP_LABELS[g] || g, byStatus[g] || 0, total, 'st_' + g);
-    }).join('');
+    var items = STATUS_GROUP_ORDER.filter(function(g) { return (byStatus[g] || 0) > 0; });
+    if (!items.length) {
+        return '<p class="meqsed-ld-chart-empty" style="padding:0.75rem 0">Status məlumatı yoxdur.</p>';
+    }
+    return '<div class="meqsed-ld-status">'
+        + items.map(function(g) {
+            var n = byStatus[g] || 0;
+            var pct = total ? Math.round((n / total) * 100) : 0;
+            var on = listDashFilterOn(section, 'st_' + g);
+            return '<button type="button" class="meqsed-ld-status-chip is-' + g + (on ? ' is-active' : '') + '"'
+                + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+                + ' title="' + escapeHtml(STATUS_GROUP_LABELS[g] || g) + ' üzrə siyahını göstər"'
+                + ' onclick="event.stopPropagation(); setAssessListFilter(\'st_' + g + '\')">'
+                + '<span class="meqsed-ld-status-chip-label">' + escapeHtml(STATUS_GROUP_LABELS[g] || g) + '</span>'
+                + '<strong>' + n + '</strong>'
+                + '<em>' + pct + '%</em>'
+                + '</button>';
+        }).join('')
+        + '</div>';
 }
 
 function collectDiagListStats(rows) {
@@ -1489,328 +1540,302 @@ function collectExqListStats(rows) {
     return stats;
 }
 
+function ldSideMeta(label, value, filterKey) {
+    var clickable = !!filterKey;
+    var on = clickable && listDashFilterOn(currentAssessSection(), filterKey);
+    var cls = 'exq-ld-svc-total' + (on ? ' is-active' : '');
+    if (!clickable) {
+        return '<span class="' + cls + ' is-static" aria-hidden="false">'
+            + '<span>' + escapeHtml(label) + '</span><b>' + escapeHtml(String(value)) + '</b></span>';
+    }
+    return '<button type="button" class="' + cls + '"'
+        + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+        + ' title="' + escapeHtml(label) + ' üzrə siyahını göstər"'
+        + ' onclick="event.stopPropagation(); setAssessListFilter(\'' + filterKey + '\')">'
+        + '<span>' + escapeHtml(label) + '</span><b>' + escapeHtml(String(value)) + '</b></button>';
+}
+
+function ldComboCard(title, leftHtml, chartLabel, hasChart, ariaLabel) {
+    var section = currentAssessSection();
+    return ldHead(section, title)
+        + '<div class="meqsed-ld-card assess-ld-panel exq-ld-combo assess-ld-combo">'
+        + '<div class="exq-ld-combo-body assess-ld-panel-grid assess-ld-panel-grid--exq">'
+        + '<div class="exq-ld-side assess-ld-block">' + leftHtml + '</div>'
+        + '<div class="exq-ld-chart-pane assess-ld-block">'
+        + '<p class="assess-ld-block-label">' + escapeHtml(chartLabel) + '</p>'
+        + '<div class="meqsed-ld-chart-box exq-ld-status-chart assess-ld-donut">'
+        + (hasChart
+            ? '<canvas id="assessListDonut" aria-label="' + escapeHtml(ariaLabel || chartLabel) + '"></canvas>'
+            : '<p class="meqsed-ld-chart-empty">' + escapeHtml(chartLabel) + ' məlumatı yoxdur.</p>')
+        + '</div></div></div></div>';
+}
+
+function currentAssessSection() {
+    var el = document.getElementById('assessListDash') || document.getElementById('meqsedListDash');
+    return (el && el.getAttribute('data-section')) || state.assessmentTab || '';
+}
+
+function hasStatusSlices(byStatus) {
+    return STATUS_GROUP_ORDER.some(function(g) { return (byStatus[g] || 0) > 0; });
+}
+
+function statusDonutItems(byStatus) {
+    return STATUS_GROUP_ORDER.filter(function(g) {
+        return (byStatus[g] || 0) > 0;
+    }).map(function(g) {
+        return {
+            key: g,
+            label: STATUS_GROUP_LABELS[g] || g,
+            n: byStatus[g] || 0,
+            color: STATUS_CHART_COLORS[g] || '#64748b',
+            filter: 'st_' + g
+        };
+    });
+}
+
+function opinionDonutItems(stats) {
+    return [
+        { key: 'pos', label: 'Müsbət', n: stats.pos || 0, color: '#059669', filter: 'pos' },
+        { key: 'neg', label: 'Mənfi', n: stats.neg || 0, color: '#dc2626', filter: 'neg' },
+        { key: 'revision', label: 'Düzəliş', n: stats.other || 0, color: '#2563eb', filter: 'revision' },
+        { key: 'partial', label: 'Qismən', n: stats.partial || 0, color: '#d97706', filter: 'partial' }
+    ].filter(function(item) { return item.n > 0; });
+}
+
 function diagListDashHtml(stats) {
     var section = 'diag';
-    var total = stats.total;
-    return ldHead(section, 'Diaqnostika nəticələri')
-        + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Qurum', stats.qurum, 'all')
-        + ldKpi(section, 'Nəticəli', stats.hasResult, 'has_result', 'is-pos')
-        + ldKpi(section, 'Nəticəsiz', stats.noResult, 'no_result', 'is-neg')
-        + ldKpi(section, 'Orta bal', formatAvg(stats.avg), '', '')
+    var left = '<div class="exq-ld-side-head">'
+        + '<p class="assess-ld-block-label">Bal diapazonu</p>'
+        + ldSideMeta('Orta', formatAvg(stats.avg), '')
         + '</div>'
-        + '<div class="meqsed-ld-grid">'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Bal diapazonu</h4>'
-        + '<div class="meqsed-ld-split">'
+        + '<div class="meqsed-ld-split assess-ld-chips exq-ld-svc-grid">'
         + ldSplitChip(section, '≥ 70', stats.byBand.score_high, 'score_high')
         + ldSplitChip(section, '40–69', stats.byBand.score_mid, 'score_mid')
         + ldSplitChip(section, '< 40', stats.byBand.score_low, 'score_low')
         + ldSplitChip(section, 'Balsız', stats.byBand.score_none, 'score_none')
         + '</div>'
-        + ldKindRow(section, 'Bal ≥ 70', stats.byBand.score_high, total, 'score_high')
-        + ldKindRow(section, 'Bal 40–69', stats.byBand.score_mid, total, 'score_mid')
-        + ldKindRow(section, 'Bal < 40', stats.byBand.score_low, total, 'score_low')
-        + ldKindRow(section, 'Balsız', stats.byBand.score_none, total, 'score_none')
-        + '</div>'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Status</h4>'
-        + '<p class="meqsed-ld-note">Klikləyin — aşağıdakı siyahı filtrələnir.</p>'
-        + ldStatusRowsHtml(section, stats.byStatus, total)
-        + '</div>'
+        + '<div class="meqsed-ld-split assess-ld-chips exq-ld-svc-grid assess-ld-chips--secondary">'
+        + ldSplitChip(section, 'Nəticəli', stats.hasResult, 'has_result')
+        + ldSplitChip(section, 'Nəticəsiz', stats.noResult, 'no_result')
         + '</div>';
+    return ldComboCard(
+        'Diaqnostika nəticələri',
+        left,
+        'Status',
+        hasStatusSlices(stats.byStatus),
+        'Diaqnostika status və qurum'
+    );
 }
 
 function isqListDashHtml(stats) {
     var section = 'isq';
-    var total = stats.total;
-    return ldHead(section, 'İSQ nəticələri')
-        + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Qurum', stats.qurum, 'all')
-        + ldKpi(section, 'Nəticəli', stats.hasResult, 'has_result', 'is-pos')
-        + ldKpi(section, 'Nəticəsiz', stats.noResult, 'no_result', 'is-neg')
-        + ldKpi(section, 'Orta bal', formatAvg(stats.avg), '', '')
+    var left = '<div class="exq-ld-side-head">'
+        + '<p class="assess-ld-block-label">Nəticə vəziyyəti</p>'
+        + ldSideMeta('Orta', formatAvg(stats.avg), '')
         + '</div>'
-        + '<div class="meqsed-ld-grid">'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Nəticə vəziyyəti</h4>'
-        + '<p class="meqsed-ld-note">Orta bal — balı olan qurumların ortalamasıdır.</p>'
-        + '<div class="meqsed-ld-split">'
-        + ldSplitChip(section, 'Nəticəsi olan', stats.hasResult, 'has_result')
+        + '<div class="meqsed-ld-split assess-ld-chips exq-ld-svc-grid">'
+        + ldSplitChip(section, 'Nəticəli', stats.hasResult, 'has_result')
         + ldSplitChip(section, 'Nəticəsiz', stats.noResult, 'no_result')
-        + '</div>'
-        + ldKindRow(section, 'Nəticəsi olan', stats.hasResult, total, 'has_result')
-        + ldKindRow(section, 'Nəticəsiz', stats.noResult, total, 'no_result')
-        + '</div>'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Status</h4>'
-        + '<p class="meqsed-ld-note">Klikləyin — aşağıdakı siyahı filtrələnir.</p>'
-        + ldStatusRowsHtml(section, stats.byStatus, total)
-        + '</div>'
         + '</div>';
+    return ldComboCard(
+        'İSQ nəticələri',
+        left,
+        'Status',
+        hasStatusSlices(stats.byStatus),
+        'İSQ status və qurum'
+    );
 }
 
 function exqListDashHtml(stats) {
     var section = 'exq';
-    var total = stats.total;
-    return ldHead(section, 'EXQ nəticələri')
-        + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Qurum', stats.qurum, 'all')
-        + ldKpi(section, 'Nəticəli', stats.hasResult, 'has_result', 'is-pos')
-        + ldKpi(section, 'Xidmət sayı', stats.svcSum, 'svc_sum')
+    var left = '<div class="exq-ld-side-head">'
+        + '<p class="assess-ld-block-label">Xidmət sayı</p>'
+        + ldSideMeta('Cəmi', stats.svcSum || 0, 'svc_sum')
         + '</div>'
-        + '<div class="meqsed-ld-grid">'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Xidmət sayı</h4>'
-        + '<div class="meqsed-ld-split">'
+        + '<div class="meqsed-ld-split assess-ld-chips exq-ld-svc-grid">'
         + ldSplitChip(section, 'Yox', stats.bySvc.svc_none, 'svc_none')
         + ldSplitChip(section, '1–5', stats.bySvc.svc_1_5, 'svc_1_5')
         + ldSplitChip(section, '6–20', stats.bySvc.svc_6_20, 'svc_6_20')
         + ldSplitChip(section, '21+', stats.bySvc.svc_21, 'svc_21')
-        + '</div>'
-        + ldKindRow(section, 'Xidmət yox', stats.bySvc.svc_none, total, 'svc_none')
-        + ldKindRow(section, '1–5 xidmət', stats.bySvc.svc_1_5, total, 'svc_1_5')
-        + ldKindRow(section, '6–20 xidmət', stats.bySvc.svc_6_20, total, 'svc_6_20')
-        + ldKindRow(section, '21+ xidmət', stats.bySvc.svc_21, total, 'svc_21')
-        + '</div>'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Status</h4>'
-        + '<p class="meqsed-ld-note">Klikləyin — aşağıdakı siyahı filtrələnir.</p>'
-        + ldStatusRowsHtml(section, stats.byStatus, total)
-        + '</div>'
         + '</div>';
+    return ldComboCard(
+        'Elektron xidmət qiymətləndirmə nəticələri',
+        left,
+        'Status',
+        hasStatusSlices(stats.byStatus),
+        'EXQ status və qurum'
+    );
 }
 
 function meqsedListDashHtml(stats) {
     var section = 'meqsed';
-    var total = stats.total;
-    var kinds = [
-        ['new_system', MEQSED_NOVU_LABELS.new_system],
-        ['exist_system', MEQSED_NOVU_LABELS.exist_system],
-        ['new_service', MEQSED_NOVU_LABELS.new_service],
-        ['exist_service', MEQSED_NOVU_LABELS.exist_service]
-    ];
-    if (stats.byKind.other) kinds.push(['other', MEQSED_NOVU_LABELS.other]);
-    function reyExtraPills(prefix, partialN, revisionN) {
-        var html = '';
-        if (partialN > 0) html += ldReyPill(section, 'Qismən', partialN, prefix + '_partial', 'partial');
-        if (revisionN > 0) html += ldReyPill(section, 'Düzəlişə göndərildi', revisionN, prefix + '_revision', 'revision');
-        return html;
-    }
-    var hasOpinion = !!(stats.pos || stats.neg || stats.partial || stats.other);
-    return ldHead(section, 'Məqsədəuyğunluq nəticələri')
-        + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Qurum', stats.qurum, 'all')
-        + ldKpi(section, 'Müsbət rəy', stats.pos, 'pos', 'is-pos')
-        + ldKpi(section, 'Mənfi rəy', stats.neg, 'neg', 'is-neg')
+    var items = opinionDonutItems(stats);
+    var left = '<div class="exq-ld-side-head">'
+        + '<p class="assess-ld-block-label">Rəy</p>'
+        + ldSideMeta('Cəmi', items.reduce(function(s, i) { return s + i.n; }, 0), '')
         + '</div>'
-        + '<div class="meqsed-ld-charts' + (hasOpinion ? '' : ' is-empty') + '">'
-        + '<div class="meqsed-ld-card meqsed-ld-card--chart">'
-        + '<h4>Müsbət / mənfi — Yeni və mövcud</h4>'
-        + '<p class="meqsed-ld-note">Rəylərin yeni yaradılana və mövcud dəyişikliyə nisbəti. Klikləyin — siyahı filtrələnir.</p>'
-        + '<div class="meqsed-ld-chart-box">'
-        + (hasOpinion
-            ? '<canvas id="meqsedOpinionBar" aria-label="Yeni və mövcud üzrə rəy"></canvas>'
-            : '<p class="meqsed-ld-chart-empty">Rəy məlumatı yoxdur.</p>')
-        + '</div></div>'
-        + '<div class="meqsed-ld-card meqsed-ld-card--chart meqsed-ld-card--donut">'
-        + '<h4>Ümumi rəy payı</h4>'
-        + '<p class="meqsed-ld-note">Bütün müraciətlər üzrə rəy bölgüsü.</p>'
-        + '<div class="meqsed-ld-chart-box meqsed-ld-chart-box--donut">'
-        + (hasOpinion
-            ? '<canvas id="meqsedOpinionDonut" aria-label="Ümumi rəy payı"></canvas>'
-            : '<p class="meqsed-ld-chart-empty">Rəy məlumatı yoxdur.</p>')
-        + '</div></div>'
-        + '</div>'
-        + '<div class="meqsed-ld-grid">'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Müraciətin növü</h4>'
-        + kinds.map(function(item) {
-            return ldKindRow(section, item[1], stats.byKind[item[0]] || 0, total, item[0]);
-        }).join('')
-        + '</div>'
-        + '<div class="meqsed-ld-card">'
-        + '<h4>Rəy — sistem</h4>'
-        + '<div class="meqsed-ld-rey">'
-        + '<div class="meqsed-ld-rey-row">'
-        + '<span class="meqsed-ld-rey-label">Sistem</span>'
-        + '<span class="meqsed-ld-rey-n">' + stats.sistem + ' müraciət</span>'
-        + ldReyPill(section, 'Müsbət', stats.sistemPos, 'sistem_pos', 'pos')
-        + ldReyPill(section, 'Mənfi', stats.sistemNeg, 'sistem_neg', 'neg')
-        + reyExtraPills('sistem', stats.sistemPartial, stats.sistemRevision)
-        + '</div>'
-        + '</div>'
-        + '</div>'
+        + '<div class="meqsed-ld-split assess-ld-chips exq-ld-svc-grid">'
+        + ldSplitChip(section, 'Müsbət', stats.pos || 0, 'pos')
+        + ldSplitChip(section, 'Mənfi', stats.neg || 0, 'neg')
+        + ldSplitChip(section, 'Düzəliş', stats.other || 0, 'revision')
+        + ldSplitChip(section, 'Qismən', stats.partial || 0, 'partial')
         + '</div>';
+    return ldComboCard(
+        'Məqsədəuyğunluq nəticələri',
+        left,
+        'Rəy',
+        items.length > 0,
+        'Məqsədəuyğunluq rəy və qurum'
+    );
 }
 
-function destroyMeqsedOpinionCharts() {
-    destroyAssessChart('meqsedOpinionBarChart', 'meqsedOpinionBar');
+var STATUS_CHART_COLORS = {
+    done: '#059669',
+    progress: '#2563eb',
+    planned: '#ea580c',
+    paused: '#d97706',
+    review: '#0891b2',
+    esd: '#4f46e5',
+    blocked: '#dc2626',
+    rejected: '#e11d48',
+    other: '#64748b'
+};
+
+function destroyAssessListDonut() {
+    destroyAssessChart('assessListDonutChart', 'assessListDonut');
+    destroyAssessChart('exqStatusChart', 'exqStatusChart');
     destroyAssessChart('meqsedOpinionDonutChart', 'meqsedOpinionDonut');
+    destroyAssessChart('meqsedOpinionBarChart', 'meqsedOpinionBar');
+}
+
+function destroyExqStatusChart() { destroyAssessListDonut(); }
+function destroyMeqsedOpinionCharts() { destroyAssessListDonut(); }
+
+function drawAssessListDonut(items, qurumN, centerLabel) {
+    if (typeof Chart === 'undefined') return;
+    destroyAssessListDonut();
+    var canvas = document.getElementById('assessListDonut');
+    if (!canvas || !items || !items.length) return;
+    var total = items.reduce(function(s, item) { return s + item.n; }, 0);
+    var solidColors = items.map(function(item) { return item.color; });
+    var centerText = centerLabel || 'Qurum';
+    var centerValue = qurumN != null ? qurumN : total;
+    var centerPlugin = {
+        id: 'assessListDonutCenter',
+        afterDraw: function(chart) {
+            var area = chart.chartArea;
+            var c = chart.ctx;
+            var cx = area.left + area.width / 2;
+            var cy = area.top + area.height / 2;
+            c.save();
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.font = '800 22px Inter, system-ui, sans-serif';
+            c.fillStyle = '#0f172a';
+            c.fillText(String(centerValue), cx, cy - 8);
+            c.font = '600 11px Inter, system-ui, sans-serif';
+            c.fillStyle = '#64748b';
+            c.fillText(centerText, cx, cy + 11);
+            c.restore();
+        }
+    };
+    var legendBottom = typeof window !== 'undefined' && window.innerWidth < 640;
+    state.assessListDonutChart = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: items.map(function(item) { return item.label; }),
+            datasets: [{
+                data: items.map(function(item) { return item.n; }),
+                backgroundColor: solidColors.slice(),
+                borderWidth: 3,
+                borderColor: '#fff',
+                hoverOffset: 5
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '66%',
+            layout: { padding: { top: 2, bottom: 2, left: 2, right: 4 } },
+            plugins: {
+                legend: {
+                    position: legendBottom ? 'bottom' : 'right',
+                    labels: {
+                        boxWidth: 9,
+                        boxHeight: 9,
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        padding: legendBottom ? 10 : 12,
+                        font: { size: 11, weight: '600' },
+                        color: '#475569',
+                        generateLabels: function(chart) {
+                            var ds = chart.data.datasets[0];
+                            return (chart.data.labels || []).map(function(label, i) {
+                                var n = ds.data[i] || 0;
+                                var pct = total ? Math.round((n / total) * 100) : 0;
+                                return {
+                                    text: label + '  ' + n + ' · ' + pct + '%',
+                                    fillStyle: solidColors[i],
+                                    strokeStyle: solidColors[i],
+                                    index: i,
+                                    hidden: false
+                                };
+                            });
+                        }
+                    },
+                    onClick: function(e, item) {
+                        var row = items[item.index];
+                        if (!row || typeof window.setAssessListFilter !== 'function') return;
+                        window.setAssessListFilter(row.filter);
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            var n = Number(ctx.raw) || 0;
+                            var pct = total ? Math.round((n / total) * 100) : 0;
+                            return ' ' + ctx.label + ': ' + n + ' (' + pct + '%)';
+                        }
+                    }
+                }
+            },
+            onClick: function(evt, els) {
+                if (!els || !els.length) return;
+                var item = items[els[0].index];
+                if (!item || typeof window.setAssessListFilter !== 'function') return;
+                window.setAssessListFilter(item.filter);
+            },
+            onHover: function(evt, els) {
+                var target = (evt && evt.native && evt.native.target)
+                    || (evt && evt.chart && evt.chart.canvas);
+                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+            }
+        },
+        plugins: [centerPlugin]
+    });
+}
+
+function drawExqStatusChart(stats) {
+    if (!stats) return;
+    drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
 }
 
 function drawMeqsedOpinionCharts(stats) {
-    if (!stats || typeof Chart === 'undefined') return;
-    destroyMeqsedOpinionCharts();
-    var life = stats.byLifecycle || { yeni: emptyOpinionBucket(), movcud: emptyOpinionBucket() };
-    var opinionDefs = [
-        { key: 'pos', label: 'Müsbət', color: '#059669', filterSuffix: 'pos' },
-        { key: 'neg', label: 'Mənfi', color: '#dc2626', filterSuffix: 'neg' },
-        { key: 'revision', label: 'Düzəlişə göndərildi', color: '#2563eb', filterSuffix: 'revision' },
-        { key: 'partial', label: 'Qismən', color: '#d97706', filterSuffix: 'partial' }
-    ];
-    var lifeKeys = ['yeni', 'movcud'];
-    var lifeLabels = ['Yeni yaradılan', 'Mövcudda dəyişiklik'];
-    var barCanvas = document.getElementById('meqsedOpinionBar');
-    if (barCanvas) {
-        var barDatasets = opinionDefs.map(function(def) {
-            return {
-                label: def.label,
-                data: lifeKeys.map(function(k) { return (life[k] && life[k][def.key]) || 0; }),
-                backgroundColor: def.color,
-                borderRadius: 6,
-                barPercentage: 0.72,
-                categoryPercentage: 0.7,
-                _filterSuffix: def.filterSuffix
-            };
-        }).filter(function(ds) {
-            return ds.data.some(function(n) { return n > 0; });
-        });
-        var lifeTotals = lifeKeys.map(function(k) {
-            var b = life[k] || emptyOpinionBucket();
-            return b.pos + b.neg + b.partial + b.revision;
-        });
-        state.meqsedOpinionBarChart = new Chart(barCanvas.getContext('2d'), {
-            type: 'bar',
-            data: { labels: lifeLabels, datasets: barDatasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y',
-                interaction: { mode: 'nearest', axis: 'y', intersect: true },
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'rectRounded', padding: 12, font: { size: 11, weight: '600' } }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                var n = Number(ctx.raw) || 0;
-                                var tot = lifeTotals[ctx.dataIndex] || 0;
-                                var pct = tot ? Math.round((n / tot) * 100) : 0;
-                                return ' ' + ctx.dataset.label + ': ' + n + ' (' + pct + '%)';
-                            }
-                        }
-                    }
-                },
-                scales: {
-                    x: {
-                        stacked: true,
-                        beginAtZero: true,
-                        ticks: { precision: 0, font: { size: 11 } },
-                        grid: { color: 'rgba(148, 163, 184, 0.18)' }
-                    },
-                    y: {
-                        stacked: true,
-                        ticks: { font: { size: 12, weight: '700' }, color: '#334155' },
-                        grid: { display: false }
-                    }
-                },
-                onClick: function(evt, els) {
-                    if (!els || !els.length) return;
-                    var el = els[0];
-                    var lifeKey = lifeKeys[el.index];
-                    var ds = barDatasets[el.datasetIndex];
-                    if (!lifeKey || !ds || !ds._filterSuffix) return;
-                    if (typeof window.setAssessListFilter === 'function') {
-                        window.setAssessListFilter(lifeKey + '_' + ds._filterSuffix);
-                    }
-                },
-                onHover: function(evt, els) {
-                    var target = (evt && evt.native && evt.native.target)
-                        || (evt && evt.chart && evt.chart.canvas);
-                    if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
-                }
-            }
-        });
-    }
-    var donutCanvas = document.getElementById('meqsedOpinionDonut');
-    if (donutCanvas) {
-        var donutItems = [
-            { key: 'pos', label: 'Müsbət', n: stats.pos, color: '#059669', filter: 'pos' },
-            { key: 'neg', label: 'Mənfi', n: stats.neg, color: '#dc2626', filter: 'neg' },
-            { key: 'revision', label: 'Düzəlişə göndərildi', n: stats.other, color: '#2563eb', filter: 'revision' },
-            { key: 'partial', label: 'Qismən', n: stats.partial, color: '#d97706', filter: 'partial' }
-        ].filter(function(item) { return item.n > 0; });
-        if (!donutItems.length) return;
-        var donutTotal = donutItems.reduce(function(s, item) { return s + item.n; }, 0);
-        state.meqsedOpinionDonutChart = new Chart(donutCanvas.getContext('2d'), {
-            type: 'doughnut',
-            data: {
-                labels: donutItems.map(function(item) { return item.label; }),
-                datasets: [{
-                    data: donutItems.map(function(item) { return item.n; }),
-                    backgroundColor: donutItems.map(function(item) { return item.color; }),
-                    borderWidth: 2,
-                    borderColor: '#fff',
-                    hoverOffset: 4
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '62%',
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            boxWidth: 10,
-                            boxHeight: 10,
-                            usePointStyle: true,
-                            pointStyle: 'circle',
-                            padding: 10,
-                            font: { size: 11, weight: '600' },
-                            generateLabels: function(chart) {
-                                var ds = chart.data.datasets[0];
-                                return (chart.data.labels || []).map(function(label, i) {
-                                    var n = ds.data[i] || 0;
-                                    var pct = donutTotal ? Math.round((n / donutTotal) * 100) : 0;
-                                    return {
-                                        text: label + ' · ' + n + ' (' + pct + '%)',
-                                        fillStyle: ds.backgroundColor[i],
-                                        strokeStyle: ds.backgroundColor[i],
-                                        index: i,
-                                        hidden: false
-                                    };
-                                });
-                            }
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                var n = Number(ctx.raw) || 0;
-                                var pct = donutTotal ? Math.round((n / donutTotal) * 100) : 0;
-                                return ' ' + ctx.label + ': ' + n + ' (' + pct + '%)';
-                            }
-                        }
-                    }
-                },
-                onClick: function(evt, els) {
-                    if (!els || !els.length) return;
-                    var item = donutItems[els[0].index];
-                    if (!item || typeof window.setAssessListFilter !== 'function') return;
-                    window.setAssessListFilter(item.filter);
-                },
-                onHover: function(evt, els) {
-                    var target = (evt && evt.native && evt.native.target)
-                        || (evt && evt.chart && evt.chart.canvas);
-                    if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
-                }
-            }
-        });
-    }
+    if (!stats) return;
+    drawAssessListDonut(opinionDonutItems(stats), stats.qurum || 0, 'Qurum');
+}
+
+function drawDiagStatusChart(stats) {
+    if (!stats) return;
+    drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
+}
+
+function drawIsqStatusChart(stats) {
+    if (!stats) return;
+    drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
 }
 
 function listDashHtmlForSection(section, rows) {
@@ -1825,7 +1850,7 @@ function renderAssessListDash(section, rows) {
     var el = document.getElementById('assessListDash') || document.getElementById('meqsedListDash');
     if (!el) return;
     if (!LIST_DASH_SECTIONS[section]) {
-        destroyMeqsedOpinionCharts();
+        destroyAssessListDonut();
         el.classList.add('hidden');
         el.setAttribute('hidden', '');
         el.innerHTML = '';
@@ -1835,14 +1860,19 @@ function renderAssessListDash(section, rows) {
     el.classList.remove('hidden');
     el.removeAttribute('hidden');
     el.setAttribute('data-section', section);
-    var stats = section === 'meqsed' ? collectMeqsedListStats(rows || []) : null;
-    if (section === 'meqsed') el.innerHTML = meqsedListDashHtml(stats);
-    else el.innerHTML = listDashHtmlForSection(section, rows || []);
-    if (section === 'meqsed') {
-        requestAnimationFrame(function() { drawMeqsedOpinionCharts(stats); });
-    } else {
-        destroyMeqsedOpinionCharts();
-    }
+    var listRows = rows || [];
+    var stats = null;
+    if (section === 'diag') stats = collectDiagListStats(listRows);
+    else if (section === 'isq') stats = collectIsqListStats(listRows);
+    else if (section === 'exq') stats = collectExqListStats(listRows);
+    else if (section === 'meqsed') stats = collectMeqsedListStats(listRows);
+    el.innerHTML = listDashHtmlForSection(section, listRows);
+    requestAnimationFrame(function() {
+        if (section === 'diag') drawDiagStatusChart(stats);
+        else if (section === 'isq') drawIsqStatusChart(stats);
+        else if (section === 'exq') drawExqStatusChart(stats);
+        else if (section === 'meqsed') drawMeqsedOpinionCharts(stats);
+    });
 }
 
 function renderMeqsed(rows) {
@@ -2155,8 +2185,19 @@ function renderOne(section) {
     renderAssessListDash(section, yearRows);
 
     var dashFiltered = !!(LIST_DASH_SECTIONS[section] && listDashFilter(section));
+    var showDetail = hubListDetailActive(section, searchActive);
     if (section === activeTab) {
-        updateHubMeta(filtered.length, searchActive || dashFiltered, year);
+        updateHubMeta(showDetail ? filtered.length : yearRows.length, searchActive || dashFiltered, year);
+    }
+
+    var shell = document.querySelector('.assess-table-shell');
+    if (shell) shell.classList.toggle('is-open', showDetail);
+
+    if (!showDetail) {
+        rememberHubRows([]);
+        bodyEl.innerHTML = '';
+        if (openDiagKey) closeDiagModal();
+        return;
     }
 
     if (!filtered.length) {
@@ -2196,6 +2237,61 @@ export function setAssessmentTab(tab) {
     syncSearchInput();
     renderOne(activeTab);
     scheduleTabCounts();
+}
+
+function openAssessmentQurumList(scrollTo) {
+    var panel = document.getElementById('assessmentHubContent');
+    if (panel && panel.classList.contains('hidden')) {
+        panel.classList.remove('hidden');
+        panel.classList.add('slide-down');
+        var toggleBtn = document.getElementById('assessListToggle');
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+        var icon = document.getElementById('icon-assessmentHubContent');
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    }
+    if (!scrollTo) return;
+    requestAnimationFrame(function() {
+        var target = document.getElementById('assessListToggle')
+            || document.getElementById('assessmentHubContent')
+            || document.getElementById('assessListDash');
+        if (target && typeof target.scrollIntoView === 'function') {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
+}
+
+export function focusAssessmentSection(tab) {
+    if (LIST_DASH_SECTIONS[tab]) {
+        listDashFilterByTab[tab] = 'all';
+        pageState[tab] = pageState[tab] || 1;
+    }
+    setAssessmentTab(tab);
+    openAssessmentQurumList(true);
+}
+
+/** Always reveal the full qurum list for the active list-dash section (no toggle-off). */
+export function showAssessFullList() {
+    var section = activeTab;
+    if (!LIST_DASH_SECTIONS[section]) {
+        if (SECTIONS.indexOf(section) === -1) return;
+        openAssessmentQurumList(true);
+        renderOne(section);
+        scheduleTabCounts();
+        return;
+    }
+    listDashFilterByTab[section] = 'all';
+    pageState[section] = 1;
+    openAssessmentQurumList(false);
+    renderOne(section);
+    scheduleTabCounts();
+    requestAnimationFrame(function() {
+        var bodyEl = document.getElementById(HUB_BODY_ID);
+        var target = bodyEl || document.getElementById('assessListToggle')
+            || document.getElementById('assessmentHubContent');
+        if (target && typeof target.scrollIntoView === 'function') {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    });
 }
 
 export function setAssessmentSearch(section, query) {
@@ -2248,6 +2344,8 @@ function setPeriodState(startIso, endIso, yearKey) {
 
 async function loadCurrentPeriod() {
     if (!rangeStartIso || !rangeEndIso) return true;
+    var key = rangeStartIso + '|' + rangeEndIso;
+    if (key === lastLoadedPeriodKey) return true;
     if (periodLoadBusy) {
         showToast('Dövr hələ yüklənir...', 'info');
         return false;
@@ -2255,7 +2353,9 @@ async function loadCurrentPeriod() {
     if (typeof window.loadAssessmentCreatedRange !== 'function') return true;
     periodLoadBusy = true;
     try {
-        return await window.loadAssessmentCreatedRange(rangeStartIso, rangeEndIso);
+        var ok = await window.loadAssessmentCreatedRange(rangeStartIso, rangeEndIso);
+        if (ok) lastLoadedPeriodKey = key;
+        return ok;
     } finally {
         periodLoadBusy = false;
     }
@@ -2288,6 +2388,7 @@ export async function applyAssessmentPeriod() {
 export async function setAssessmentYearForActiveTab(year) {
     if (year === 'all' || year === '' || year == null) {
         setPeriodState('', '', 'all');
+        lastLoadedPeriodKey = '';
         resetAssessmentPages();
         renderOne(activeTab);
         scheduleTabCounts();
@@ -2295,7 +2396,14 @@ export async function setAssessmentYearForActiveTab(year) {
     }
     var y = parseInt(year, 10);
     if (!isFinite(y)) return;
-    setPeriodState(y + '-01-01', lastDayOfYearIso(y), y);
+    var start = y + '-01-01';
+    var end = lastDayOfYearIso(y);
+    if (rangeStartIso === start && rangeEndIso === end && Number(selectedYear) === y) {
+        renderOne(activeTab);
+        scheduleTabCounts();
+        return;
+    }
+    setPeriodState(start, end, y);
     resetAssessmentPages();
     await loadCurrentPeriod();
     renderOne(activeTab);
@@ -2316,11 +2424,27 @@ export function setAssessListFilter(key) {
     }
     var next = String(key == null ? '' : key).trim();
     var cur = listDashFilterByTab[section] || '';
-    if (next === 'all' || next === '' || next === cur) listDashFilterByTab[section] = '';
+    if (next === '' || next === cur) listDashFilterByTab[section] = '';
     else listDashFilterByTab[section] = next;
     pageState[section] = 1;
+    var panel = document.getElementById('assessmentHubContent');
+    if (panel && panel.classList.contains('hidden') && listDashFilterByTab[section]) {
+        panel.classList.remove('hidden');
+        var toggleBtn = document.getElementById('assessListToggle');
+        if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+        var icon = document.getElementById('icon-assessmentHubContent');
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    }
     renderOne(section);
     scheduleTabCounts();
+    if (listDashFilterByTab[section]) {
+        requestAnimationFrame(function() {
+            var bodyEl = document.getElementById(HUB_BODY_ID);
+            if (bodyEl && typeof bodyEl.scrollIntoView === 'function') {
+                bodyEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    }
 }
 
 export function setMeqsedDashFilter(key) {

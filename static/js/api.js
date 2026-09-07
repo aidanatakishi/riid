@@ -568,7 +568,12 @@ export async function loadAssessmentCreatedRange(startIso, endIso) {
     }
     saveClientCredentials(creds.baseUrl, creds.pat, creds.projectKey);
     state.currentBaseUrl = creds.baseUrl.endsWith('/') ? creds.baseUrl.slice(0, -1) : creds.baseUrl;
-    document.getElementById('loadingOverlay').classList.remove('hidden');
+    var sectionLoading = document.getElementById('assessSectionLoading');
+    if (sectionLoading) {
+        sectionLoading.classList.remove('hidden');
+        sectionLoading.removeAttribute('hidden');
+        sectionLoading.setAttribute('aria-busy', 'true');
+    }
     try {
         var data = await fetchIssuesCreatedRange(state.currentBaseUrl, creds.pat, creds.projectKey, startIso, endIso);
         mergeFetchedIssues(data);
@@ -579,7 +584,11 @@ export async function loadAssessmentCreatedRange(startIso, endIso) {
         showToast(error.message, 'error');
         return false;
     } finally {
-        document.getElementById('loadingOverlay').classList.add('hidden');
+        if (sectionLoading) {
+            sectionLoading.classList.add('hidden');
+            sectionLoading.setAttribute('hidden', '');
+            sectionLoading.setAttribute('aria-busy', 'false');
+        }
     }
 }
 
