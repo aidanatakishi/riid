@@ -6,7 +6,7 @@ import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, se
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter } from './assessments.js';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort } from './assessments.js';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 
@@ -122,6 +122,7 @@ window.onAssessDatesChange = onAssessDatesChange;
 window.applyAssessmentPeriod = applyAssessmentPeriod;
 window.setMeqsedDashFilter = setMeqsedDashFilter;
 window.setAssessListFilter = setAssessListFilter;
+window.cycleAssessListSort = cycleAssessListSort;
 window.loadAssessmentCreatedRange = loadAssessmentCreatedRange;
 
 Object.defineProperty(window, 'filteredTasks', {

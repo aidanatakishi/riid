@@ -44,6 +44,7 @@ var ASSESS_START_YEAR = 2023;
 var searchDebounceTimer = null;
 var pageState = { diag: 1, isq: 1, self: 1, exq: 1, meqsed: 1 };
 var listDashFilterByTab = { diag: '', isq: '', self: '', exq: '', meqsed: '' };
+var listSortByTab = { diag: 'date', isq: 'date', self: 'date', exq: 'date', meqsed: 'date' };
 var PAGE_SIZE = 10;
 var STATUS_GROUP_LABELS = {
     done: 'Tamamlanıb',
@@ -403,17 +404,91 @@ function diagNumericScore(r) {
 }
 
 function sortDiagRows(rows) {
+    return sortRowsByMetric(rows, 'diag', -1);
+}
+
+function rowSortMetric(section, r) {
+    if (section === 'diag') return diagNumericScore(r);
+    if (section === 'isq') return isqNumericScore(r);
+    if (section === 'self') return parseScoreForSort(getSelfAssessInfo(r && r.task).score);
+    if (section === 'exq') {
+        var score = exqNumericScore(r);
+        if (score != null) return score;
+        var svc = getExqServiceCount(r && r.task);
+        return svc != null && svc > 0 ? svc : null;
+    }
+    if (section === 'meqsed') {
+        var units = meqsedRowUnits(getMeqsedInfo(r && r.task));
+        var n = (units.xidmet || 0) + (units.sistem || 0);
+        return n > 0 ? n : null;
+    }
+    return null;
+}
+
+function sortRowsByDate(rows) {
     return (rows || []).slice().sort(function(a, b) {
-        var sa = diagNumericScore(a);
-        var sb = diagNumericScore(b);
+        var ta = Number(a.time) || 0;
+        var tb = Number(b.time) || 0;
+        if (tb !== ta) return tb - ta;
+        var ya = a.year == null ? 0 : Number(a.year);
+        var yb = b.year == null ? 0 : Number(b.year);
+        if (yb !== ya) return yb - ya;
+        var q = String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
+        if (q) return q;
+        return String((a.task && a.task.key) || '').localeCompare(String((b.task && b.task.key) || ''));
+    });
+}
+
+function sortRowsByMetric(rows, section, dir) {
+    return (rows || []).slice().sort(function(a, b) {
+        var sa = rowSortMetric(section, a);
+        var sb = rowSortMetric(section, b);
         if (sa == null && sb == null) {
             return String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
         }
         if (sa == null) return 1;
         if (sb == null) return -1;
-        if (sb !== sa) return sb - sa;
+        if (sa !== sb) return dir * (sa - sb);
         return String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
     });
+}
+
+function applyListSort(section, rows) {
+    var mode = listSortByTab[section] || 'date';
+    if (mode === 'asc') return sortRowsByMetric(rows, section, 1);
+    if (mode === 'desc') return sortRowsByMetric(rows, section, -1);
+    return sortRowsByDate(rows);
+}
+
+function listSortMode(section) {
+    return listSortByTab[section] || 'date';
+}
+
+function listSortCaption(mode) {
+    if (mode === 'desc') return 'Çoxdan aza';
+    if (mode === 'asc') return 'Azdan çoxa';
+    return 'Tarixə görə';
+}
+
+function listSortBtnHtml(section) {
+    var mode = listSortMode(section);
+    var nextHint = mode === 'date' ? 'çoxdan aza' : (mode === 'desc' ? 'azdan çoxa' : 'tarixə görə');
+    var title = 'İndi: ' + listSortCaption(mode) + '. Kliklə — ' + nextHint;
+    return '<button type="button" class="assess-sort-btn is-' + mode + '"'
+        + ' title="' + escapeHtml(title) + '" aria-label="' + escapeHtml(title) + '"'
+        + ' onclick="event.stopPropagation(); cycleAssessListSort()">'
+        + '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true">'
+        + '<path stroke-linecap="round" stroke-linejoin="round" d="M8 7l4-4 4 4M16 17l-4 4-4-4" />'
+        + '</svg><span>' + escapeHtml(listSortCaption(mode)) + '</span></button>';
+}
+
+export function cycleAssessListSort() {
+    var section = activeTab;
+    if (SECTIONS.indexOf(section) === -1) return;
+    var cur = listSortByTab[section] || 'date';
+    listSortByTab[section] = cur === 'date' ? 'desc' : (cur === 'desc' ? 'asc' : 'date');
+    pageState[section] = 1;
+    renderOne(section, { skipHubDash: true, skipYearSelect: true });
 }
 
 function fillYearSelect(years, selected) {
@@ -593,8 +668,8 @@ function hubRow(cells, detailHtml) {
     return '<div class="assess-hub-row" role="row">' + cellsHtml + detail + '</div>';
 }
 
-function pagerHtml(section, page, pages, total) {
-    if (total <= PAGE_SIZE) return '';
+function pagerHtml(section, page, pages, qurumN, rowTotal) {
+    if ((rowTotal != null ? rowTotal : qurumN) <= PAGE_SIZE) return '';
     var prev = page > 1
         ? '<button type="button" class="tl-page-btn" onclick="event.stopPropagation(); setAssessmentPage(\'' + section + '\',' + (page - 1) + ')">Əvvəlki</button>'
         : '';
@@ -602,12 +677,13 @@ function pagerHtml(section, page, pages, total) {
         ? '<button type="button" class="tl-page-btn" onclick="event.stopPropagation(); setAssessmentPage(\'' + section + '\',' + (page + 1) + ')">Növbəti</button>'
         : '';
     return '<div class="tl-pagination assess-pager">' + prev
-        + '<span class="tl-page-label">' + page + ' / ' + pages + ' · ' + total + ' qurum</span>'
+        + '<span class="tl-page-label">' + page + ' / ' + pages + ' · ' + qurumN + ' qurum</span>'
         + next + '</div>';
 }
 
 function paginateRows(rows, section) {
-    var total = rows.length;
+    var total = (rows || []).length;
+    var qurumN = countQurums(rows);
     var pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
     var page = pageState[section] || 1;
     if (page > pages) page = pages;
@@ -619,7 +695,8 @@ function paginateRows(rows, section) {
         page: page,
         pages: pages,
         total: total,
-        html: pagerHtml(section, page, pages, total)
+        qurumN: qurumN,
+        html: pagerHtml(section, page, pages, qurumN, total)
     };
 }
 
@@ -1021,25 +1098,19 @@ function renderExq(rows) {
         var c = getExqServiceCount(r && r.task);
         if (c != null && c > maxSvc) maxSvc = c;
     });
-    var sorted = (rows || []).slice().sort(function(a, b) {
-        var ca = getExqServiceCount(a && a.task) || 0;
-        var cb = getExqServiceCount(b && b.task) || 0;
-        return cb - ca;
-    });
-    var body = sorted.map(function(r) {
+    var body = (rows || []).map(function(r) {
         var t = r.task;
         var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
         var bal = getExqScore(t);
         var count = getExqServiceCount(t);
-        var netice = formatAssessmentFieldText(t.fields && t.fields.customfield_17317);
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
             { label: 'Status', html: statusPill(status, t) },
             { label: 'Xidmət və bal', cls: 'assess-hub-cell--exq-metrics', html: exqRowMetricsHtml(bal, count, avg, maxSvc) },
-            { label: 'EXQ Nəticəsi', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(netice) + '</span>' }
+            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
     }).join('');
-    return hubTable('exq', ['Qurum adı', 'Status', 'Xidmət və bal', 'EXQ Nəticəsi'], body);
+    return hubTable('exq', ['Qurum adı', 'Status', 'Xidmət və bal', ''], body);
 }
 
 function parseXidmetUnits(info) {
@@ -1273,6 +1344,37 @@ function countQurums(rows) {
     return Object.keys(qset).length;
 }
 
+function qurumRowKey(r, i) {
+    return qurumMatchKey(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || ('__row_' + ((i || 0) + 1));
+}
+
+function preferExqQurumRow(a, b) {
+    var ca = getExqServiceCount(a && a.task);
+    var cb = getExqServiceCount(b && b.task);
+    var na = ca != null && isFinite(ca) && ca > 0 ? ca : -1;
+    var nb = cb != null && isFinite(cb) && cb > 0 ? cb : -1;
+    if (nb !== na) return nb > na ? b : a;
+    var sa = exqNumericScore(a);
+    var sb = exqNumericScore(b);
+    if ((sa == null) !== (sb == null)) return sb != null ? b : a;
+    return a;
+}
+
+function uniqueQurumRows(rows, pick) {
+    var map = {};
+    var keys = [];
+    (rows || []).forEach(function(r, i) {
+        var qk = qurumRowKey(r, i);
+        if (!map[qk]) {
+            map[qk] = r;
+            keys.push(qk);
+            return;
+        }
+        map[qk] = pick ? pick(map[qk], r) : map[qk];
+    });
+    return keys.map(function(k) { return map[k]; });
+}
+
 function avgOf(nums) {
     if (!nums || !nums.length) return null;
     var sum = 0;
@@ -1504,6 +1606,7 @@ function ldHead(section, title) {
         + ' title="Bu fəaliyyət üzrə bütün qurum siyahısını göstər"'
         + ' onclick="event.stopPropagation(); showAssessFullList()">'
         + 'Bütün siyahı</button>'
+        + listSortBtnHtml(section)
         + '</div>'
         + '<div class="meqsed-ld-head-right">'
         + '<p>' + escapeHtml(period) + '</p>'
@@ -1653,9 +1756,10 @@ function collectExqListStats(rows) {
         else stats.noResult += 1;
         var qk = qurumMatchKey(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || ('__row_' + stats.total);
         var qName = canonicalQurumName(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || '—';
-        if (!byQurumMap[qk]) byQurumMap[qk] = { key: qk, name: qName, svc: 0, scores: [] };
+        if (!byQurumMap[qk]) byQurumMap[qk] = { key: qk, name: qName, svc: 0, scores: [], hasResult: false };
         if (count != null && count > 0) byQurumMap[qk].svc += count;
         if (score != null) byQurumMap[qk].scores.push(score);
+        if (has || (count != null && count > 0)) byQurumMap[qk].hasResult = true;
         if (score == null) return;
         var weight = count != null && count > 0 ? count : 1;
         stats.scoreWeight += weight;
@@ -1676,7 +1780,8 @@ function collectExqListStats(rows) {
             key: row.key,
             name: row.name,
             svc: row.svc || 0,
-            score: avgOf(row.scores)
+            score: avgOf(row.scores),
+            hasResult: !!row.hasResult
         };
     }).sort(function(a, b) {
         var aHas = a.score != null && isFinite(a.score);
@@ -1687,6 +1792,9 @@ function collectExqListStats(rows) {
         return String(a.name).localeCompare(String(b.name), 'az');
     });
     stats.qurum = stats.byQurum.length;
+    stats.qurumWithSvc = stats.byQurum.filter(function(q) {
+        return (q.svc || 0) > 0;
+    }).length;
     return stats;
 }
 
@@ -1837,29 +1945,35 @@ function exqSvcMixHtml(bySvc) {
     return '<div class="exq-mix" aria-hidden="false">' + segs + '</div>';
 }
 
+function exqQurumsOnDash(items) {
+    return (items || []).filter(function(q) {
+        return q && (q.svc || 0) > 0;
+    });
+}
+
 function exqListDashHtml(stats) {
     var section = currentAssessSection() || 'exq';
     var overall = stats.weightedAvg != null ? stats.weightedAvg : stats.avg;
-    var qurums = stats.byQurum || [];
-    var qurumN = qurums.length;
+    var chartQurums = exqQurumsOnDash(stats.byQurum);
+    var chartN = chartQurums.length;
     var svcSum = stats.svcSum || 0;
-    var hasQurum = qurumN > 0;
-    var chartH = Math.max(10, 1.9 * Math.max(qurumN, 1) + 2.2);
-    var summary = qurumN + ' qurumda ' + svcSum + ' xidmət qiymətləndirilib';
+    var qurumWithSvc = stats.qurumWithSvc != null ? stats.qurumWithSvc : chartN;
+    var hasQurum = chartN > 0;
+    var chartH = Math.max(10, 1.9 * Math.max(chartN, 1) + 2.2);
+    var summary = qurumWithSvc + ' qurumda ' + svcSum + ' xidmət qiymətləndirilib';
     return ldHead(section, 'Elektron xidmət qiymətləndirmə nəticələri')
         + '<div class="meqsed-ld-card assess-ld-panel exq-ld-combo assess-ld-combo">'
         + '<div class="exq-overview">'
-        + exqSvcHeroHtml(svcSum, qurumN, 'svc_sum')
+        + exqSvcHeroHtml(svcSum, qurumWithSvc, 'svc_sum')
         + exqScoreMeterHtml(overall, { label: 'Bal ortalaması' })
         + '</div>'
         + '<p class="exq-overview-summary">' + escapeHtml(summary) + '</p>'
         + '<p class="assess-ld-block-label">Qurumların balları</p>'
-        + '<p class="exq-chart-hint">Hər zolaq qurumun balıdır. Üzərinə gələndə həmin qurumda neçə xidmət qiymətləndirildiyi görünür.</p>'
         + (hasQurum
             ? '<div class="exq-qurum-chart-wrap">'
                 + '<div class="meqsed-ld-chart-box exq-qurum-chart" style="height:' + chartH + 'rem">'
-                + '<canvas id="exqQurumSvcChart" aria-label="Bütün qurumlar üzrə bal"></canvas></div></div>'
-            : '<p class="meqsed-ld-chart-empty">Qurum məlumatı yoxdur.</p>')
+                + '<canvas id="exqQurumSvcChart" aria-label="Qiymətləndirilmiş qurumlar üzrə bal"></canvas></div></div>'
+            : '<p class="meqsed-ld-chart-empty">Qiymətləndirilmiş qurum yoxdur.</p>')
         + '</div>';
 }
 
@@ -2036,7 +2150,7 @@ function drawAssessListDonut(items, qurumN, centerLabel) {
 
 function drawExqStatusChart(stats) {
     if (!stats) return;
-    drawExqQurumSvcChart(stats.byQurum || []);
+    drawExqQurumSvcChart(exqQurumsOnDash(stats.byQurum));
 }
 
 function truncateChartLabel(s, max) {
@@ -2092,9 +2206,14 @@ function drawExqQurumSvcChart(items) {
                         },
                         label: function(ctx) {
                             var row = rows[ctx.dataIndex];
-                            var n = row ? row.svc : Number(ctx.raw) || 0;
+                            var n = row ? (row.svc || 0) : 0;
+                            if (!n) return ' Qiymətləndirilmiş xidmət yoxdur';
+                            return ' ' + n + ' xidmət qiymətləndirilib';
+                        },
+                        afterLabel: function(ctx) {
+                            var row = rows[ctx.dataIndex];
                             var bal = row && row.score != null ? formatAvg(row.score) : '—';
-                            return ' ' + n + ' xidmət · bal ' + bal;
+                            return ' Bal: ' + bal;
                         }
                     }
                 }
@@ -2106,7 +2225,7 @@ function drawExqQurumSvcChart(items) {
                     ticks: { precision: 0, font: { size: 11 }, color: '#64748b' },
                     grid: { color: 'rgba(148, 163, 184, 0.18)' },
                     border: { display: false },
-                    title: { display: true, text: 'Xidmət sayı', color: '#64748b', font: { size: 11, weight: '600' } }
+                    title: { display: true, text: 'Bal', color: '#64748b', font: { size: 11, weight: '600' } }
                 },
                 y: {
                     ticks: {
@@ -2139,9 +2258,11 @@ function drawExqQurumSvcChart(items) {
                 c.textAlign = 'left';
                 c.textBaseline = 'middle';
                 meta.data.forEach(function(bar, i) {
-                    var n = rows[i] && rows[i].svc;
-                    if (!n) return;
-                    c.fillText(String(n), bar.x + 6, bar.y);
+                    var row = rows[i];
+                    var label = row && row.score != null && isFinite(row.score)
+                        ? formatAvg(row.score)
+                        : '—';
+                    c.fillText(String(label), bar.x + 6, bar.y);
                 });
                 c.restore();
             }
@@ -2594,8 +2715,20 @@ function selfModalBodyHtml(t) {
     return '<p class="assess-modal-empty">Ümumi nəticə qeyd edilməyib.</p>';
 }
 
+function exqModalBodyHtml(t) {
+    var count = getExqServiceCount(t);
+    var bal = getExqScore(t);
+    var netice = formatAssessmentFieldText(t && t.fields && t.fields.customfield_17317);
+    var items = [
+        { label: 'Qiymətləndirilmiş xidmət', value: count != null && isFinite(Number(count)) ? String(count) : '—' },
+        { label: 'Bal', value: bal && bal !== '—' ? String(bal) : '—' },
+        { label: 'EXQ Nəticəsi', value: netice }
+    ];
+    return modalFieldBlocks(items);
+}
+
 function hasDetailModal(cat) {
-    return cat === 'diag' || cat === 'self' || cat === 'meqsed';
+    return cat === 'diag' || cat === 'self' || cat === 'meqsed' || cat === 'exq';
 }
 
 function fillDiagModal(r) {
@@ -2613,6 +2746,7 @@ function fillDiagModal(r) {
     if (!bodyEl) return;
     if (cat === 'meqsed') bodyEl.innerHTML = meqsedModalBodyHtml(t);
     else if (cat === 'self') bodyEl.innerHTML = selfModalBodyHtml(t);
+    else if (cat === 'exq') bodyEl.innerHTML = exqModalBodyHtml(t);
     else bodyEl.innerHTML = diagModalBodyHtml(r);
 }
 
@@ -2715,7 +2849,7 @@ function getSectionView(section) {
         filtered = filterBySearch(yearRows, section);
     }
     if (LIST_DASH_SECTIONS[section]) filtered = filterRowsByListDash(section, filtered);
-    if (section === 'diag') filtered = sortDiagRows(filtered);
+    filtered = applyListSort(section, filtered);
     var dashFiltered = !!(LIST_DASH_SECTIONS[section] && listDashFilter(section));
     return {
         empty: false,

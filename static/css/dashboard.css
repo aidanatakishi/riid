@@ -937,6 +937,37 @@ input[type="date"] { min-height: 38px; }
     border-color: #93c5fd;
     color: #1d4ed8;
 }
+.assess-sort-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    margin: 0;
+    padding: 0.28rem 0.55rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+    color: #334155;
+    font-family: inherit;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.assess-sort-btn svg {
+    width: 0.95rem;
+    height: 0.95rem;
+    flex: 0 0 auto;
+}
+.assess-sort-btn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+}
+.assess-sort-btn.is-desc,
+.assess-sort-btn.is-asc {
+    background: #f5f3ff;
+    border-color: #c4b5fd;
+    color: #5b21b6;
+}
 .meqsed-ld-head-right {
     display: flex;
     flex-wrap: wrap;
@@ -1319,12 +1350,6 @@ button.meqsed-ld-kpi:hover {
     font-size: 0.84rem;
     font-weight: 600;
     color: #475569;
-}
-.exq-chart-hint {
-    margin: -0.22rem 0 0.4rem;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: #94a3b8;
 }
 .exq-qurum-chart-wrap {
     max-height: none;
@@ -2230,7 +2255,7 @@ input.assess-search-input:focus {
 .assess-hub-table--diag { --assess-cols: minmax(8rem, 2.1fr) minmax(7rem, 0.9fr) minmax(5.5rem, 0.8fr) 2.85rem; }
 .assess-hub-table--isq { --assess-cols: minmax(8rem, 1.25fr) minmax(0, 2.1fr); }
 .assess-hub-table--self { --assess-cols: minmax(8rem, 1.7fr) 4.75rem minmax(7rem, 0.9fr) 2.85rem; }
-.assess-hub-table--exq { --assess-cols: minmax(8rem, 1.15fr) minmax(6.5rem, 0.75fr) minmax(9.5rem, 1.05fr) minmax(0, 1.35fr); }
+.assess-hub-table--exq { --assess-cols: minmax(8rem, 1.5fr) minmax(6.5rem, 0.75fr) minmax(9.5rem, 1.15fr) 2.85rem; }
 .assess-hub-table--meqsed { --assess-cols: minmax(7.5rem, 1.1fr) minmax(0, 1fr) minmax(0, 1.25fr) minmax(6.5rem, 0.85fr) 2.85rem; }
 .assess-hub-cell {
     min-width: 0;

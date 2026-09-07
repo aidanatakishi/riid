@@ -3105,29 +3105,6 @@ export function getExqServiceCount(t) {
             if (cv != null) return cv;
         }
     }
-    var childCount = 0;
-    var seen = {};
-    function considerChild(issue) {
-        if (!issue || !issue.key || seen[issue.key] || issue.key === t.key) return;
-        seen[issue.key] = true;
-        childCount++;
-    }
-    (state.allTasks || []).forEach(function(at) {
-        if (!at || at.key === t.key || !isTaskOrSubtaskType(at)) return;
-        var p = at.fields && at.fields.parent;
-        if (p && p.key === t.key) considerChild(at);
-    });
-    if (childCount > 0) return childCount;
-    var stubs = (t.fields && t.fields.subtasks) || [];
-    if (stubs.length) {
-        var relevant = 0;
-        for (i = 0; i < stubs.length; i++) {
-            var st = stubs[i];
-            var sum = foldAz(st && st.fields && st.fields.summary);
-            if (!sum || sum.indexOf('xidmet') !== -1 || sum.indexOf('exq') !== -1 || sum.indexOf('service') !== -1) relevant++;
-        }
-        return relevant || stubs.length;
-    }
     return null;
 }
 
