@@ -179,7 +179,10 @@ export function belongsToDept(t) {
 export function getStatusGroup(statusName) {
     if (!statusName) return 'other';
     var n = normalizeStr(statusName);
-    if (n.includes('başlanmamış') || n.includes('baslanmamis')) return 'progress';
+    if (
+        n.includes('başlanmamış') || n.includes('baslanmamis')
+        || n.includes('başlanmayıb') || n.includes('baslanmayib')
+    ) return 'other';
     if (n.includes('dayandır') || n.includes('dayandir') || n.includes('müvəqqəti') || n.includes('muveqqeti')) return 'paused';
     if (n.includes('icra edil') || n.includes('həll') || n.includes('hel') || n.includes('bağlı') || n.includes('bagli') || n.includes('tamamla') || n === 'done' || n === 'closed' || n === 'resolved') return 'done';
     if (n.includes('planlaşdır') || n.includes('planlasdir') || n === 'planned' || n === 'to do') return 'planned';
@@ -226,14 +229,14 @@ export function isDueNextWeek(t) {
     return due >= week.start && due <= week.end;
 }
 
-/** Növbəti həftə boxu: Planlaşdırılıb + İcradakı (bitmə vaxtı növbəti həftəyə düşən). */
+/** Növbəti həftə boxu: bitmə tarixi növbəti həftəyə düşənlər + statusu Planlaşdırılıb olanlar. */
 export function isNextWeekBoxTask(t) {
     if (!t || !t.fields || !t.fields.status) return false;
     var g = getStatusGroup(t.fields.status.name || '');
     if (g === 'done' || g === 'rejected') return false;
     if (hasValidDifficulty(t)) return false;
     if (g === 'planned') return true;
-    return isActiveExecutionGroup(g) && isDueNextWeek(t);
+    return isDueNextWeek(t);
 }
 
 export function getTaskStartDate(t) {

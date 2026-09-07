@@ -60,7 +60,7 @@ var SECTION_LABELS = {
     diag: 'Diaqnostika',
     isq: 'İSQ',
     self: 'Özünüqiymətləndirmə',
-    exq: 'Elektron xidmət',
+    exq: 'EXQ',
     meqsed: 'Məqsədəuyğunluq'
 };
 var CAT_COLORS = {
@@ -502,7 +502,7 @@ function updateTabCounts() {
         var btn = document.querySelector('.assess-tab[data-tab="' + section + '"]');
         if (!btn) return;
         var data = getSectionRows(section);
-        var count = data.searchApplied ? data.rows.length : filterBySearch(data.rows, section).length;
+        var count = countQurums(data.searchApplied ? data.rows : filterBySearch(data.rows, section));
         var badge = btn.querySelector('.assess-tab-count');
         if (count > 0) {
             if (!badge) {
@@ -643,11 +643,12 @@ function setAssessChartVisible(wrapId, emptyId, show) {
 function collectDashModel() {
     var catIncludeUndated = isAllYears(selectedYear) && !hasActivePeriod();
     var catCounts = SECTIONS.map(function(s) {
-        var n = pickSectionRows(s, collectCategoryTasks(s), selectedYear, catIncludeUndated).length;
-        return { s: s, n: n };
+        var rows = pickSectionRows(s, collectCategoryTasks(s), selectedYear, catIncludeUndated);
+        return { s: s, n: countQurums(rows) };
     });
     var byYear = {};
     SECTIONS.forEach(function(s) {
+        var pi = SECTIONS.indexOf(s);
         pickSectionRows(s, collectCategoryTasks(s), selectedYear, catIncludeUndated).forEach(function(r) {
             var created = getTaskCreatedDate(r && r.task);
             var y = created ? created.getFullYear() : (r.year != null ? Number(r.year) : null);
@@ -656,16 +657,26 @@ function collectDashModel() {
                 byYear[y] = {
                     y: y,
                     total: 0,
-                    parts: SECTIONS.map(function(s2) { return { s: s2, n: 0 }; })
+                    parts: SECTIONS.map(function(s2) { return { s: s2, n: 0 }; }),
+                    qset: {},
+                    partSets: SECTIONS.map(function() { return {}; })
                 };
             }
-            var pi = SECTIONS.indexOf(s);
-            byYear[y].parts[pi].n += 1;
-            byYear[y].total += 1;
+            var qk = qurumMatchKey(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || '';
+            if (!qk) return;
+            byYear[y].qset[qk] = true;
+            byYear[y].partSets[pi][qk] = true;
         });
     });
     var yearCounts = Object.keys(byYear).map(Number).sort(function(a, b) { return a - b; }).map(function(y) {
-        return byYear[y];
+        var row = byYear[y];
+        row.parts = row.partSets.map(function(set, i) {
+            return { s: SECTIONS[i], n: Object.keys(set).length };
+        });
+        row.total = Object.keys(row.qset).length;
+        delete row.qset;
+        delete row.partSets;
+        return row;
     });
     return { yearCounts: yearCounts, catCounts: catCounts };
 }
@@ -1406,22 +1417,43 @@ function collectDiagListStats(rows) {
     return stats;
 }
 
+function isqNumericScore(r) {
+    var raw = r && r.task && r.task.fields ? r.task.fields.customfield_17316 : null;
+    var text = formatAssessmentFieldText(raw);
+    var n = parseScoreForSort(text);
+    if (n != null) return n;
+    return parseScoreForSort(raw);
+}
+
 function collectIsqListStats(rows) {
     var stats = {
         total: 0,
         qurum: 0,
         hasResult: 0,
         noResult: 0,
-        byStatus: emptyStatusCounts()
+        byStatus: emptyStatusCounts(),
+        avg: null
     };
+    var byQurumScores = {};
     (rows || []).forEach(function(r) {
         stats.total += 1;
         var g = rowStatusGroup(r);
         if (!Object.prototype.hasOwnProperty.call(stats.byStatus, g)) g = 'other';
         stats.byStatus[g] += 1;
-        if (hasTextResult(r && r.task && r.task.fields && r.task.fields.customfield_17316)) stats.hasResult += 1;
+        var has = hasTextResult(r && r.task && r.task.fields && r.task.fields.customfield_17316);
+        if (has) stats.hasResult += 1;
         else stats.noResult += 1;
+        var score = isqNumericScore(r);
+        if (score == null) return;
+        var qk = qurumMatchKey(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || '';
+        if (!qk) return;
+        if (!byQurumScores[qk]) byQurumScores[qk] = [];
+        byQurumScores[qk].push(score);
     });
+    var qurumAvgs = Object.keys(byQurumScores).map(function(k) {
+        return avgOf(byQurumScores[k]);
+    }).filter(function(n) { return n != null && isFinite(n); });
+    stats.avg = avgOf(qurumAvgs);
     stats.qurum = countQurums(rows);
     return stats;
 }
@@ -1462,10 +1494,9 @@ function diagListDashHtml(stats) {
     var total = stats.total;
     return ldHead(section, 'Diaqnostika nəticələri')
         + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Müraciət', stats.total, 'all')
+        + ldKpi(section, 'Qurum', stats.qurum, 'all')
         + ldKpi(section, 'Nəticəli', stats.hasResult, 'has_result', 'is-pos')
         + ldKpi(section, 'Nəticəsiz', stats.noResult, 'no_result', 'is-neg')
-        + ldKpi(section, 'Qurum', stats.qurum, '', '')
         + ldKpi(section, 'Orta bal', formatAvg(stats.avg), '', '')
         + '</div>'
         + '<div class="meqsed-ld-grid">'
@@ -1495,14 +1526,15 @@ function isqListDashHtml(stats) {
     var total = stats.total;
     return ldHead(section, 'İSQ nəticələri')
         + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Müraciət', stats.total, 'all')
+        + ldKpi(section, 'Qurum', stats.qurum, 'all')
         + ldKpi(section, 'Nəticəli', stats.hasResult, 'has_result', 'is-pos')
         + ldKpi(section, 'Nəticəsiz', stats.noResult, 'no_result', 'is-neg')
-        + ldKpi(section, 'Qurum', stats.qurum, '', '')
+        + ldKpi(section, 'Orta bal', formatAvg(stats.avg), '', '')
         + '</div>'
         + '<div class="meqsed-ld-grid">'
         + '<div class="meqsed-ld-card">'
         + '<h4>Nəticə vəziyyəti</h4>'
+        + '<p class="meqsed-ld-note">Orta bal — balı olan qurumların ortalamasıdır.</p>'
         + '<div class="meqsed-ld-split">'
         + ldSplitChip(section, 'Nəticəsi olan', stats.hasResult, 'has_result')
         + ldSplitChip(section, 'Nəticəsiz', stats.noResult, 'no_result')
@@ -1521,12 +1553,11 @@ function isqListDashHtml(stats) {
 function exqListDashHtml(stats) {
     var section = 'exq';
     var total = stats.total;
-    return ldHead(section, 'Elektron xidmət nəticələri')
+    return ldHead(section, 'EXQ nəticələri')
         + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Müraciət', stats.total, 'all')
+        + ldKpi(section, 'Qurum', stats.qurum, 'all')
         + ldKpi(section, 'Nəticəli', stats.hasResult, 'has_result', 'is-pos')
         + ldKpi(section, 'Xidmət sayı', stats.svcSum, 'svc_sum')
-        + ldKpi(section, 'Qurum', stats.qurum, '', '')
         + '</div>'
         + '<div class="meqsed-ld-grid">'
         + '<div class="meqsed-ld-card">'
@@ -1569,10 +1600,9 @@ function meqsedListDashHtml(stats) {
     var hasOpinion = !!(stats.pos || stats.neg || stats.partial || stats.other);
     return ldHead(section, 'Məqsədəuyğunluq nəticələri')
         + '<div class="meqsed-ld-kpis">'
-        + ldKpi(section, 'Müraciət', stats.total, 'all')
+        + ldKpi(section, 'Qurum', stats.qurum, 'all')
         + ldKpi(section, 'Müsbət rəy', stats.pos, 'pos', 'is-pos')
         + ldKpi(section, 'Mənfi rəy', stats.neg, 'neg', 'is-neg')
-        + ldKpi(section, 'Qurum', stats.qurum, '', '')
         + '</div>'
         + '<div class="meqsed-ld-charts' + (hasOpinion ? '' : ' is-empty') + '">'
         + '<div class="meqsed-ld-card meqsed-ld-card--chart">'

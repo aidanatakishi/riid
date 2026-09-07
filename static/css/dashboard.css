@@ -740,7 +740,7 @@ input[type="date"] { min-height: 38px; }
     margin: 0 0 0.75rem;
 }
 @media (min-width: 640px) {
-    .meqsed-ld-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .meqsed-ld-kpis { grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr)); }
 }
 .meqsed-ld-kpi {
     display: flex;
