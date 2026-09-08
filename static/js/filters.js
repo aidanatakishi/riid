@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
@@ -904,7 +904,10 @@ export function filterTasks(type) {
         return;
     }
     else if (type === 'rejected') { f = (state.filteredTasks || []).filter(function(t) { return isTaskType(t) && getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
-    else if (type === 'other') { f = units.filter(function(t) { var g = getStatusGroup(t.fields.status.name); return g === 'other' && !hasValidDifficulty(t); }); title = 'Digər Statusda Olan Tapşırıqlar'; }
+    else if (type === 'other') {
+        f = collectOtherDashboardUnits(state.filteredTasks);
+        title = 'İcraya başlanmayıb (seçilmiş sprint)';
+    }
     else if (type === 'noStart') {
         f = tasksWithoutStartDate();
         title = 'Başlama tarixi boş olan tapşırıqlar';

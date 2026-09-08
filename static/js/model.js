@@ -193,13 +193,18 @@ export function belongsToDept(t) {
     return false;
 }
 
+export function isNotStartedStatus(statusName) {
+    var n = normalizeStr(statusName);
+    if (!n) return false;
+    return n.includes('başlanmamış') || n.includes('baslanmamis')
+        || n.includes('başlanmayıb') || n.includes('baslanmayib')
+        || n.includes('başlanılmayıb') || n.includes('baslanilmayib');
+}
+
 export function getStatusGroup(statusName) {
     if (!statusName) return 'other';
     var n = normalizeStr(statusName);
-    if (
-        n.includes('başlanmamış') || n.includes('baslanmamis')
-        || n.includes('başlanmayıb') || n.includes('baslanmayib')
-    ) return 'other';
+    if (isNotStartedStatus(statusName)) return 'other';
     if (n.includes('dayandır') || n.includes('dayandir') || n.includes('müvəqqəti') || n.includes('muveqqeti')) return 'paused';
     if (n.includes('icra edil') || n.includes('həll') || n.includes('hel') || n.includes('bağlı') || n.includes('bagli') || n.includes('tamamla') || n === 'done' || n === 'closed' || n === 'resolved') return 'done';
     if (n.includes('planlaşdır') || n.includes('planlasdir') || n === 'planned' || n === 'to do') return 'planned';
@@ -1351,6 +1356,51 @@ export function currentSprintName(names) {
         if (meta && String(meta.state || '').toUpperCase() === 'ACTIVE') return list[i];
     }
     return list[0] || '';
+}
+
+function assignedSprintName(t) {
+    var items = getSprintItemsOnIssue(t);
+    var future = '';
+    var i;
+    for (i = 0; i < items.length; i++) {
+        var st = String(items[i].state || '').toUpperCase();
+        if (st === 'CLOSED') continue;
+        if (st === 'ACTIVE') return items[i].name || '';
+        if ((st === 'FUTURE' || st === 'PLANNED') && !future) future = items[i].name || '';
+        if (!st) {
+            var meta = getSprintMeta(items[i].name);
+            var ms = meta ? String(meta.state || '').toUpperCase() : '';
+            if (ms === 'CLOSED') continue;
+            if (ms === 'ACTIVE') return items[i].name || '';
+            if ((ms === 'FUTURE' || ms === 'PLANNED') && !future) future = items[i].name || '';
+        }
+    }
+    return future;
+}
+
+export function isAssignedToSprint(t, sprintName) {
+    if (!t || !sprintName || sprintName === 'all') return false;
+    if (assignedSprintName(t) === sprintName) return true;
+    if (!isSubtaskType(t)) return false;
+    var parent = getParentIssue(t);
+    return !!(parent && assignedSprintName(parent) === sprintName);
+}
+
+export function otherDashboardSprintName() {
+    return getSelectedSprintName() || currentSprintName() || '';
+}
+
+export function isOtherDashboardUnit(t) {
+    if (!t || !t.fields) return false;
+    if (!isNotStartedStatus(t.fields.status && t.fields.status.name)) return false;
+    if (hasValidDifficulty(t)) return false;
+    var sprintName = otherDashboardSprintName();
+    if (!sprintName) return false;
+    return isAssignedToSprint(t, sprintName);
+}
+
+export function collectOtherDashboardUnits(tasks) {
+    return countableWorkUnits(tasks).filter(isOtherDashboardUnit);
 }
 
 function collectAllSprintNames() {

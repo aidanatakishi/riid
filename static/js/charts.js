@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
-import { countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, filterQurumList, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 
@@ -73,6 +73,7 @@ function drawStatusChart(tasks) {
     units.forEach(function(t) {
         var k = getStatusGroup(t.fields.status.name);
         if (!gN[k]) return;
+        if (k === 'other' && !isOtherDashboardUnit(t)) return;
         counts[k] = (counts[k] || 0) + 1;
     });
     var keys = order.filter(function(k) { return counts[k] > 0; });
@@ -137,7 +138,10 @@ function drawStatusChart(tasks) {
                     showDifficulties();
                     return;
                 }
-                renderTaskList(countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; }), gN[k] + ' - Tapşırıqları', { keepNested: true });
+                var list = k === 'other'
+                    ? collectOtherDashboardUnits(state.filteredTasks)
+                    : countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
+                renderTaskList(list, gN[k] + ' - Tapşırıqları', { keepNested: true });
                 openTaskListSection();
             }
         },

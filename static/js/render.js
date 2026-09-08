@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
 import { duePeriodLabel } from './report.js';
 
@@ -45,10 +45,7 @@ export function renderStats(tasks) {
     var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
     
     var planned = validTasks.filter(function(t) { return isNextWeekBoxTask(t); }).length;
-    var other = allUnits.filter(function(t) {
-        var g = getStatusGroup(t.fields.status.name || '');
-        return g === 'other' && !hasDiff(t);
-    }).length;
+    var other = collectOtherDashboardUnits(tasks).length;
 
     var lateTasks = validTasks.filter(function(t) { return getDateStatus(t) === 'late'; }).length;
 
