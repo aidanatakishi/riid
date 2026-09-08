@@ -58,7 +58,7 @@ var STATUS_GROUP_LABELS = {
     other: 'İcraya başlanmayıb'
 };
 var STATUS_GROUP_ORDER = ['done', 'progress', 'planned', 'paused', 'review', 'esd', 'blocked', 'rejected', 'other'];
-var LIST_DASH_SECTIONS = { diag: true, isq: true, exq: true, meqsed: true };
+var LIST_DASH_SECTIONS = { meqsed: true };
 var SECTION_LABELS = {
     diag: 'Diaqnostika',
     isq: 'İSQ',
@@ -187,6 +187,23 @@ function getRowCache() {
 
 function collectCategoryTasks(category) {
     return getRowCache().byCat[category] || [];
+}
+
+export function getDiagHubRows() {
+    return collectCategoryTasks('diag').slice();
+}
+
+export function getDiagPeriodRows() {
+    var includeUndated = isAllYears(selectedYear) && !hasActivePeriod();
+    return pickSectionRows('diag', collectCategoryTasks('diag'), selectedYear, includeUndated);
+}
+
+export function getAssessmentPeriodState() {
+    return { year: selectedYear, start: rangeStartIso, end: rangeEndIso };
+}
+
+export function getAssessmentPeriodLabel() {
+    return periodLabel(selectedYear);
 }
 
 function collectGlobalYears() {
@@ -1043,74 +1060,34 @@ function headlineCell(value) {
     return '<span class="assess-text-value">' + escapeHtml(v) + '</span>';
 }
 
-function renderDiag(rows) {
+function renderQurumNameList(section, rows, withEye) {
     if (!rows.length) return emptyHtml();
     var body = rows.map(function(r) {
-        var t = r.task;
-        var key = t.key;
-        var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
-        var headline = getDiagHeadline(t);
-        return hubRow([
-            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'Status', html: statusPill(status, t) },
-            { label: 'Ümumi nəticə', html: headlineCell(headline) },
-            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(key) }
-        ], '');
+        var cells = [
+            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) }
+        ];
+        if (withEye && r.task && r.task.key) {
+            cells.push({ label: '', cls: 'assess-hub-cell--action', html: eyeButton(r.task.key) });
+        }
+        return hubRow(cells, '');
     }).join('');
-    return hubTable('diag', ['Qurum adı', 'Status', 'Ümumi nəticə', ''], body);
+    return hubTable(section, withEye ? ['Qurum adı', ''] : ['Qurum adı'], body);
+}
+
+function renderDiag(rows) {
+    return renderQurumNameList('diag', rows, true);
 }
 
 function renderIsq(rows) {
-    if (!rows.length) return emptyHtml();
-    var body = rows.map(function(r) {
-        var t = r.task;
-        var netice = formatAssessmentFieldText(t.fields && t.fields.customfield_17316);
-        return hubRow([
-            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'İSQ Nəticəsi', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(netice) + '</span>' }
-        ], '');
-    }).join('');
-    return hubTable('isq', ['Qurum adı', 'İSQ Nəticəsi'], body);
+    return renderQurumNameList('isq', rows, false);
 }
 
 function renderSelf(rows) {
-    if (!rows.length) return emptyHtml();
-    var body = rows.map(function(r) {
-        var t = r.task;
-        var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
-        var info = getSelfAssessInfo(t);
-        return hubRow([
-            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'Bal', html: scoreBadge(info.score) },
-            { label: 'Status', html: statusPill(status, t) },
-            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
-        ], '');
-    }).join('');
-    return hubTable('self', ['Qurum adı', 'Bal', 'Status', ''], body);
+    return renderQurumNameList('self', rows, true);
 }
 
 function renderExq(rows) {
-    if (!rows.length) return emptyHtml();
-    var stats = collectExqListStats(rows);
-    var avg = stats.avg;
-    var maxSvc = 0;
-    (rows || []).forEach(function(r) {
-        var c = getExqServiceCount(r && r.task);
-        if (c != null && c > maxSvc) maxSvc = c;
-    });
-    var body = (rows || []).map(function(r) {
-        var t = r.task;
-        var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
-        var bal = getExqScore(t);
-        var count = getExqServiceCount(t);
-        return hubRow([
-            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'Status', html: statusPill(status, t) },
-            { label: 'Xidmət və bal', cls: 'assess-hub-cell--exq-metrics', html: exqRowMetricsHtml(bal, count, avg, maxSvc) },
-            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
-        ], '');
-    }).join('');
-    return hubTable('exq', ['Qurum adı', 'Status', 'Xidmət və bal', ''], body);
+    return renderQurumNameList('exq', rows, true);
 }
 
 function parseXidmetUnits(info) {
@@ -1202,7 +1179,8 @@ function collectMeqsedListStats(rows) {
             }
             if (lifeKey && unitKey && stats.byLifeUnit[lifeKey] && stats.byLifeUnit[lifeKey][unitKey]
                 && Object.prototype.hasOwnProperty.call(stats.byLifeUnit[lifeKey][unitKey], op)) {
-                stats.byLifeUnit[lifeKey][unitKey][op] += 1;
+                var add = unitKey === 'xidmet' ? (units.xidmet || 0) : 1;
+                if (add > 0) stats.byLifeUnit[lifeKey][unitKey][op] += add;
             }
         }
         if (opinion === 'pos') {
@@ -1647,9 +1625,14 @@ function collectDiagListStats(rows) {
         noResult: 0,
         byStatus: emptyStatusCounts(),
         byBand: { score_high: 0, score_mid: 0, score_low: 0, score_none: 0 },
-        scores: []
+        scores: [],
+        dirRadar: [],
+        bestDirection: null
     };
-    (rows || []).forEach(function(r) {
+    var overallByQurum = {};
+    var dirByQurum = {};
+    var dirTitles = [];
+    (rows || []).forEach(function(r, i) {
         stats.total += 1;
         var g = rowStatusGroup(r);
         if (!Object.prototype.hasOwnProperty.call(stats.byStatus, g)) g = 'other';
@@ -1657,16 +1640,58 @@ function collectDiagListStats(rows) {
         var score = diagNumericScore(r);
         var band = scoreBandKey(score);
         stats.byBand[band] += 1;
+        var qk = qurumRowKey(r, i);
         if (score != null) {
             stats.hasResult += 1;
             stats.scores.push(score);
+            if (!overallByQurum[qk]) overallByQurum[qk] = [];
+            overallByQurum[qk].push(score);
         } else {
             stats.noResult += 1;
         }
+        var parsed = parseDiagUmumiNetice(r && r.task && r.task.fields && r.task.fields.customfield_17319);
+        var dirs = (parsed && parsed.directions) || [];
+        if (!dirTitles.length && dirs.length) {
+            dirTitles = dirs.map(function(d) { return d.title; });
+        }
+        dirs.forEach(function(d) {
+            var n = parseScoreForSort(d && d.score);
+            if (n == null) return;
+            if (!dirByQurum[qk]) dirByQurum[qk] = {};
+            if (!dirByQurum[qk][d.title]) dirByQurum[qk][d.title] = [];
+            dirByQurum[qk][d.title].push(n);
+        });
     });
     stats.qurum = countQurums(rows);
-    stats.avg = avgOf(stats.scores);
+    var qurumOverall = Object.keys(overallByQurum).map(function(k) {
+        return avgOf(overallByQurum[k]);
+    }).filter(function(n) { return n != null && isFinite(n); });
+    var countryAvg = avgOf(qurumOverall);
+    stats.avg = countryAvg != null ? countryAvg : avgOf(stats.scores);
+    stats.dirRadar = (dirTitles.length ? dirTitles : []).map(function(title) {
+        var qurumAvgs = Object.keys(dirByQurum).map(function(qk) {
+            return avgOf(dirByQurum[qk][title]);
+        }).filter(function(n) { return n != null && isFinite(n); });
+        return {
+            title: title,
+            short: diagDirShortLabel(title),
+            avg: avgOf(qurumAvgs),
+            qurumN: qurumAvgs.length
+        };
+    });
+    var ranked = stats.dirRadar.filter(function(d) { return d.avg != null && isFinite(d.avg); })
+        .slice().sort(function(a, b) { return b.avg - a.avg; });
+    stats.bestDirection = ranked.length ? ranked[0] : null;
     return stats;
+}
+
+function diagDirShortLabel(title) {
+    var n = normalizeStr(title);
+    if (n.indexOf('strategiya') !== -1) return 'Strategiya';
+    if (n.indexOf('texniki') !== -1 || n.indexOf('infrastruktur') !== -1) return 'Texniki-texnoloji';
+    if (n.indexOf('xidmət') !== -1 || n.indexOf('xidmet') !== -1) return 'Xidmətlər';
+    if (n.indexOf('məliyyat') !== -1 || n.indexOf('emeliyyat') !== -1) return 'Əməliyyat';
+    return String(title || '').replace(/\s+üzrə nəticə/gi, '');
 }
 
 function isqNumericScore(r) {
@@ -1813,14 +1838,17 @@ function ldSideMeta(label, value, filterKey) {
         + '<span>' + escapeHtml(label) + '</span><b>' + escapeHtml(String(value)) + '</b></button>';
 }
 
-function ldComboCard(title, leftHtml, chartLabel, hasChart, ariaLabel, gridClass) {
+function ldComboCard(title, leftHtml, chartLabel, hasChart, ariaLabel, gridClass, chartExtraHtml) {
     var section = currentAssessSection();
     return ldHead(section, title)
         + '<div class="meqsed-ld-card assess-ld-panel exq-ld-combo assess-ld-combo">'
         + '<div class="exq-ld-combo-body assess-ld-panel-grid ' + (gridClass || 'assess-ld-panel-grid--exq') + '">'
         + '<div class="exq-ld-side assess-ld-block">' + leftHtml + '</div>'
         + '<div class="exq-ld-chart-pane assess-ld-block">'
+        + '<div class="assess-ld-donut-meta">'
         + '<p class="assess-ld-block-label">' + escapeHtml(chartLabel) + '</p>'
+        + (chartExtraHtml || '')
+        + '</div>'
         + '<div class="meqsed-ld-chart-box exq-ld-status-chart assess-ld-donut">'
         + (hasChart
             ? '<canvas id="assessListDonut" aria-label="' + escapeHtml(ariaLabel || chartLabel) + '"></canvas>'
@@ -1889,15 +1917,24 @@ function hasScoreBandData(byBand, hideNone) {
 }
 
 function diagListDashHtml(stats) {
-    var left = '<div class="exq-ld-side-head">'
-        + '<p class="assess-ld-block-label">Bal diapazonu</p>'
-        + ldSideMeta('Orta', formatAvg(stats.avg), '')
-        + '</div>'
-        + '<div class="meqsed-ld-chart-box assess-ld-score-chart">'
-        + (hasScoreBandData(stats.byBand, true)
-            ? '<canvas id="assessScoreBandChart" aria-label="Diaqnostika bal diapazonu"></canvas>'
-            : '<p class="meqsed-ld-chart-empty">Bal məlumatı yoxdur.</p>')
-        + '</div>';
+    var radar = stats.dirRadar || [];
+    var hasRadar = radar.some(function(d) { return d.avg != null && isFinite(d.avg); });
+    var best = stats.bestDirection;
+    var left = '<div class="diag-radar-panel">'
+        + '<p class="assess-ld-block-label">İstiqamətlər üzrə ortalama</p>'
+        + exqScoreMeterHtml(stats.avg, { label: 'Ölkə üzrə ortalama bal' })
+        + (best
+            ? '<div class="diag-best-dir">'
+                + '<span>Ən yaxşı istiqamət</span>'
+                + '<b>' + escapeHtml(best.short || best.title) + '</b>'
+                + '<em>' + escapeHtml(formatAvg(best.avg)) + '</em>'
+                + '</div>'
+            : '')
+        + '<div class="meqsed-ld-chart-box assess-ld-radar-chart">'
+        + (hasRadar
+            ? '<canvas id="assessDiagRadarChart" aria-label="Qurumlar üzrə istiqamət ortalaması"></canvas>'
+            : '<p class="meqsed-ld-chart-empty">İstiqamət balı yoxdur.</p>')
+        + '</div></div>';
     return ldComboCard(
         'Diaqnostika nəticələri',
         left,
@@ -1914,7 +1951,7 @@ function isqListDashHtml(stats) {
         + ldSideMeta('Orta', formatAvg(stats.avg), '')
         + '</div>'
         + '<div class="meqsed-ld-chart-box assess-ld-score-chart">'
-        + (hasScoreBandData(stats.byBand)
+        + (hasScoreBandData(stats.byBand, true)
             ? '<canvas id="assessScoreBandChart" aria-label="İSQ bal diapazonu"></canvas>'
             : '<p class="meqsed-ld-chart-empty">Bal məlumatı yoxdur.</p>')
         + '</div>';
@@ -1996,6 +2033,15 @@ function meqsedLifeHasData(stats) {
     });
 }
 
+function meqsedQurumBadgeHtml(n) {
+    var on = listDashFilterOn('meqsed', 'all');
+    return '<button type="button" class="meqsed-ld-qurum-badge' + (on ? ' is-active' : '') + '"'
+        + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+        + ' title="Bütün qurum siyahısını göstər"'
+        + ' onclick="event.stopPropagation(); showAssessFullList()">'
+        + '<span>Ümumi qurum sayı</span><b>' + (n || 0) + '</b></button>';
+}
+
 function meqsedListDashHtml(stats) {
     var items = opinionDonutItems(stats);
     var hasLife = meqsedLifeHasData(stats);
@@ -2016,7 +2062,8 @@ function meqsedListDashHtml(stats) {
         'Rəy',
         items.length > 0,
         'Məqsədəuyğunluq rəy',
-        'assess-ld-panel-grid--meqsed'
+        'assess-ld-panel-grid--meqsed',
+        meqsedQurumBadgeHtml(stats.qurum)
     );
 }
 
@@ -2043,18 +2090,22 @@ function destroyMeqsedOpinionCharts() {
     destroyAssessListDonut();
     destroyAssessChart('meqsedOpinionBarChart', 'meqsedOpinionBar');
     destroyAssessChart('assessScoreBandChart', 'assessScoreBandChart');
+    destroyAssessChart('assessDiagRadarChart', 'assessDiagRadarChart');
     destroyAssessChart('exqQurumSvcChart', 'exqQurumSvcChart');
 }
 
-function drawAssessListDonut(items, qurumN, centerLabel) {
+function drawAssessListDonut(items, qurumN, centerLabel, opts) {
     if (typeof Chart === 'undefined') return;
     destroyAssessListDonut();
     var canvas = document.getElementById('assessListDonut');
     if (!canvas || !items || !items.length) return;
+    opts = opts || {};
     var total = items.reduce(function(s, item) { return s + item.n; }, 0);
     var solidColors = items.map(function(item) { return item.color; });
     var centerText = centerLabel || 'Qurum';
     var centerValue = qurumN != null ? qurumN : total;
+    var compact = !!opts.compact;
+    var showLegend = opts.hideLegend ? false : true;
     var centerPlugin = {
         id: 'assessListDonutCenter',
         afterDraw: function(chart) {
@@ -2065,12 +2116,12 @@ function drawAssessListDonut(items, qurumN, centerLabel) {
             c.save();
             c.textAlign = 'center';
             c.textBaseline = 'middle';
-            c.font = '800 22px Inter, system-ui, sans-serif';
+            c.font = compact ? '800 18px Inter, system-ui, sans-serif' : '800 22px Inter, system-ui, sans-serif';
             c.fillStyle = '#0f172a';
-            c.fillText(String(centerValue), cx, cy - 8);
-            c.font = '600 11px Inter, system-ui, sans-serif';
+            c.fillText(String(centerValue), cx, cy - (compact ? 6 : 8));
+            c.font = compact ? '600 10px Inter, system-ui, sans-serif' : '600 11px Inter, system-ui, sans-serif';
             c.fillStyle = '#64748b';
-            c.fillText(centerText, cx, cy + 11);
+            c.fillText(centerText, cx, cy + (compact ? 9 : 11));
             c.restore();
         }
     };
@@ -2084,16 +2135,17 @@ function drawAssessListDonut(items, qurumN, centerLabel) {
                 backgroundColor: solidColors.slice(),
                 borderWidth: 3,
                 borderColor: '#fff',
-                hoverOffset: 5
+                hoverOffset: compact ? 3 : 5
             }]
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '66%',
-            layout: { padding: { top: 2, bottom: 2, left: 2, right: 4 } },
+            cutout: compact ? '70%' : '66%',
+            layout: { padding: { top: 2, bottom: 2, left: 2, right: showLegend ? 4 : 2 } },
             plugins: {
                 legend: {
+                    display: showLegend,
                     position: legendBottom ? 'bottom' : 'right',
                     labels: {
                         boxWidth: 9,
@@ -2490,16 +2542,90 @@ function drawMeqsedOpinionCharts(stats) {
     drawMeqsedLifeChart(stats);
 }
 
+function drawDiagRadarChart(stats) {
+    if (typeof Chart === 'undefined' || !stats) return;
+    destroyAssessChart('assessDiagRadarChart', 'assessDiagRadarChart');
+    var canvas = document.getElementById('assessDiagRadarChart');
+    var dirs = (stats.dirRadar || []).filter(function(d) { return d && d.avg != null && isFinite(d.avg); });
+    if (!canvas || !dirs.length) return;
+    var best = stats.bestDirection;
+    var labels = dirs.map(function(d) { return d.short || d.title; });
+    var values = dirs.map(function(d) { return d.avg; });
+    var pointColors = dirs.map(function(d) {
+        return best && d.title === best.title ? '#059669' : '#6366f1';
+    });
+    var pointSizes = dirs.map(function(d) {
+        return best && d.title === best.title ? 5 : 3;
+    });
+    state.assessDiagRadarChart = new Chart(canvas.getContext('2d'), {
+        type: 'radar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Qurumlar üzrə ortalama',
+                data: values,
+                backgroundColor: 'rgba(99, 102, 241, 0.16)',
+                borderColor: '#6366f1',
+                borderWidth: 2,
+                pointBackgroundColor: pointColors,
+                pointBorderColor: '#fff',
+                pointBorderWidth: 1,
+                pointRadius: pointSizes,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            var row = dirs[ctx.dataIndex];
+                            var n = row && row.avg != null ? formatAvg(row.avg) : '—';
+                            var qn = row ? (row.qurumN || 0) : 0;
+                            return ' Ortalama ' + n + '  ·  ' + qn + ' qurumun balı ilə hesablandı';
+                        }
+                    }
+                }
+            },
+            scales: {
+                r: {
+                    min: 0,
+                    max: 100,
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 20,
+                        showLabelBackdrop: false,
+                        color: '#94a3b8',
+                        font: { size: 10 }
+                    },
+                    grid: { color: 'rgba(148, 163, 184, 0.28)' },
+                    angleLines: { color: 'rgba(148, 163, 184, 0.28)' },
+                    pointLabels: {
+                        color: '#334155',
+                        font: { size: 11, weight: '700' }
+                    }
+                }
+            }
+        }
+    });
+}
+
 function drawDiagStatusChart(stats) {
     if (!stats) return;
     drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
-    drawScoreBandChart(stats.byBand, true);
+    drawDiagRadarChart(stats);
 }
 
 function drawIsqStatusChart(stats) {
     if (!stats) return;
     drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
-    drawScoreBandChart(stats.byBand);
+    drawScoreBandChart(stats.byBand, true);
 }
 
 function listDashHtmlForSection(section, rows) {
@@ -2854,11 +2980,9 @@ function getSectionView(section) {
         filtered = filterBySearch(yearRows, section);
     }
     if (LIST_DASH_SECTIONS[section]) filtered = filterRowsByListDash(section, filtered);
-    if (section === 'diag') {
-        filtered = (filtered || []).filter(function(r) { return diagNumericScore(r) != null; });
-    }
     filtered = applyListSort(section, filtered);
-    var dashFiltered = !!(LIST_DASH_SECTIONS[section] && listDashFilter(section));
+    var dashFilter = LIST_DASH_SECTIONS[section] ? listDashFilter(section) : '';
+    var dashFiltered = !!(dashFilter && dashFilter !== 'all');
     return {
         empty: false,
         year: year,
@@ -3061,7 +3185,7 @@ export function showAssessFullList() {
     }
     listDashFilterByTab[section] = 'all';
     pageState[section] = 1;
-    openAssessmentQurumList(false);
+    openAssessmentQurumList(true);
     withListDashBusy(function() {
         renderOne(section, { skipHubDash: true, skipYearSelect: true, skipListDash: true });
     });

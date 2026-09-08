@@ -1380,27 +1380,54 @@ function assignedSprintName(t) {
 
 export function isAssignedToSprint(t, sprintName) {
     if (!t || !sprintName || sprintName === 'all') return false;
-    if (assignedSprintName(t) === sprintName) return true;
-    if (!isSubtaskType(t)) return false;
-    var parent = getParentIssue(t);
-    return !!(parent && assignedSprintName(parent) === sprintName);
+    return assignedSprintName(t) === sprintName;
 }
 
 export function otherDashboardSprintName() {
-    return getSelectedSprintName() || currentSprintName() || '';
+    return getSelectedSprintName() || '';
+}
+
+function matchesDashContextFilters(t) {
+    if (state.currentDirectionFilter) {
+        var dir = resolveDirection(t);
+        if (!dir || dir.key !== state.currentDirectionFilter) return false;
+    }
+    if (state.currentQurumFilter) {
+        var q = getQurumName(t) || QURUM_UNASSIGNED;
+        if (!sameQurum(q, state.currentQurumFilter)) return false;
+    }
+    if (state.currentAssigneeFilter) {
+        if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
+    }
+    return true;
 }
 
 export function isOtherDashboardUnit(t) {
     if (!t || !t.fields) return false;
-    if (!isNotStartedStatus(t.fields.status && t.fields.status.name)) return false;
-    if (hasValidDifficulty(t)) return false;
-    var sprintName = otherDashboardSprintName();
+    var sprintName = getSelectedSprintName();
     if (!sprintName) return false;
+    if (!isNotStartedStatus(t.fields.status && t.fields.status.name)) return false;
     return isAssignedToSprint(t, sprintName);
 }
 
-export function collectOtherDashboardUnits(tasks) {
-    return countableWorkUnits(tasks).filter(isOtherDashboardUnit);
+export function collectOtherDashboardUnits() {
+    var sprintName = getSelectedSprintName();
+    if (!sprintName) return [];
+    return countableWorkUnits(state.allTasks).filter(function(t) {
+        return isOtherDashboardUnit(t) && matchesDashContextFilters(t);
+    });
+}
+
+export function isBacklogDashboardUnit(t) {
+    if (!t || !t.fields) return false;
+    if (!isNotStartedStatus(t.fields.status && t.fields.status.name)) return false;
+    return !assignedSprintName(t);
+}
+
+export function collectBacklogDashboardUnits() {
+    return countableWorkUnits(state.allTasks).filter(function(t) {
+        return isBacklogDashboardUnit(t) && matchesDashContextFilters(t);
+    });
 }
 
 function collectAllSprintNames() {

@@ -20,6 +20,9 @@ env/
 # Jira dump-ları git-ə düşməsin
 data/*.json
 
+# Yüklənmiş diaqnostika Excel-ləri
+uploads/
+
 # Netlify
 site/
 .netlify/

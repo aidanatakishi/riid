@@ -1523,6 +1523,59 @@ button.meqsed-ld-kpi:hover {
     margin: 0;
     flex: 1 1 auto;
 }
+.diag-radar-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-width: 0;
+    height: 100%;
+}
+.diag-radar-panel .assess-ld-block-label {
+    margin: 0;
+}
+.diag-radar-panel .exq-meter {
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #e8edf3;
+    border-radius: 12px;
+    background: #f8fafc;
+}
+.diag-best-dir {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.28rem 0.45rem;
+    margin: 0;
+    padding: 0.42rem 0.65rem;
+    border: 1px solid #bbf7d0;
+    border-radius: 12px;
+    background: #f0fdf4;
+}
+.diag-best-dir span {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+.diag-best-dir b {
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: #166534;
+}
+.diag-best-dir em {
+    margin-left: auto;
+    font-style: normal;
+    font-size: 0.92rem;
+    font-weight: 800;
+    color: #15803d;
+    font-variant-numeric: tabular-nums;
+}
+.assess-ld-radar-chart {
+    height: 15.5rem;
+    max-width: none;
+    margin: 0;
+    flex: 1 1 auto;
+}
 .assess-table-shell:not(.is-open) {
     display: none;
 }
@@ -1665,6 +1718,22 @@ button.meqsed-ld-kpi:hover {
     text-transform: uppercase;
     color: #94a3b8;
 }
+.assess-ld-donut-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+    margin: 0 0 0.45rem;
+    min-width: 0;
+}
+.assess-ld-donut-meta .assess-ld-block-label { margin: 0; }
+.assess-ld-donut-meta .meqsed-ld-qurum-badge {
+    flex-shrink: 0;
+    padding: 0.28rem 0.55rem;
+    gap: 0.32rem;
+}
+.assess-ld-donut-meta .meqsed-ld-qurum-badge span { font-size: 0.62rem; }
+.assess-ld-donut-meta .meqsed-ld-qurum-badge b { font-size: 0.88rem; }
 .assess-ld-chips {
     margin: 0;
 }
@@ -2252,10 +2321,10 @@ input.assess-search-input:focus {
 }
 .assess-hub-row:last-child { border-bottom: 1px solid #e8edf3; }
 .assess-hub-row:last-child:hover { border-bottom-color: #ddd6fe; }
-.assess-hub-table--diag { --assess-cols: minmax(8rem, 2.1fr) minmax(7rem, 0.9fr) minmax(5.5rem, 0.8fr) 2.85rem; }
-.assess-hub-table--isq { --assess-cols: minmax(8rem, 1.25fr) minmax(0, 2.1fr); }
-.assess-hub-table--self { --assess-cols: minmax(8rem, 1.7fr) 4.75rem minmax(7rem, 0.9fr) 2.85rem; }
-.assess-hub-table--exq { --assess-cols: minmax(8rem, 1.5fr) minmax(6.5rem, 0.75fr) minmax(9.5rem, 1.15fr) 2.85rem; }
+.assess-hub-table--diag,
+.assess-hub-table--self,
+.assess-hub-table--exq { --assess-cols: minmax(8rem, 1fr) 2.85rem; }
+.assess-hub-table--isq { --assess-cols: minmax(8rem, 1fr); }
 .assess-hub-table--meqsed { --assess-cols: minmax(7.5rem, 1.1fr) minmax(0, 1fr) minmax(0, 1.25fr) minmax(6.5rem, 0.85fr) 2.85rem; }
 .assess-hub-cell {
     min-width: 0;

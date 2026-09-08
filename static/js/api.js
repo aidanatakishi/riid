@@ -603,6 +603,7 @@ export async function fetchDashboardData() {
          applyDashboardPayload(data);
          document.getElementById('loadingOverlay').classList.add('hidden');
          showToast('Məlumatlar uğurla yeniləndi!', 'success');
+         if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
          if (state.todayRefreshInterval) clearInterval(state.todayRefreshInterval);
          state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
          if (state.autoRefreshInterval) clearInterval(state.autoRefreshInterval);

@@ -7,6 +7,7 @@ import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumCha
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
 import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort } from './assessments.js';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route } from './nk303.js?v=upl5';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 
@@ -114,6 +115,11 @@ window.clearAssessmentSearch = clearAssessmentSearch;
 window.setAssessmentPage = setAssessmentPage;
 window.toggleAssessmentDetail = toggleAssessmentDetail;
 window.getActiveAssessmentTab = getActiveAssessmentTab;
+window.openNk303 = openNk303;
+window.closeNk303 = closeNk303;
+window.onNk303OverlayClick = onNk303OverlayClick;
+window.nk303Call = nk303Call;
+window.syncNk303Route = syncNk303Route;
 window.openDiagModal = openDiagModal;
 window.closeDiagModal = closeDiagModal;
 window.onDiagModalOverlayClick = onDiagModalOverlayClick;
@@ -146,4 +152,5 @@ window.onload = async function() {
     if (baseUrl && projectKey && pat) fetchDashboardData();
     else toggleSettings();
     try { renderAssessmentSections(); } catch (e) {}
+    try { syncNk303Route(); } catch (e) {}
 };

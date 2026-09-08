@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
 import { duePeriodLabel } from './report.js';
 
@@ -45,7 +45,8 @@ export function renderStats(tasks) {
     var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
     
     var planned = validTasks.filter(function(t) { return isNextWeekBoxTask(t); }).length;
-    var other = collectOtherDashboardUnits(tasks).length;
+    var other = collectOtherDashboardUnits().length;
+    var backlog = collectBacklogDashboardUnits().length;
 
     var lateTasks = validTasks.filter(function(t) { return getDateStatus(t) === 'late'; }).length;
 
@@ -61,6 +62,7 @@ export function renderStats(tasks) {
     animateValue('blockedTasks', 0, blocked, kpiMs);
     animateValue('rejectedTasks', 0, rejected, kpiMs);
     animateValue('otherTasks', 0, other, kpiMs);
+    animateValue('backlogTasks', 0, backlog, kpiMs);
     animateValue('lateTasks', 0, lateTasks, kpiMs);
     state.isInitialLoad = false;
     
@@ -679,9 +681,13 @@ export function renderSprintComparison() {
                 + '</article>';
         }
         var showDelta = compare && !compare.empty;
-        var rate = pctOf(stats.done, stats.total);
+        var dueRate = pctOf(stats.dueDone, stats.dueCount);
+        var overallRate = pctOf(stats.done, stats.total);
         var range = sprintRangeLabel(stats.jName);
         var selectedCls = stats.isPrev ? '' : ' is-selected';
+        var dueTip = stats.dueCount
+            ? ('Yekunlaşıb: ' + dueRate + '% — həftə ərzində bitməli ' + stats.dueCount + ' tapşırıqdan ' + stats.dueDone + '-i bitib. Klikləyib siyahını açın')
+            : 'Bu həftə bitməli tapşırıq yoxdur';
         return '<article class="sc-week' + selectedCls + '">'
             + '<div class="sc-week-head">'
             + '<div class="sc-week-copy">'
@@ -689,13 +695,13 @@ export function renderSprintComparison() {
             + '<h3 class="sc-week-title">' + scEscape(stats.jName) + '</h3>'
             + (range ? '<p class="sc-week-dates">' + scEscape(range) + '</p>' : '')
             + '</div>'
-            + '<button type="button" class="sc-ring" data-sprint="' + scEscape(stats.jName) + '" data-sc-type="done" style="--p:' + rate + '" aria-label="' + scEscape(dName + ', yekunlaşma ' + rate + '%. Yekunlaşmış tapşırıqları aç') + '" data-tip="Yekunlaşıb: ' + rate + '% — klikləyib siyahını açın">'
-            + '<span class="sc-ring-inner"><span class="sc-ring-value">' + rate + '%</span><span class="sc-ring-label">yekunlaşıb</span></span>'
+            + '<button type="button" class="sc-ring" data-sprint="' + scEscape(stats.jName) + '" data-sc-type="dueDone" style="--p:' + dueRate + '" aria-label="' + scEscape(dName + ', həftə ərzində yekunlaşma ' + dueRate + '%. Bitmiş tapşırıqları aç') + '" data-tip="' + scEscape(dueTip) + '">'
+            + '<span class="sc-ring-inner"><span class="sc-ring-value">' + dueRate + '%</span><span class="sc-ring-label">yekunlaşıb</span></span>'
             + '</button>'
             + '</div>'
             + '<div class="sc-metrics">'
             + metricRow(stats, 'all', 'Ümumi Tapşırıq', stats.total, 100, 'neutral', 'Sprintə daxil olan iş vahidləri. Klikləyib siyahını açın.', '', showDelta ? deltaHtml(stats.total, compare.total, 'neutral') : '')
-            + metricRow(stats, 'done', 'Yekunlaşıb', stats.done, pctOf(stats.done, stats.total), 'good', 'Yekunlaşmış tapşırıqlar. Klikləyib siyahını açın.', (stats.total ? rate + '% ümumi' : ''), showDelta ? deltaHtml(stats.done, compare.done, 'good-up') : '')
+            + metricRow(stats, 'done', 'Yekunlaşıb', stats.done, overallRate, 'good', 'Yekunlaşmış tapşırıqlar. Klikləyib siyahını açın.', (stats.total ? overallRate + '% ümumi' : ''), showDelta ? deltaHtml(stats.done, compare.done, 'good-up') : '')
             + dueComboHtml(stats, showDelta ? compare : null)
             + metricRow(stats, 'carryover', coTitle, stats.co, pctOf(stats.co, stats.total), 'warn', coTitle + '. Klikləyib siyahını açın.', '', showDelta ? deltaHtml(stats.co, compare.co, 'good-down') : '')
             + '</div>'

@@ -5,6 +5,7 @@ from flask import Flask, render_template, request
 from routes import api
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
 app.register_blueprint(api)
 
 # Xarici origin (riid.netlify.app və ya cloudflared) /api/jira çağıranda CORS lazımdır.
@@ -19,7 +20,7 @@ def add_cors_headers(resp):
     origin = request.headers.get('Origin') or '*'
     resp.headers['Access-Control-Allow-Origin'] = origin
     resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, DELETE, OPTIONS'
     resp.headers['Access-Control-Allow-Private-Network'] = 'true'
     resp.headers['Access-Control-Max-Age'] = '600'
     resp.headers['Vary'] = 'Origin'
@@ -28,6 +29,11 @@ def add_cors_headers(resp):
 
 @app.route('/')
 def serve_dashboard():
+    return render_template('index.html')
+
+
+@app.route('/diaqnostika')
+def serve_diaqnostika():
     return render_template('index.html')
 
 

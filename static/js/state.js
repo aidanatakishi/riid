@@ -27,6 +27,7 @@ export const state = {
     exqStatusChart: null,
     assessListDonutChart: null,
     assessScoreBandChart: null,
+    assessDiagRadarChart: null,
     exqQurumSvcChart: null,
     autoRefreshInterval: null,
     isInitialLoad: true,

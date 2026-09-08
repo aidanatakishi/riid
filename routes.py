@@ -1,6 +1,13 @@
+import json
+import os
+import uuid
+from datetime import datetime, timezone
+
 from flask import Blueprint, request, jsonify
+from werkzeug.utils import secure_filename
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY
+from diag_excel import parse_diag_excel
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql
 from jql import build_date_filter_jql, generate_recommendations
 
@@ -332,3 +339,171 @@ def validate_date_filter():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DIAG_UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads', 'diaqnostika')
+DIAG_INDEX_PATH = os.path.join(BASE_DIR, 'data', 'diag_uploads.json')
+DIAG_ALLOWED_EXT = {'.xlsx', '.xlsm', '.csv'}
+
+
+def diag_index():
+    if not os.path.isfile(DIAG_INDEX_PATH):
+        return {'files': []}
+    try:
+        with open(DIAG_INDEX_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get('files'), list):
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {'files': []}
+
+
+def save_diag_index(data):
+    os.makedirs(os.path.dirname(DIAG_INDEX_PATH), exist_ok=True)
+    with open(DIAG_INDEX_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def live_orgs(item):
+    stored = item.get('stored')
+    path = os.path.join(DIAG_UPLOAD_DIR, stored) if stored else ''
+    if path and os.path.isfile(path):
+        try:
+            parsed = parse_diag_excel(path, item.get('name'))
+            orgs = parsed.get('orgs') or []
+            if orgs:
+                return orgs
+        except Exception:
+            pass
+    return item.get('orgs') or []
+
+
+def flatten_diag_orgs(index):
+    orgs = []
+    for item in index.get('files') or []:
+        for org in live_orgs(item):
+            row = dict(org)
+            row['fileId'] = item.get('id')
+            row['fileName'] = item.get('name')
+            row['uploadedAt'] = item.get('uploadedAt')
+            orgs.append(row)
+    return orgs
+
+
+@api.route('/api/diaqnostika/uploads', methods=['GET', 'OPTIONS'])
+def list_diag_uploads():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    index = diag_index()
+    return jsonify({
+        'files': [{
+            'id': f.get('id'),
+            'name': f.get('name'),
+            'uploadedAt': f.get('uploadedAt'),
+            'orgCount': len(live_orgs(f))
+        } for f in index.get('files') or []],
+        'orgs': flatten_diag_orgs(index)
+    }), 200
+
+
+@api.route('/api/diaqnostika/upload', methods=['POST', 'OPTIONS'])
+def upload_diag_excel():
+    if request.method == 'OPTIONS':
+        return options_ok()
+
+    incoming = request.files.getlist('file') or []
+    if not incoming:
+        one = request.files.get('file')
+        if one:
+            incoming = [one]
+    incoming = [f for f in incoming if f and f.filename]
+    if not incoming:
+        return jsonify({'error': 'Excel faylı seçin (.xlsx)'}), 400
+
+    os.makedirs(DIAG_UPLOAD_DIR, exist_ok=True)
+    index = diag_index()
+    saved = []
+    errors = []
+
+    for fh in incoming:
+        ext = os.path.splitext(fh.filename or '')[1].lower()
+        if ext not in DIAG_ALLOWED_EXT:
+            errors.append(fh.filename + ': yalnız .xlsx / .xlsm / .csv qəbul olunur')
+            continue
+        file_id = uuid.uuid4().hex
+        safe = secure_filename(fh.filename) or ('diaqnostika' + ext)
+        stored = file_id + '_' + safe
+        path = os.path.join(DIAG_UPLOAD_DIR, stored)
+        fh.save(path)
+        try:
+            parsed = parse_diag_excel(path, fh.filename)
+        except Exception as e:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            errors.append((fh.filename or 'fayl') + ': ' + str(e))
+            continue
+        orgs = parsed.get('orgs') or []
+        if not orgs:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            msg = (parsed.get('warnings') or ['Excel-də diaqnostika cədvəli tapılmadı.'])[0]
+            errors.append((fh.filename or 'fayl') + ': ' + msg)
+            continue
+        rec = {
+            'id': file_id,
+            'name': fh.filename,
+            'stored': stored,
+            'uploadedAt': datetime.now(timezone.utc).isoformat(),
+            'orgs': orgs,
+            'warnings': parsed.get('warnings') or []
+        }
+        index['files'].insert(0, rec)
+        saved.append({
+            'id': file_id,
+            'name': fh.filename,
+            'orgCount': len(orgs),
+            'orgs': orgs,
+            'warnings': rec['warnings']
+        })
+
+    save_diag_index(index)
+    if not saved:
+        return jsonify({'error': errors[0] if errors else 'Fayl oxunmadı', 'errors': errors}), 400
+    return jsonify({
+        'files': saved,
+        'orgs': flatten_diag_orgs(index),
+        'errors': errors
+    }), 200
+
+
+@api.route('/api/diaqnostika/uploads/<file_id>', methods=['DELETE', 'OPTIONS'])
+def delete_diag_upload(file_id):
+    if request.method == 'OPTIONS':
+        return options_ok()
+    index = diag_index()
+    keep = []
+    removed = None
+    for item in index.get('files') or []:
+        if item.get('id') == file_id:
+            removed = item
+        else:
+            keep.append(item)
+    if not removed:
+        return jsonify({'error': 'Fayl tapılmadı'}), 404
+    index['files'] = keep
+    save_diag_index(index)
+    stored = removed.get('stored')
+    if stored:
+        path = os.path.join(DIAG_UPLOAD_DIR, stored)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return jsonify({'ok': True, 'orgs': flatten_diag_orgs(index)}), 200
+

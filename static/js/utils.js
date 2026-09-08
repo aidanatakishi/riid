@@ -128,6 +128,7 @@ export function toggleDropdown(id) {
                     if (state.assessListDonutChart) state.assessListDonutChart.resize();
                     if (state.meqsedOpinionBarChart) state.meqsedOpinionBarChart.resize();
                     if (state.assessScoreBandChart) state.assessScoreBandChart.resize();
+                    if (state.assessDiagRadarChart) state.assessDiagRadarChart.resize();
                     return;
                 }
                 if (typeof state.statusChart !== 'undefined' && state.statusChart) state.statusChart.resize();
