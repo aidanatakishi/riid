@@ -4,7 +4,7 @@ import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueTh
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
-import { renderAssessmentSections } from './assessments.js';
+import { renderAssessmentSections } from './assessments.js?v=idda24';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -849,26 +849,20 @@ export function showDueThisWeekDoneTasks() {
     var dueTasks = collectDueThisWeekDoneTasks();
     var label = duePeriodLabel();
     if (dueTasks.length === 0) {
-        showToast(label + ' olub tamamlanan tapşırıq tapılmadı.', 'info');
+        showToast(label + ' olan tamamlanan tapşırıq tapılmadı.', 'info');
     }
-    renderTaskList(dueTasks, label + ' olub edilən tapşırıqlar');
-    var listEl = document.getElementById('taskListContent');
-    listEl.classList.remove('hidden');
-    listEl.classList.add('slide-down');
-    listEl.scrollIntoView({ behavior: 'smooth' });
+    renderTaskList(dueTasks, label + ' — tamamlananlar (' + dueTasks.length + ')', { keepNested: true });
+    openTaskListSection();
 }
 
 export function showDueThisWeekTasks() {
     var dueTasks = collectDueThisWeekTasks();
     var label = duePeriodLabel();
     if (dueTasks.length === 0) {
-        showToast(label + ' olan task tapılmadı! (Tarix fields-i yoxlayın)', 'info');
+        showToast(label + ' olan tapşırıq tapılmadı! (Tarix fields-i yoxlayın)', 'info');
     }
-    renderTaskList(dueTasks, label + ' olan tapşırıqlar');
-    var listEl = document.getElementById('taskListContent');
-    listEl.classList.remove('hidden');
-    listEl.classList.add('slide-down');
-    listEl.scrollIntoView({ behavior: 'smooth' });
+    renderTaskList(dueTasks, label + ' — bütün tapşırıqlar (' + dueTasks.length + ')', { keepNested: true });
+    openTaskListSection();
 }
 
 export function filterTasks(type) {
@@ -911,7 +905,7 @@ export function filterTasks(type) {
     else if (type === 'backlog') {
         f = collectBacklogDashboardUnits();
         title = 'Backlog — İcraya başlanmayıb';
-        renderTaskList(f, title, { keepNested: true });
+        renderTaskList(f, title);
         if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
         openTaskListSection();
         return;

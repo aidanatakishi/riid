@@ -72,20 +72,51 @@ export function renderStats(tasks) {
     if (dueWeekDoneEl) dueWeekDoneEl.innerText = sprintDueWeekDone;
     var dueLabelEl = document.getElementById('duePeriodLabel');
     if (dueLabelEl) dueLabelEl.textContent = duePeriodLabel();
+    var dueDoneSeg = document.getElementById('dueWeekDoneSeg');
+    var dueRestSeg = document.getElementById('dueWeekRestSeg');
+    var dueOpen = sprintDueWeek - sprintDueWeekDone;
+    if (dueOpen < 0) dueOpen = 0;
+    if (dueDoneSeg) {
+        if (sprintDueWeekDone > 0 && sprintDueWeek > 0) {
+            dueDoneSeg.hidden = false;
+            dueDoneSeg.style.flexGrow = String(sprintDueWeekDone);
+            dueDoneSeg.style.flexBasis = '0';
+        } else {
+            dueDoneSeg.hidden = true;
+            dueDoneSeg.style.flexGrow = '0';
+        }
+    }
+    if (dueRestSeg) {
+        if (dueOpen > 0) {
+            dueRestSeg.hidden = false;
+            dueRestSeg.style.flexGrow = String(dueOpen);
+            dueRestSeg.style.flexBasis = '0';
+        } else {
+            dueRestSeg.hidden = true;
+            dueRestSeg.style.flexGrow = '0';
+        }
+    }
+    var dueTrack = dueDoneSeg && dueDoneSeg.parentElement;
+    if (dueTrack) {
+        dueTrack.setAttribute('aria-label', sprintDueWeekDone + ' tamamlanan / ' + sprintDueWeek + ' ümumi');
+    }
 
     var blockedCard = document.getElementById('blockedCard');
-    if (blocked > 0 || rejected > 0) blockedCard.classList.add('pulse-danger');
-    else blockedCard.classList.remove('pulse-danger');
+    if (blockedCard) {
+        if (blocked > 0 || rejected > 0) blockedCard.classList.add('pulse-danger');
+        else blockedCard.classList.remove('pulse-danger');
+    }
 
     var otherCard = document.getElementById('otherCard');
-    if (other > 0) {
-        otherCard.classList.remove('hidden');
-        document.getElementById('statsGrid').classList.remove('lg:grid-cols-4');
-        document.getElementById('statsGrid').classList.add('lg:grid-cols-5');
-    } else {
-        otherCard.classList.add('hidden');
-        document.getElementById('statsGrid').classList.remove('lg:grid-cols-5');
-        document.getElementById('statsGrid').classList.add('lg:grid-cols-4');
+    var statsGrid = document.getElementById('statsGrid');
+    if (otherCard && statsGrid) {
+        if (other > 0) {
+            otherCard.classList.remove('hidden');
+            statsGrid.classList.add('has-other');
+        } else {
+            otherCard.classList.add('hidden');
+            statsGrid.classList.remove('has-other');
+        }
     }
 }
 
@@ -181,6 +212,13 @@ function syncTaskListSearchUi() {
 function resolveTaskListIssue(issue) {
     if (!issue) return null;
     if (issue.key && state.issueIndex && state.issueIndex[issue.key]) return state.issueIndex[issue.key];
+    if (issue.key && state.allTasks && state.allTasks.length) {
+        var found = state.allTasks.find(function(at) { return at && at.key === issue.key; });
+        if (found) {
+            state.issueIndex[found.key] = found;
+            return found;
+        }
+    }
     return issue;
 }
 
@@ -202,6 +240,106 @@ function flattenTaskListSubtasks(source) {
         });
     });
     return subs;
+}
+
+function childrenForParent(parent, sourceTasks) {
+    if (!parent || !parent.key) return [];
+    var seen = {};
+    var out = [];
+    function add(issue) {
+        var full = resolveTaskListIssue(issue) || issue;
+        if (!full || !full.key || seen[full.key] || full.key === parent.key) return;
+        seen[full.key] = true;
+        out.push(full);
+    }
+    (((parent.fields && parent.fields.subtasks) || [])).forEach(add);
+    var pool = (state.allTasks && state.allTasks.length) ? state.allTasks : (sourceTasks || []);
+    pool.forEach(function(t) {
+        if (!t || t.key === parent.key || !isSubtaskType(t)) return;
+        var jiraParent = t.fields && t.fields.parent;
+        if (jiraParent && jiraParent.key === parent.key) add(t);
+    });
+    return out;
+}
+
+function linkedIssueFromLink(link) {
+    if (!link) return null;
+    return link.outwardIssue || link.inwardIssue || link.issue || null;
+}
+
+function linkTypeLabel(link) {
+    if (!link || !link.type) return 'əlaqəli';
+    if (link.outwardIssue) return link.type.outward || link.type.name || 'əlaqəli';
+    if (link.inwardIssue) return link.type.inward || link.type.name || 'əlaqəli';
+    return link.type.name || 'əlaqəli';
+}
+
+function relatedIssuesFor(parent, nativeKeys, extraRelated) {
+    if (!parent || !parent.key) return [];
+    var seen = {};
+    var items = [];
+    function add(issue, linkType) {
+        var full = resolveTaskListIssue(issue) || issue;
+        if (!full || !full.key || seen[full.key] || full.key === parent.key) return;
+        if (nativeKeys && nativeKeys[full.key]) return;
+        seen[full.key] = true;
+        items.push({ issue: full, linkType: linkType || 'əlaqəli' });
+    }
+    (((parent.fields && parent.fields.issuelinks) || [])).forEach(function(link) {
+        var linked = linkedIssueFromLink(link);
+        if (linked) add(linked, linkTypeLabel(link));
+    });
+    (extraRelated || []).forEach(function(t) {
+        add(t, 'əlaqəli');
+    });
+    return items;
+}
+
+function buildRelatedByParentIndex(sourceTasks) {
+    var byParent = {};
+    var pool = (state.allTasks && state.allTasks.length) ? state.allTasks : (sourceTasks || []);
+    pool.forEach(function(t) {
+        if (!t || !t.key || !isSubtaskType(t)) return;
+        var p = getParentIssue(t);
+        if (!p || !p.key) return;
+        if (!byParent[p.key]) byParent[p.key] = [];
+        byParent[p.key].push(t);
+    });
+    return byParent;
+}
+
+function isGenericTaskTypeName(name, isSub) {
+    var n = normalizeStr(name || '');
+    if (!n) return true;
+    if (isSub) return n.indexOf('sub-task') !== -1 || n.indexOf('subtask') !== -1 || n.indexOf('alt-tapşırıq') !== -1 || n.indexOf('alt tapşırıq') !== -1 || n.indexOf('alt-tapsiriq') !== -1;
+    return n === 'task' || n === 'tapşırıq' || n === 'tapsiriq';
+}
+
+function taskRoleBadgeHtml(isSub) {
+    return isSub
+        ? '<span class="tl-badge tl-badge--sub">Alt-tapşırıq</span>'
+        : '<span class="tl-badge tl-badge--task">Tapşırıq</span>';
+}
+
+function nestedChildItemHtml(issue, isSub, relLabel) {
+    var full = resolveTaskListIssue(issue) || issue;
+    var f = full.fields || {};
+    var statusName = f.status && f.status.name ? f.status.name : 'Naməlum';
+    var summary = f.summary || '';
+    var assigneeName = f.assignee && f.assignee.displayName ? f.assignee.displayName : '';
+    return '<a class="tl-nested-item' + (isSub ? ' tl-nested-sub' : '') + '" href="' + state.currentBaseUrl + '/browse/' + escapeTaskListHtml(full.key) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">'
+        + '<span class="tl-nested-rail" aria-hidden="true"></span>'
+        + taskRoleBadgeHtml(!!isSub)
+        + '<span class="tl-key">' + escapeTaskListHtml(full.key) + '</span>'
+        + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
+        + '<span class="tl-nested-summary">' + escapeTaskListHtml(summary) + '</span>'
+        + (assigneeName ? '<span class="tl-nested-who">' + escapeTaskListHtml(assigneeName) + '</span>' : '')
+        + (relLabel ? '<span class="tl-nested-rel">' + escapeTaskListHtml(relLabel) + '</span>' : '')
+        + '</a>';
+}
+
+function nestedSubtaskItemHtml(sub) {
+    return nestedChildItemHtml(sub, true, '');
 }
 
 function uniqueTaskListCounts(source, flattenedSubs) {
@@ -231,7 +369,7 @@ function hideNestedSubtasks(sourceTasks) {
             if (sub && sub.key) nestedUnderShownParent[sub.key] = true;
         });
         (t.fields.issuelinks || []).forEach(function(link) {
-            var linked = link.outwardIssue || link.inwardIssue;
+            var linked = linkedIssueFromLink(link);
             if (linked && linked.key) nestedUnderShownParent[linked.key] = true;
         });
     });
@@ -318,6 +456,7 @@ export function renderTaskList(tasks, title, opts) {
     var start = (state.currentPage - 1) * state.tasksPerPage;
     var end = start + state.tasksPerPage;
     var paginatedTasks = listTasks.slice(start, end);
+    var relatedByParent = buildRelatedByParentIndex(sourceTasks);
 
     function fmtDate(dateStr) {
         if (!dateStr) return '—';
@@ -333,49 +472,38 @@ export function renderTaskList(tasks, title, opts) {
         var assigneeName = assignee ? assignee.displayName : 'Təyin edilməyib';
         var initials = getInitials(assigneeName);
         var avatarColor = assignee ? '#5b21b6' : '#94a3b8';
-        var hasSubtasks = fields.subtasks && fields.subtasks.length > 0;
-        var hasIssueLinks = fields.issuelinks && fields.issuelinks.length > 0;
         var issueTypeName = fields.issuetype ? fields.issuetype.name : '';
         var isSubtask = isSubtaskType(t);
+        var childSubs = isSubtask ? [] : childrenForParent(t, sourceTasks);
+        var hasSubtasks = childSubs.length > 0;
+        var nativeKeys = {};
+        childSubs.forEach(function(c) { if (c && c.key) nativeKeys[c.key] = true; });
+        var relatedItems = isSubtask ? [] : relatedIssuesFor(t, nativeKeys, relatedByParent[t.key]);
+        var hasRelated = relatedItems.length > 0;
         var statusName = fields.status && fields.status.name ? fields.status.name : 'Naməlum';
         var browseUrl = state.currentBaseUrl + '/browse/' + t.key;
         var toggleButtonsHtml = '';
         var nestedHtml = '';
+        var parentIssue = isSubtask ? getParentIssue(t) : null;
 
-        var mainRowClick = 'window.open(\'' + browseUrl + '\', \'_blank\')';
-        if (!isSubtask && hasSubtasks) mainRowClick = 'toggleSubtasks(\'' + t.key + '\')';
-        else if (!isSubtask && hasIssueLinks) mainRowClick = 'toggleRelated(\'' + t.key + '\')';
+        var hasNested = !isSubtask && (hasSubtasks || hasRelated);
+        var mainRowClick = hasNested
+            ? 'toggleTaskChildren(\'' + t.key + '\')'
+            : 'window.open(\'' + browseUrl + '\', \'_blank\')';
 
         if (hasSubtasks && !isSubtask) {
-            toggleButtonsHtml += '<button type="button" class="tl-chip" onclick="event.stopPropagation(); toggleSubtasks(\'' + t.key + '\')">Alt · ' + fields.subtasks.length + '</button>';
+            toggleButtonsHtml += '<button type="button" class="tl-chip" onclick="event.stopPropagation(); toggleSubtasks(\'' + t.key + '\')">Alt · ' + childSubs.length + '</button>';
             nestedHtml += '<div id="subtasks-' + t.key + '" class="tl-nested hidden">';
-            nestedHtml += '<div class="tl-nested-label">Alt-tapşırıqlar</div>';
-            nestedHtml += fields.subtasks.map(function(sub) {
-                var subStatusName = sub.fields && sub.fields.status ? sub.fields.status.name : 'Naməlum';
-                return '<a class="tl-nested-item" href="' + state.currentBaseUrl + '/browse/' + escapeTaskListHtml(sub.key) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">'
-                    + '<span class="tl-key">' + escapeTaskListHtml(sub.key) + '</span>'
-                    + '<span class="' + taskListStatusClass(subStatusName) + '">' + escapeTaskListHtml(subStatusName) + '</span>'
-                    + '<span class="tl-nested-summary">' + escapeTaskListHtml(sub.fields && sub.fields.summary ? sub.fields.summary : '') + '</span>'
-                    + '</a>';
-            }).join('');
+            nestedHtml += '<div class="tl-nested-label">Alt-tapşırıqlar · ' + childSubs.length + '</div>';
+            nestedHtml += childSubs.map(nestedSubtaskItemHtml).join('');
             nestedHtml += '</div>';
         }
-        if (hasIssueLinks && !isSubtask) {
-            toggleButtonsHtml += '<button type="button" class="tl-chip tl-chip--link" onclick="event.stopPropagation(); toggleRelated(\'' + t.key + '\')">Əlaqəli · ' + fields.issuelinks.length + '</button>';
-            nestedHtml += '<div id="related-' + t.key + '" class="tl-nested hidden">';
-            nestedHtml += '<div class="tl-nested-label">Əlaqəli tapşırıqlar</div>';
-            nestedHtml += fields.issuelinks.map(function(link) {
-                var linkedIssue = link.outwardIssue || link.inwardIssue;
-                if (!linkedIssue) return '';
-                var linkStatus = linkedIssue.fields && linkedIssue.fields.status ? linkedIssue.fields.status.name : 'Naməlum';
-                var linkSummary = linkedIssue.fields && linkedIssue.fields.summary ? linkedIssue.fields.summary : '';
-                var linkType = link.type ? (link.outwardIssue ? link.type.outward : link.type.inward) : 'əlaqəli';
-                return '<a class="tl-nested-item" href="' + state.currentBaseUrl + '/browse/' + escapeTaskListHtml(linkedIssue.key) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">'
-                    + '<span class="tl-key">' + escapeTaskListHtml(linkedIssue.key) + '</span>'
-                    + '<span class="' + taskListStatusClass(linkStatus) + '">' + escapeTaskListHtml(linkStatus) + '</span>'
-                    + '<span class="tl-nested-summary">' + escapeTaskListHtml(linkSummary) + '</span>'
-                    + '<span class="tl-nested-rel">' + escapeTaskListHtml(linkType) + '</span>'
-                    + '</a>';
+        if (hasRelated && !isSubtask) {
+            toggleButtonsHtml += '<button type="button" class="tl-chip tl-chip--link" onclick="event.stopPropagation(); toggleRelated(\'' + t.key + '\')">Əlaqəli · ' + relatedItems.length + '</button>';
+            nestedHtml += '<div id="related-' + t.key + '" class="tl-nested tl-nested--related hidden">';
+            nestedHtml += '<div class="tl-nested-label">Əlaqəli tapşırıqlar · ' + relatedItems.length + '</div>';
+            nestedHtml += relatedItems.map(function(item) {
+                return nestedChildItemHtml(item.issue, isSubtaskType(item.issue), item.linkType);
             }).join('');
             nestedHtml += '</div>';
         }
@@ -392,13 +520,32 @@ export function renderTaskList(tasks, title, opts) {
         else if (dateStatus === 'early') dateBits += '<span class="tl-date-early">Öncə bitə bilər</span>';
         dateBits += '</div>';
 
-        return '<div class="tl-row">'
-            + '<div class="tl-row-main" onclick="' + mainRowClick + '">'
+        var rowCls = 'tl-row'
+            + (isSubtask ? ' tl-row--sub' : '')
+            + (hasNested ? ' tl-row--parent' : '');
+        var leadInner = hasNested
+            ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>'
+            : (isSubtask ? '<span class="tl-sub-rail"></span>' : '');
+        var leadCls = 'tl-lead' + (hasNested ? ' tl-chevron' : '') + (isSubtask && !hasNested ? ' tl-lead--rail' : '');
+        var chevron = '<span class="' + leadCls + '" aria-hidden="true">' + leadInner + '</span>';
+        var showType = issueTypeName && !isGenericTaskTypeName(issueTypeName, isSubtask);
+        var parentHint = (isSubtask && parentIssue && parentIssue.key)
+            ? '<span class="tl-parent-ref">Üst tapşırıq: ' + escapeTaskListHtml(parentIssue.key) + '</span>'
+            : '';
+        var expandAttrs = hasNested
+            ? ' role="button" aria-expanded="false" title="Alt-tapşırıqları aç"'
+            : '';
+
+        return '<div class="' + rowCls + '" id="tl-row-' + escapeTaskListHtml(t.key) + '">'
+            + '<div class="tl-row-main" onclick="' + mainRowClick + '"' + expandAttrs + '>'
+            + chevron
             + '<div class="tl-avatar" style="background-color:' + avatarColor + '">' + escapeTaskListHtml(initials) + '</div>'
             + '<div class="tl-main">'
-            + '<div class="tl-topline"><span class="tl-key">' + escapeTaskListHtml(t.key) + '</span>'
+            + '<div class="tl-topline">' + taskRoleBadgeHtml(isSubtask)
+            + '<span class="tl-key">' + escapeTaskListHtml(t.key) + '</span>'
             + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
-            + (issueTypeName ? '<span class="tl-type">' + escapeTaskListHtml(issueTypeName) + '</span>' : '')
+            + (showType ? '<span class="tl-type">' + escapeTaskListHtml(issueTypeName) + '</span>' : '')
+            + parentHint
             + '</div>'
             + '<p class="tl-summary">' + escapeTaskListHtml(fields.summary || '') + '</p>'
             + '<p class="tl-assignee">' + escapeTaskListHtml(assigneeName) + '</p>'
@@ -422,14 +569,52 @@ export function renderTaskList(tasks, title, opts) {
     }
 }
 
+function syncTaskRowOpen(key) {
+    var row = document.getElementById('tl-row-' + key);
+    if (!row) return;
+    var open = false;
+    var panels = row.querySelectorAll('.tl-nested');
+    for (var i = 0; i < panels.length; i++) {
+        if (!panels[i].classList.contains('hidden')) { open = true; break; }
+    }
+    row.classList.toggle('is-open', open);
+    var main = row.querySelector('.tl-row-main');
+    if (main) main.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+export function toggleTaskChildren(key) {
+    var row = document.getElementById('tl-row-' + key);
+    if (!row) return;
+    var panels = row.querySelectorAll('.tl-nested');
+    if (!panels.length) return;
+    var anyHidden = false;
+    for (var i = 0; i < panels.length; i++) {
+        if (panels[i].classList.contains('hidden')) { anyHidden = true; break; }
+    }
+    for (var j = 0; j < panels.length; j++) {
+        panels[j].classList.toggle('hidden', !anyHidden);
+    }
+    syncTaskRowOpen(key);
+}
+
 export function toggleSubtasks(key) {
     var el = document.getElementById('subtasks-' + key);
-    if (el) el.classList.toggle('hidden');
+    if (!el) {
+        toggleTaskChildren(key);
+        return;
+    }
+    el.classList.toggle('hidden');
+    syncTaskRowOpen(key);
 }
 
 export function toggleRelated(key) {
     var el = document.getElementById('related-' + key);
-    if (el) el.classList.toggle('hidden');
+    if (!el) {
+        toggleTaskChildren(key);
+        return;
+    }
+    el.classList.toggle('hidden');
+    syncTaskRowOpen(key);
 }
 
 export function changePage(page) {
