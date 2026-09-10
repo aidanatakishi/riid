@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleSettings } from './utils.js';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, hasKomplaynsComponent } from './model.js';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, hasKomplaynsComponent } from './model.js';
 import { applyFilters, loadFiltersFromStorage, populateSprintFilter } from './filters.js';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
@@ -16,6 +16,7 @@ var SEARCH_FIELDS = [
     'priority', 'labels', 'customfield_10101', 'customfield_10107', 'customfield_10008',
     'customfield_10015', 'customfield_10016', 'customfield_12703', 'customfield_13608',
     'customfield_12424',
+    'customfield_17311', 'customfield_17312', 'customfield_17313', 'customfield_17314',
     'customfield_17315', 'customfield_17316', 'customfield_17317', 'customfield_17318',
     'customfield_17319', 'customfield_17320', 'customfield_17435',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
@@ -91,7 +92,7 @@ async function parseJiraError(res, text) {
 }
 
 function searchFieldsList() {
-    var extra = collectActivityDirectionFieldIds().concat(collectMeqsedDisplayFieldIds());
+    var extra = collectActivityDirectionFieldIds().concat(collectMeqsedDisplayFieldIds()).concat(collectSelfDisplayFieldIds());
     var parts = SEARCH_FIELDS.split(',');
     var seen = {};
     var i;

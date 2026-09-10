@@ -4,10 +4,10 @@ import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponen
 import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange } from './api.js';
 import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, filterTasks, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js';
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
-import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
+import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort } from './assessments.js';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route } from './nk303.js?v=upl5';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda24';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda25';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 
@@ -90,6 +90,7 @@ window.renderStats = renderStats;
 window.renderDifficulties = renderDifficulties;
 window.getDifficultyCardHtml = getDifficultyCardHtml;
 window.renderTaskList = renderTaskList;
+window.toggleTaskChildren = toggleTaskChildren;
 window.toggleSubtasks = toggleSubtasks;
 window.toggleRelated = toggleRelated;
 window.changePage = changePage;
@@ -120,6 +121,8 @@ window.closeNk303 = closeNk303;
 window.onNk303OverlayClick = onNk303OverlayClick;
 window.nk303Call = nk303Call;
 window.syncNk303Route = syncNk303Route;
+window.nk303MeqsedFilter = nk303MeqsedFilter;
+window.nk303MeqsedSearch = nk303MeqsedSearch;
 window.openDiagModal = openDiagModal;
 window.closeDiagModal = closeDiagModal;
 window.onDiagModalOverlayClick = onDiagModalOverlayClick;
@@ -129,6 +132,9 @@ window.applyAssessmentPeriod = applyAssessmentPeriod;
 window.setMeqsedDashFilter = setMeqsedDashFilter;
 window.setAssessListFilter = setAssessListFilter;
 window.cycleAssessListSort = cycleAssessListSort;
+window.setAssessListSort = setAssessListSort;
+window.toggleAssessListFilterMenu = toggleAssessListFilterMenu;
+window.closeAssessListFilterMenu = closeAssessListFilterMenu;
 window.loadAssessmentCreatedRange = loadAssessmentCreatedRange;
 
 Object.defineProperty(window, 'filteredTasks', {

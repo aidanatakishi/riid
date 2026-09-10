@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel } from './assessments.js';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda24';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -8,7 +8,9 @@ import {
     getRawPhaseEntries,
     getTaskStartDate,
     getPhaseFieldText,
-    PHASE_FIELDS
+    PHASE_FIELDS,
+    MEQSED_NOVU_KINDS,
+    MEQSED_NOVU_LABELS
 } from './model.js';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
@@ -16,11 +18,43 @@ import { state } from './state.js';
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
 var ROOT_ID = 'nk303Root';
-var PAGE_SIZE = 6;
+var PAGE_SIZE = 20;
+var HUB_PAGE_SIZE = 20;
 var NA = 'Məlumat mövcud deyil';
 var nkCharts = {};
+var nkHubCharts = {};
 var histBound = false;
 var excelStore = { files: [], orgs: [], loaded: false };
+var hubPrefetchTimer = null;
+var HUB_TABS = [
+    { id: 'diag', label: 'Diaqnostika', color: '#7c3aed' },
+    { id: 'isq', label: 'İSQ', color: '#2563eb' },
+    { id: 'self', label: 'Özünüqiymətləndirmə', color: '#059669' },
+    { id: 'exq', label: 'EXQ', color: '#d97706' },
+    { id: 'meqsed', label: 'Məqsədəuyğunluq', color: '#5b21b6' }
+];
+var HUB_STATUS_COLORS = {
+    done: '#059669',
+    progress: '#2563eb',
+    planned: '#ea580c',
+    paused: '#d97706',
+    review: '#0891b2',
+    esd: '#4f46e5',
+    blocked: '#dc2626',
+    rejected: '#e11d48',
+    other: '#64748b'
+};
+var HUB_STATUS_LABELS = {
+    done: 'Tamamlanıb',
+    progress: 'İcradadır',
+    planned: 'Planlaşdırılıb',
+    paused: 'Dayandırılıb',
+    review: 'Rəydə',
+    esd: 'ESD',
+    blocked: 'Bloklanıb',
+    rejected: 'İmtina',
+    other: 'İcraya başlanmayıb'
+};
 
 var DIRS = [
     { id: 'strategiya', name: 'Strategiya', needles: ['strategiya'] },
@@ -104,7 +138,12 @@ var ui = {
     expandDir: '',
     expandCrit: '',
     compare: {},
-    escBound: false
+    escBound: false,
+    hub: '',
+    hubSearch: '',
+    hubPage: 1,
+    hubFilter: '',
+    hubSort: 'desc'
 };
 
 function esc(s) {
@@ -187,6 +226,23 @@ function pad2(n) {
 function fmtDate(d) {
     if (!d || isNaN(d.getTime())) return '';
     return pad2(d.getDate()) + '.' + pad2(d.getMonth() + 1) + '.' + d.getFullYear();
+}
+
+function fmtScore(n) {
+    if (n == null || !isFinite(n)) return '—';
+    var r = Math.round(n * 10) / 10;
+    return r % 1 === 0 ? String(r) : r.toFixed(1);
+}
+
+function maturityTarget(score) {
+    if (score == null || !isFinite(score)) return null;
+    var mat = maturityOf(score);
+    if (!mat) return null;
+    var i = MATS.indexOf(mat);
+    if (i < 0) return null;
+    var next = MATS[i + 1];
+    if (!next) return 100;
+    return (next.lo + next.hi) / 2;
 }
 
 function maturityOf(score) {
@@ -331,6 +387,12 @@ function barColor(score) {
 
 function orgKey(row, i) {
     return qurumMatchKey(row && row.qurum) || (row && row.qurum) || (row && row.task && row.task.key) || ('row_' + i);
+}
+
+function orgSortTime(o) {
+    if (o && o.start instanceof Date && !isNaN(o.start.getTime())) return o.start.getTime();
+    if (o && o.updated instanceof Date && !isNaN(o.updated.getTime())) return o.updated.getTime();
+    return Number(o && o.time) || 0;
 }
 
 function parseRow(row, index) {
@@ -805,7 +867,9 @@ function iconSvg(name) {
         refresh: '<path d="M21 12a9 9 0 11-3.2-6.8"/><path d="M21 4v5h-5"/>',
         download: '<path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M5 19h14"/>',
         upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
-        external: '<path d="M14 5h5v5"/><path d="M20 4l-9 9"/><path d="M9 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-3"/>'
+        external: '<path d="M14 5h5v5"/><path d="M20 4l-9 9"/><path d="M9 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-3"/>',
+        chevron: '<path d="M15 18l-6-6 6-6"/>',
+        close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>'
     };
     return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
         + (paths[name] || '') + '</svg>';
@@ -820,11 +884,6 @@ function pageHeadHtml(model) {
         }).join('');
     var yearOpts = optionHtml('all', 'Bütün illər', ui.year)
         + model.years.map(function(y) { return optionHtml(String(y), String(y), String(ui.year)); }).join('');
-    var stOpts = optionHtml('', 'Bütün statuslar', ui.status)
-        + VIS_STATUS.map(function(s) { return optionHtml(s.id, s.label, ui.status); }).join('');
-    var updated = model.lastUpdated
-        ? (fmtDate(model.lastUpdated) + '  ' + pad2(model.lastUpdated.getHours()) + ':' + pad2(model.lastUpdated.getMinutes()))
-        : NA;
     var title = ui.mode === 'institution' && model.selected
         ? model.selected.name
         : 'Ölkə üzrə Rəqəmsallaşma Diaqnostikası';
@@ -833,7 +892,10 @@ function pageHeadHtml(model) {
         : 'Qurumların rəqəmsal yetkinlik səviyyəsinin qiymətləndirilməsi';
     return '<div class="nk303-wrap"><div class="nk303-head">'
         + '<div class="nk303-head-left">'
-        + '<a href="/" class="nk303-back" onclick="closeNk303(); return false;">← İdarəetmə paneli</a>'
+        + '<a href="/" class="nk303-home" onclick="closeNk303(); return false;">'
+        + '<span class="nk303-home-ic">' + iconSvg('chevron') + '</span>'
+        + '<span class="nk303-home-txt"><span class="nk303-home-kicker">Geri qayıt</span>'
+        + '<span class="nk303-home-name">İdarəetmə paneli</span></span></a>'
         + '<p class="nk303-kicker">Diaqnostika analitikası</p>'
         + '<h1 id="nk303Title">' + esc(title) + '</h1>'
         + '<p class="sub">' + esc(sub) + '</p>'
@@ -842,16 +904,61 @@ function pageHeadHtml(model) {
         + '<div class="nk303-filters">'
         + '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>'
         + '<label class="nk303-field"><span>Qurum</span><select onchange="nk303Call(\'org\', this.value)">' + orgOpts + '</select></label>'
-        + '<label class="nk303-field"><span>Status</span><select onchange="nk303Call(\'status\', this.value)">' + stOpts + '</select></label>'
         + '</div>'
-        + '<div class="nk303-actions">'
-        + '<button type="button" class="nk303-link" onclick="nk303Call(\'reset\')">' + iconSvg('refresh') + ' Filtrləri təmizlə</button>'
-        + '<button type="button" class="nk303-upload" onclick="nk303Call(\'upload\')">' + iconSvg('upload') + ' Excel yüklə</button>'
-        + '<button type="button" class="nk303-export" onclick="nk303Call(\'export\',\'csv\')">' + iconSvg('download') + ' İxrac et</button>'
-        + '</div>'
-        + '<div class="nk303-updated">Son yenilənmə: ' + esc(updated) + '</div>'
         + '</div></div>'
-        + excelFilesHtml();
+        + hubNavHtml();
+}
+
+function hubYearValue() {
+    var period = getAssessmentPeriodState();
+    var y = period && period.year;
+    if (!y || y === 'custom' || y === 'all') return 'all';
+    return String(y);
+}
+
+function hubYearFilterHtml(section) {
+    var cur = hubYearValue();
+    var years = [];
+    try { years = getAssessmentHubYears(section || ui.hub || 'diag') || []; } catch (e) {}
+    return '<label class="nk303-field nk303-hub-year"><span>İl</span>'
+        + '<select aria-label="İl" onchange="nk303Call(\'hubYear\', this.value)">'
+        + optionHtml('all', 'Bütün illər', cur)
+        + years.map(function(y) { return optionHtml(String(y), String(y), cur); }).join('')
+        + '</select></label>';
+}
+
+function applyHubYear(year) {
+    var y = year || 'all';
+    ui.year = y;
+    ui.hubPage = 1;
+    var hub = ui.hub;
+    var body = document.querySelector('#nk303HubRoot .nk303-hub-body');
+    if (body) body.innerHTML = '<div class="nk303-hub-loading">Səhifə hazırlanır…</div>';
+    Promise.resolve(setAssessmentYearForActiveTab(y)).then(function() {
+        if (ui.hub !== hub) return;
+        renderHub();
+        render();
+    }).catch(function() {
+        if (ui.hub === hub) renderHub();
+    });
+}
+
+function hubNavHtml() {
+    var items = HUB_TABS;
+    try {
+        var live = getAssessmentHubNav();
+        if (live && live.length) items = live;
+    } catch (e) {}
+    return '<nav class="nk303-sec-nav" aria-label="Qiymətləndirmə bölmələri">'
+        + items.map(function(it) {
+            return '<button type="button" class="nk303-sec' + (ui.hub === it.id ? ' is-on' : '') + '" data-sec="'
+                + esc(it.id) + '" onclick="nk303Call(\'hub\',\'' + esc(it.id) + '\')">'
+                + '<i style="background:' + esc(it.color || '#64748b') + '"></i>'
+                + '<span>' + esc(it.label) + '</span>'
+                + (it.count != null ? '<b>' + esc(String(it.count)) + '</b>' : '')
+                + '</button>';
+        }).join('')
+        + '</nav>';
 }
 
 function excelFilesHtml() {
@@ -864,6 +971,23 @@ function excelFilesHtml() {
     }).join('') + '</div>';
 }
 
+function backToCountryHtml() {
+    return '<button type="button" class="nk303-home nk303-home--back" onclick="nk303Call(\'mode\',\'country\')">'
+        + '<span class="nk303-home-ic">' + iconSvg('chevron') + '</span>'
+        + '<span class="nk303-home-txt"><span class="nk303-home-kicker">Geri qayıt</span>'
+        + '<span class="nk303-home-name">Ölkə üzrə nəticələr</span></span></button>';
+}
+
+function toggleCountryNav(nav) {
+    ui.mode = 'country';
+    ui.orgKey = '';
+    ui.expandDir = '';
+    ui.expandCrit = '';
+    ui.page = 1;
+    ui.nav = ui.nav === nav ? 'overview' : nav;
+    window.scrollTo(0, 0);
+}
+
 function kpiCardHtml(opts) {
     var inner = '<div class="nk303-kpi-top">'
         + '<span class="ic ' + opts.ic + '">' + iconSvg(opts.icon) + '</span>'
@@ -872,7 +996,11 @@ function kpiCardHtml(opts) {
         + '<div class="val' + (opts.valClass ? ' ' + opts.valClass : '') + '">' + opts.valueHtml + '</div>'
         + (opts.subHtml || '');
     if (opts.onclick) {
-        return '<button type="button" class="nk303-kpi nk303-kpi--btn' + (opts.on ? ' is-on' : '') + '" onclick="' + opts.onclick + '">'
+        return '<button type="button" class="nk303-kpi nk303-kpi--btn'
+            + (opts.on ? ' is-on' : '')
+            + (opts.tone ? ' is-tone-' + opts.tone : '')
+            + '" onclick="' + opts.onclick + '"'
+            + ' aria-pressed="' + (opts.on ? 'true' : 'false') + '">'
             + inner + '</button>';
     }
     return '<article class="nk303-kpi">' + inner + '</article>';
@@ -907,12 +1035,16 @@ function countryKpis(model) {
         })
         + kpiCardHtml({
             ic: 'is-blue', icon: 'building', label: 'Qiymətləndirilən qurumlar',
-            valueHtml: esc(String(total)), subHtml: '<div class="sub">cəmi qurum</div>'
+            valueHtml: esc(String(total)), subHtml: '<div class="sub">cəmi qurum · kliklə, siyahıya bax</div>',
+            onclick: 'nk303Call(\'orgsList\')',
+            on: ui.nav === 'orgs'
         })
         + kpiCardHtml({
             ic: 'is-green', icon: 'check', label: 'Tamamlanmış qiymətləndirmələr',
             valueHtml: esc(String(done)) + ' <small>/ ' + esc(String(total)) + '</small>',
-            subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>'
+            subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
+            onclick: 'nk303Call(\'doneList\')',
+            on: ui.nav === 'done'
         })
         + kpiCardHtml({
             ic: 'is-green', icon: 'star', label: 'Ən güclü istiqamət',
@@ -927,7 +1059,8 @@ function countryKpis(model) {
             valueHtml: esc(String(model.highGaps || 0)),
             subHtml: '<div class="sub">sahə · kliklə, siyahıya bax</div>',
             onclick: 'nk303Call(\'highGaps\')',
-            on: ui.nav === 'gaps'
+            on: ui.nav === 'gaps',
+            tone: 'amber'
         })
         + '</div>';
 }
@@ -991,13 +1124,21 @@ function orgTableHtml(model, rows) {
             return o.maturity && o.maturity.id === ui.maturity;
         });
     }
-    if (ui.sort === 'name') {
-        list.sort(function(a, b) { return String(a.name).localeCompare(String(b.name), 'az'); });
+    if (ui.sort === 'date') {
+        list.sort(function(a, b) {
+            var ta = orgSortTime(a);
+            var tb = orgSortTime(b);
+            if (tb !== ta) return tb - ta;
+            return String(a.name).localeCompare(String(b.name), 'az');
+        });
     } else {
         list.sort(function(a, b) {
             var as = a.qrsg == null ? -1 : a.qrsg;
             var bs = b.qrsg == null ? -1 : b.qrsg;
             if (bs !== as) return bs - as;
+            var ta = orgSortTime(a);
+            var tb = orgSortTime(b);
+            if (tb !== ta) return tb - ta;
             return String(a.name).localeCompare(String(b.name), 'az');
         });
     }
@@ -1020,15 +1161,23 @@ function orgTableHtml(model, rows) {
             + '<td>' + esc(weak ? dirShort(weak) : '—') + '</td>'
             + '</tr>';
     }).join('');
+    var from = list.length ? (ui.page - 1) * PAGE_SIZE + 1 : 0;
+    var to = Math.min(ui.page * PAGE_SIZE, list.length);
     var pager = '';
     if (list.length) {
         var n;
         pager = '<div class="nk303-pager">'
-            + '<button type="button" ' + (ui.page <= 1 ? 'disabled' : '') + ' onclick="nk303Call(\'page\',' + (ui.page - 1) + ')">‹</button>';
-        for (n = 1; n <= pages; n++) {
-            pager += '<button type="button" class="' + (n === ui.page ? 'is-on' : '') + '" onclick="nk303Call(\'page\',' + n + ')">' + n + '</button>';
+            + '<span class="nk303-pager-meta">'
+            + (pages > 1 ? from + '–' + to + ' / ' : '')
+            + list.length + ' qurum</span>';
+        if (pages > 1) {
+            pager += '<button type="button" ' + (ui.page <= 1 ? 'disabled' : '') + ' onclick="nk303Call(\'page\',' + (ui.page - 1) + ')">‹</button>';
+            for (n = 1; n <= pages; n++) {
+                pager += '<button type="button" class="' + (n === ui.page ? 'is-on' : '') + '" onclick="nk303Call(\'page\',' + n + ')">' + n + '</button>';
+            }
+            pager += '<button type="button" ' + (ui.page >= pages ? 'disabled' : '') + ' onclick="nk303Call(\'page\',' + (ui.page + 1) + ')">›</button>';
         }
-        pager += '<button type="button" ' + (ui.page >= pages ? 'disabled' : '') + ' onclick="nk303Call(\'page\',' + (ui.page + 1) + ')">›</button></div>';
+        pager += '</div>';
     }
     return '<div class="nk303-toolbar">'
         + '<div class="nk303-searchwrap">' + iconSvg('search')
@@ -1040,10 +1189,10 @@ function orgTableHtml(model, rows) {
         + '</select>'
         + '<select class="nk303-select" onchange="nk303Call(\'sort\', this.value)">'
         + optionHtml('score', 'Bal üzrə sıralama', ui.sort)
-        + optionHtml('name', 'Ada görə sıralama', ui.sort)
+        + optionHtml('date', 'Tarixə görə sıralama', ui.sort)
         + '</select></div>'
         + (list.length
-            ? '<div class="nk303-table-wrap"><table class="nk303-table"><thead><tr>'
+            ? '<div class="nk303-table-wrap nk303-table-wrap--fit"><table class="nk303-table nk303-table--fit nk303-table--orgs"><thead><tr>'
                 + '<th>#</th><th>Qurum</th><th>Ümumi bal</th><th>Rəqəmsallaşma səviyyəsi</th><th>Status</th><th>Ən zəif istiqamət</th>'
                 + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager
             : '<p class="nk303-empty">Seçilmiş filtrə uyğun qurum yoxdur.</p>');
@@ -1079,9 +1228,9 @@ function gapOpenArg(g) {
 }
 
 function highGapsTableHtml(rows, showAll) {
-    var list = showAll ? rows : rows.slice(0, 6);
+    var list = showAll ? rows : rows.slice(0, 8);
     if (!list.length) return '<p class="nk303-empty">' + esc(NA) + '</p>';
-    return '<div class="nk303-table-wrap"><table class="nk303-table"><thead><tr>'
+    return '<div class="nk303-table-wrap nk303-table-wrap--fit"><table class="nk303-table nk303-table--fit"><thead><tr>'
         + '<th>Qurum</th><th>İstiqamət / meyar</th><th>Cari bal</th><th>Çatışmazlıq</th><th>Prioritet</th>'
         + '</tr></thead><tbody>'
         + list.map(function(g) {
@@ -1091,7 +1240,7 @@ function highGapsTableHtml(rows, showAll) {
                 + '<td class="q" title="' + esc(g.org) + '">' + esc(g.org) + '</td>'
                 + '<td class="q" title="' + esc(label) + '">' + esc(label) + '</td>'
                 + '<td class="num">' + esc(g.score == null ? '—' : fmt1(g.score)) + '</td>'
-                + '<td class="act">' + esc(clipText(g.deficiency || NA, 120)) + '</td>'
+                + '<td class="act">' + esc(clipText(g.deficiency || NA, 220)) + '</td>'
                 + '<td><span class="nk303-pri is-' + pri.id + '">' + esc(pri.label) + '</span></td>'
                 + '</tr>';
         }).join('')
@@ -1102,10 +1251,64 @@ function highGapsBody(model) {
     var rows = highPriorityGaps(model.gaps);
     return countryKpis(model)
         + '<section class="nk303-card" id="nkHighGaps">'
-        + '<button type="button" class="nk303-back" onclick="nk303Call(\'mode\',\'country\')">← Ölkə üzrə nəticələr</button>'
+        + backToCountryHtml()
         + '<h3 style="margin-top:0.7rem">Yüksək prioritetli boşluqlar</h3>'
         + '<p class="nk303-hint">İlkin səviyyə və yüksək prioritet sahələr. Sətirə klikləyib qurumun analizində həmin boşluğa baxın.</p>'
         + highGapsTableHtml(rows, true)
+        + '</section>';
+}
+
+function isVisNav(nav) {
+    return nav === 'done' || nav === 'in_progress' || nav === 'review' || nav === 'not_started';
+}
+
+function donutPickOptions(onPick) {
+    return {
+        onClick: function(evt, els, chart) {
+            if (!els || !els.length) return;
+            var host = chart || this;
+            var item = ((host && host._donutItems) || [])[els[0].index];
+            if (item && item.filter && typeof onPick === 'function') onPick(item.filter);
+        },
+        onHover: function(evt, els) {
+            var t = evt && evt.native && evt.native.target;
+            if (t && t.style) t.style.cursor = els && els.length ? 'pointer' : 'default';
+        }
+    };
+}
+
+function countryOrgListBody(model, kind) {
+    var all = model.rankedOrgs || [];
+    var meta = {
+        all: {
+            title: 'Qiymətləndirilən qurumlar',
+            hint: 'Qiymətləndirmədə olan qurumlar. Sətirə klikləyib qurumun analizini açın.'
+        },
+        done: {
+            title: 'Tamamlanmış qiymətləndirmələr',
+            hint: 'Diaqnostikası tamamlanmış qurumlar. Sətirə klikləyib qurumun analizini açın.'
+        },
+        in_progress: {
+            title: 'İcradadır',
+            hint: 'İcrada olan qiymətləndirmələr. Sətirə klikləyib qurumun tapşırığına baxın.'
+        },
+        review: {
+            title: 'Rəydə',
+            hint: 'Rəydə olan qiymətləndirmələr. Sətirə klikləyib qurumun tapşırığına baxın.'
+        },
+        not_started: {
+            title: 'İcraya başlanmayıb',
+            hint: 'İcraya başlanmamış qiymətləndirmələr. Sətirə klikləyib qurumun tapşırığına baxın.'
+        }
+    };
+    var info = meta[kind] || meta.all;
+    var rows = isVisNav(kind) ? all.filter(function(o) { return o.visId === kind; }) : all;
+    return countryKpis(model)
+        + '<section class="nk303-card nk303-card--orgs" id="nkCountryList">'
+        + backToCountryHtml()
+        + '<h3 style="margin-top:0.7rem">' + esc(info.title) + '</h3>'
+        + '<p class="nk303-hint">' + esc(info.hint) + '</p>'
+        + orgTableHtml(model, rows)
         + '</section>';
 }
 
@@ -1202,7 +1405,7 @@ function gapTableHtml(model, limit) {
     }
     rows = rows.slice(0, limit || 6);
     if (!rows.length) return '<p class="nk303-empty">' + esc(NA) + '</p>';
-    return '<div class="nk303-table-wrap"><table class="nk303-table"><thead><tr>'
+    return '<div class="nk303-table-wrap nk303-table-wrap--fit"><table class="nk303-table nk303-table--fit"><thead><tr>'
         + '<th>Göstərici</th><th>Cari bal</th><th>Hədəf</th><th>Boşluq</th><th>Prioritet</th>'
         + '</tr></thead><tbody>'
         + rows.map(function(r) {
@@ -1221,20 +1424,31 @@ function gapTableHtml(model, limit) {
 function actionPreviewHtml(model) {
     var dirs = dirGapRows(model.dirAgg);
     if (!dirs.length) return '<p class="nk303-empty">' + esc(NA) + '</p>';
-    return '<div class="nk303-table-wrap"><table class="nk303-table nk303-table--static"><thead><tr>'
-        + '<th>#</th><th>İstiqamət</th><th>Cari bal</th><th>Hədəf</th><th>Boşluq</th><th>Prioritet</th><th>Tövsiyə olunan tədbir</th>'
-        + '</tr></thead><tbody>'
+    return '<div class="nk303-actions-grid">'
         + dirs.map(function(d, i) {
-            return '<tr>'
-                + '<td class="num">' + (i + 1) + '</td>'
-                + '<td>' + esc(dirShort(d)) + '</td>'
-                + '<td class="num">' + esc(d.score == null ? '—' : fmt1(d.score)) + '</td>'
-                + '<td class="num">' + esc(d.target == null ? '—' : fmt1(d.target)) + '</td>'
-                + '<td class="num is-gap">' + esc(d.gap == null ? '—' : fmt1(d.gap)) + '</td>'
-                + '<td><span class="nk303-pri is-' + d.pri.id + '">' + esc(d.pri.label) + '</span></td>'
-                + '<td class="act">' + esc(recommendAction(d.dirId, d.score, model, d.name)) + '</td></tr>';
+            var now = d.score == null ? 0 : Math.max(0, Math.min(100, d.score));
+            var goal = d.target == null ? null : Math.max(0, Math.min(100, d.target));
+            var hit = d.dirId ? ' onclick="nk303Call(\'openDir\',\'' + d.dirId + '\')"' : '';
+            return '<article class="nk303-action is-tone-' + (i % 3) + '"' + hit + '>'
+                + '<header class="nk303-action-head">'
+                + '<span class="nk303-action-rank">' + pad2(i + 1) + '</span>'
+                + '<div class="nk303-action-title">'
+                + '<b>' + esc(d.name) + '</b>'
+                + '<span class="nk303-pri is-' + d.pri.id + '">' + esc(d.pri.label) + '</span>'
+                + '</div></header>'
+                + '<div class="nk303-action-metrics">'
+                + '<span>Cari <b>' + esc(d.score == null ? '—' : fmt1(d.score)) + '</b></span>'
+                + '<span>Hədəf <b>' + esc(d.target == null ? '—' : fmt1(d.target)) + '</b></span>'
+                + '<span class="is-gap">Boşluq <b>' + esc(d.gap == null ? '—' : fmt1(d.gap)) + '</b></span>'
+                + '</div>'
+                + '<div class="nk303-action-bar" aria-hidden="true">'
+                + '<i style="width:' + now + '%;background:' + barColor(d.score) + '"></i>'
+                + (goal == null ? '' : '<em style="left:' + goal + '%"></em>')
+                + '</div>'
+                + '<p>' + esc(recommendAction(d.dirId, d.score, model, d.name)) + '</p>'
+                + '</article>';
         }).join('')
-        + '</tbody></table></div>';
+        + '</div>';
 }
 
 function summaryText(model) {
@@ -1254,29 +1468,75 @@ function summaryText(model) {
     return parts.join(' ');
 }
 
-function countryBody(model) {
-    var ranked = (model.dirAgg || []).slice().sort(function(a, b) {
-        var as = a.avg == null ? -1 : a.avg;
-        var bs = b.avg == null ? -1 : b.avg;
-        return bs - as;
+function dirCompareRows(dirAgg) {
+    return DIRS.map(function(d) {
+        var row = (dirAgg || []).filter(function(x) { return x.id === d.id; })[0];
+        var now = row && row.avg != null ? row.avg : null;
+        return {
+            id: d.id,
+            name: d.name,
+            short: dirShort(d),
+            now: now,
+            target: maturityTarget(now)
+        };
     });
+}
+
+function radarCompareHtml(model) {
+    var now = model.countryAvg;
+    var goal = maturityTarget(now);
+    var gap = now != null && goal != null ? Math.max(0, goal - now) : null;
+    var rows = dirCompareRows(model.dirAgg);
+    var tiles = rows.map(function(d) {
+        var met = d.now != null && d.target != null && d.now >= d.target;
+        return '<article class="nk303-dir-tile' + (met ? ' is-met' : '') + '">'
+            + '<span>' + esc(d.short) + '</span>'
+            + '<b' + (d.now == null ? ' class="is-empty"' : '') + '>' + esc(fmtScore(d.now)) + '</b>'
+            + '<em>Hədəf: ' + esc(fmtScore(d.target)) + '</em>'
+            + '</article>';
+    }).join('');
+    return '<section class="nk303-card nk303-card--compare">'
+        + '<div class="nk303-compare-head">'
+        + '<div>'
+        + '<p class="nk303-kicker">Rəqəmsallaşma istiqamətləri</p>'
+        + '<h3>Hədəf olunan və Mövcud vəziyyət</h3>'
+        + '</div>'
+        + '<ul class="nk303-compare-legend" aria-hidden="false">'
+        + '<li class="is-now">Mövcud vəziyyət</li>'
+        + '<li class="is-goal">Hədəf olunan</li>'
+        + '</ul></div>'
+        + '<div class="nk303-compare-grid">'
+        + '<div class="nk303-compare-side">'
+        + '<p class="nk303-compare-side-label">Ölkə üzrə ümumi nəticə</p>'
+        + '<article class="nk303-compare-stat">'
+        + '<span>Mövcud vəziyyət</span>'
+        + '<b' + (now == null ? ' class="is-empty"' : '') + '>' + esc(fmtScore(now)) + '</b>'
+        + '</article>'
+        + '<article class="nk303-compare-stat is-goal">'
+        + '<span>Hədəf olunan</span>'
+        + '<b' + (goal == null ? ' class="is-empty"' : '') + '>' + esc(fmtScore(goal)) + '</b>'
+        + '</article>'
+        + '<article class="nk303-compare-stat is-gap">'
+        + '<span>Fərq</span>'
+        + '<b' + (gap == null ? ' class="is-empty"' : '') + '>' + esc(fmtScore(gap)) + '</b>'
+        + '</article>'
+        + '</div>'
+        + '<div class="nk303-chart nk303-chart--compare"><canvas id="nkRadarChart"></canvas></div>'
+        + '</div>'
+        + '<div class="nk303-dir-tiles">' + tiles + '</div>'
+        + '</section>';
+}
+
+function countryBody(model) {
     var done = model.byVis.done || 0;
     var total = model.orgs.length;
     var donePct = pct(done, total);
     var trendPts = (model.trend || []).filter(function(t) { return t.avg != null; });
-    var rankHtml = '<ol class="nk303-rank">'
-        + ranked.map(function(d, i) {
-            return '<li>'
-                + '<i>' + (i + 1) + '</i>'
-                + '<span>' + esc(dirShort(d)) + '</span>'
-                + '<b>' + esc(d.avg == null ? '—' : fmt1(d.avg)) + '</b>'
-                + '</li>';
-        }).join('')
-        + '</ol>';
     var legend = '<ul class="nk303-status-legend">'
         + VIS_STATUS.map(function(s) {
             var n = model.byVis[s.id] || 0;
-            return '<li>'
+            var on = ui.nav === s.id;
+            return '<li class="is-click' + (on ? ' is-on' : '') + '" onclick="nk303Call(\'statusList\',\'' + s.id + '\')">'
                 + '<i style="background:' + VIS_COLORS[s.id] + '"></i>'
                 + '<span>' + esc(s.label) + '</span>'
                 + '<b>' + n + '</b>'
@@ -1292,50 +1552,45 @@ function countryBody(model) {
             + '<b>' + (model.spanDelta > 0 ? '+' : '') + esc(fmt1(model.spanDelta)) + ' bal</b>'
             + '<em>' + (model.spanDelta < 0 ? 'azalma' : 'artım') + '</em></div>';
     return countryKpis(model)
-        + '<div class="nk303-mid">'
+        + '<div class="nk303-mid nk303-mid--hero">'
         + '<section class="nk303-card nk303-card--gauge"><h3>Ölkənin rəqəmsal yetkinlik səviyyəsi</h3>'
         + gaugeHtml(model.countryAvg)
         + '</section>'
-        + '<section class="nk303-card nk303-card--radar"><h3>Rəqəmsallaşma istiqamətləri</h3>'
-        + '<div class="nk303-radar-row">'
-        + '<div class="nk303-chart nk303-chart--radar"><canvas id="nkRadarChart"></canvas></div>'
-        + rankHtml
-        + '</div></section>'
+        + radarCompareHtml(model)
+        + '</div>'
+        + '<div class="nk303-mid nk303-mid--insight">'
         + '<section class="nk303-card nk303-card--status"><h3>Qiymətləndirmələrin icra vəziyyəti</h3>'
         + '<div class="nk303-chart nk303-chart--donut"><canvas id="nkDonutChart"></canvas></div>'
         + legend
-        + '<div class="nk303-complete">'
+        + '<div class="nk303-complete is-click" onclick="nk303Call(\'statusList\',\'done\')" title="Tamamlanmış qiymətləndirmələrə bax">'
         + '<div class="nk303-complete-top"><span>Tamamlanma faizi</span><b>' + donePct + '%</b></div>'
         + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div>'
-        + '</div></section></div>'
-        + '<div class="nk303-low">'
-        + '<section class="nk303-card"><h3>Qurumlar üzrə rəqəmsal yetkinlik</h3>'
-        + orgTableHtml(model, model.rankedOrgs)
-        + '</section>'
-        + '<div class="nk303-stack">'
-        + '<section class="nk303-card"><h3>Əsas rəqəmsallaşma boşluqları</h3>'
-        + (highRows.length
-            ? highGapsTableHtml(highRows, false)
-                + '<p class="nk303-hint">'
-                + (highRows.length > 6
-                    ? '<button type="button" class="nk303-link" onclick="nk303Call(\'highGaps\')">Bütün yüksək prioritetli boşluqlara bax (' + highRows.length + ')</button>'
-                    : 'Sətirə klikləyib qurumun boşluğuna baxın.')
-                + '</p>'
-            : gapTableHtml(model, 6))
-        + '</section>'
-        + '<section class="nk303-card"><h3>Prioritet inkişaf istiqamətləri</h3>'
-        + actionPreviewHtml(model)
-        + '</section></div>'
-        + '<div class="nk303-stack">'
-        + '<section class="nk303-card"><h3>Rəqəmsallaşma indeksinin dinamikası</h3>'
+        + '</div></section>'
+        + '<section class="nk303-result"><b>Əsas nəticə</b><p>' + esc(summaryText(model)) + '</p></section>'
+        + '<section class="nk303-card nk303-card--trend"><h3>Rəqəmsallaşma indeksinin dinamikası</h3>'
         + '<div class="nk303-trend">'
         + (trendPts.length
             ? '<div class="nk303-chart nk303-chart--trend"><canvas id="nkTrendChart"></canvas></div>'
             : '<p class="nk303-empty">' + esc(NA) + '</p>')
         + deltaCard
         + '</div></section>'
-        + '<section class="nk303-result"><b>Əsas nəticə</b><p>' + esc(summaryText(model)) + '</p></section>'
-        + '</div></div>';
+        + '</div>'
+        + '<section class="nk303-card nk303-card--orgs"><h3>Qurumlar üzrə rəqəmsal yetkinlik</h3>'
+        + orgTableHtml(model, model.rankedOrgs)
+        + '</section>'
+        + '<section class="nk303-card nk303-card--gaps"><h3>Əsas rəqəmsallaşma boşluqları</h3>'
+        + (highRows.length
+            ? highGapsTableHtml(highRows, false)
+                + '<p class="nk303-hint">'
+                + (highRows.length > 8
+                    ? '<button type="button" class="nk303-link" onclick="nk303Call(\'highGaps\')">Bütün yüksək prioritetli boşluqlara bax (' + highRows.length + ')</button>'
+                    : 'Sətirə klikləyib qurumun boşluğuna baxın.')
+                + '</p>'
+            : gapTableHtml(model, 8))
+        + '</section>'
+        + '<section class="nk303-card nk303-card--actions"><h3>Prioritet inkişaf istiqamətləri</h3>'
+        + actionPreviewHtml(model)
+        + '</section>';
 }
 
 function extrasForDir(org, dirId) {
@@ -1435,10 +1690,6 @@ function processHtml(org) {
         + '<div class="nk303-roadmap-head">'
         + '<div><h4>Diaqnostika mərhələləri</h4>'
         + '<p class="nk303-roadmap-now' + (finished ? ' is-done' : '') + '">' + esc(nowLabel) + '</p></div>'
-        + (href
-            ? '<a class="nk303-issue nk303-issue--btn" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">'
-                + iconSvg('external') + ' ' + esc(org.issueKey) + ' · Jira-da aç</a>'
-            : '')
         + '</div>'
         + '<div class="nk303-road-wrap">'
         + '<ol class="nk303-road" aria-label="Qərar 303, bənd 3.1 üzrə diaqnostika mərhələləri">'
@@ -1524,10 +1775,10 @@ function institutionBody(model) {
         };
     });
     return '<section class="nk303-card" style="margin-bottom:0.55rem">'
-        + '<button type="button" class="nk303-back" onclick="nk303Call(\'mode\',\'country\')">← Ölkə üzrə nəticələr</button>'
+        + backToCountryHtml()
         + '<div class="nk303-profile" style="margin-top:0.55rem">'
         + '<div>'
-        + '<p class="nk303-kicker" style="color:#7c3aed">Qurumun diaqnostika nəticələri</p>'
+        + '<p class="nk303-kicker">Qurumun diaqnostika nəticələri</p>'
         + '<h3 style="margin:0;font-size:1.05rem">' + esc(org.name) + '</h3>'
         + '<dl class="nk303-meta">'
         + '<div><dt>Diaqnostika ili</dt><dd>' + esc(org.year != null ? String(org.year) : NA) + '</dd></div>'
@@ -1786,6 +2037,8 @@ function bodyHtml(model) {
     var inner;
     if (ui.mode === 'institution' || ui.orgKey) inner = institutionBody(model);
     else if (ui.nav === 'gaps') inner = highGapsBody(model);
+    else if (ui.nav === 'orgs') inner = countryOrgListBody(model, 'all');
+    else if (isVisNav(ui.nav)) inner = countryOrgListBody(model, ui.nav);
     else inner = countryBody(model);
     return inner + sourceHtml() + '</div>';
 }
@@ -1810,6 +2063,7 @@ function makeChart(id, cfg) {
     var existing = Chart.getChart(el);
     if (existing) existing.destroy();
     nkCharts[id] = new Chart(el.getContext('2d'), cfg);
+    if (cfg && cfg._donutItems && nkCharts[id]) nkCharts[id]._donutItems = cfg._donutItems;
 }
 
 function centerTextPlugin(id, lines) {
@@ -1871,37 +2125,64 @@ function drawCharts(model) {
         });
     }
     if (document.getElementById('nkRadarChart')) {
-        var dirs = DIRS.map(function(d) {
-            var row = (model.dirAgg || []).filter(function(x) { return x.id === d.id; })[0];
-            return { label: dirShort(d), v: row && row.avg != null ? row.avg : 0, has: row && row.avg != null };
-        });
+        var dirs = dirCompareRows(model.dirAgg);
         makeChart('nkRadarChart', {
             type: 'radar',
             data: {
-                labels: dirs.map(function(d) { return d.has ? [d.label, fmt1(d.v)] : d.label; }),
-                datasets: [{
-                    data: dirs.map(function(d) { return d.v; }),
-                    backgroundColor: 'rgba(37, 99, 235, 0.16)',
-                    borderColor: '#2563eb',
-                    borderWidth: 2.5,
-                    pointBackgroundColor: '#2563eb',
-                    pointBorderColor: '#fff',
-                    pointBorderWidth: 2,
-                    pointRadius: 4
-                }]
+                labels: dirs.map(function(d) { return d.short; }),
+                datasets: [
+                    {
+                        label: 'Mövcud vəziyyət',
+                        data: dirs.map(function(d) { return d.now != null ? d.now : 0; }),
+                        backgroundColor: 'rgba(124, 58, 237, 0.22)',
+                        borderColor: '#7c3aed',
+                        borderWidth: 2.2,
+                        pointBackgroundColor: '#7c3aed',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 5
+                    },
+                    {
+                        label: 'Hədəf olunan',
+                        data: dirs.map(function(d) { return d.target != null ? d.target : 0; }),
+                        backgroundColor: 'rgba(196, 181, 253, 0.22)',
+                        borderColor: '#c4b5fd',
+                        borderWidth: 2.2,
+                        pointBackgroundColor: '#c4b5fd',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 5
+                    }
+                ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return ctx.dataset.label + ': ' + fmtScore(ctx.parsed.r);
+                            }
+                        }
+                    }
+                },
                 scales: {
                     r: {
                         min: 0,
                         max: 100,
-                        ticks: { display: false, count: 5 },
+                        ticks: {
+                            stepSize: 20,
+                            color: '#94a3b8',
+                            backdropColor: 'transparent',
+                            font: { size: 10, weight: '600' }
+                        },
                         grid: { color: 'rgba(148,163,184,0.35)' },
                         angleLines: { color: 'rgba(148,163,184,0.35)' },
-                        pointLabels: { color: '#334155', font: { size: 11, weight: '700' } }
+                        pointLabels: { color: '#1e3a8a', font: { size: 12, weight: '700' } }
                     }
                 }
             }
@@ -1909,10 +2190,13 @@ function drawCharts(model) {
     }
     if (document.getElementById('nkDonutChart')) {
         var items = VIS_STATUS.map(function(s) {
-            return { label: s.label, n: model.byVis[s.id] || 0, color: VIS_COLORS[s.id] };
+            return { label: s.label, n: model.byVis[s.id] || 0, color: VIS_COLORS[s.id], filter: s.id };
         });
         var hasAny = items.some(function(x) { return x.n > 0; });
         var donutItems = hasAny ? items.filter(function(x) { return x.n > 0; }) : [{ label: NA, n: 1, color: '#e2e8f0' }];
+        var donutPick = donutPickOptions(function(filter) {
+            nk303Call('statusList', filter);
+        });
         makeChart('nkDonutChart', {
             type: 'doughnut',
             data: {
@@ -1922,19 +2206,22 @@ function drawCharts(model) {
                     backgroundColor: donutItems.map(function(x) { return x.color; }),
                     borderWidth: 3,
                     borderColor: '#fff',
-                    hoverOffset: 2
+                    hoverOffset: 6
                 }]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 cutout: '72%',
-                plugins: { legend: { display: false } }
+                plugins: { legend: { display: false } },
+                onClick: donutPick.onClick,
+                onHover: donutPick.onHover
             },
             plugins: [centerTextPlugin('nkDonutCenter', [
                 { text: String(total), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
                 { text: 'Qurum', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
-            ])]
+            ])],
+            _donutItems: donutItems
         });
     }
     if (document.getElementById('nkTrendChart')) {
@@ -1982,6 +2269,1036 @@ function drawCharts(model) {
     }
 }
 
+function hubVisCounts(byStatus) {
+    byStatus = byStatus || {};
+    return {
+        done: byStatus.done || 0,
+        in_progress: (byStatus.progress || 0) + (byStatus.planned || 0) + (byStatus.paused || 0)
+            + (byStatus.blocked || 0) + (byStatus.rejected || 0),
+        review: (byStatus.review || 0) + (byStatus.esd || 0),
+        not_started: byStatus.other || 0
+    };
+}
+
+function hubOpinionLabel(kind) {
+    if (kind === 'pos') return { id: 'pos', label: 'Müsbət' };
+    if (kind === 'neg') return { id: 'neg', label: 'Mənfi' };
+    if (kind === 'revision') return { id: 'rev', label: 'Düzəliş' };
+    if (kind === 'baxilir') return { id: 'part', label: 'İcradadır' };
+    if (kind === 'partial') return { id: 'part', label: 'Qismən' };
+    return { id: 'part', label: '—' };
+}
+
+function destroyHubCharts() {
+    Object.keys(nkHubCharts).forEach(function(k) {
+        try { if (nkHubCharts[k]) nkHubCharts[k].destroy(); } catch (e) {}
+        nkHubCharts[k] = null;
+    });
+}
+
+function makeHubChart(id, cfg) {
+    if (typeof Chart === 'undefined') return;
+    var el = document.getElementById(id);
+    if (!el) return;
+    var existing = Chart.getChart(el);
+    if (existing) existing.destroy();
+    cfg = cfg || {};
+    cfg.options = cfg.options || {};
+    cfg.options.animation = false;
+    cfg.options.animations = false;
+    nkHubCharts[id] = new Chart(el.getContext('2d'), cfg);
+    if (cfg && cfg._donutItems && nkHubCharts[id]) nkHubCharts[id]._donutItems = cfg._donutItems;
+}
+
+function syncHubNav() {
+    document.querySelectorAll('.nk303-sec').forEach(function(btn) {
+        btn.classList.toggle('is-on', btn.getAttribute('data-sec') === ui.hub);
+    });
+}
+
+function closeHub() {
+    ui.hub = '';
+    ui.hubSearch = '';
+    ui.hubPage = 1;
+    ui.hubFilter = '';
+    ui.hubSort = 'desc';
+    destroyHubCharts();
+    destroyMeqsedOverviewCharts();
+    var overlay = document.getElementById('nk303HubOverlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.setAttribute('hidden', '');
+        overlay.setAttribute('aria-hidden', 'true');
+    }
+    document.body.classList.remove('nk303-hub-open');
+    syncHubNav();
+}
+
+function hubSkeletonHtml(section) {
+    var tab = HUB_TABS.filter(function(it) { return it.id === section; })[0];
+    var label = (tab && tab.label) || section;
+    return '<div class="nk303-hub-sheet">'
+        + '<div class="nk303-hub-head">'
+        + '<div>'
+        + '<p class="nk303-kicker">Diaqnostika və qiymətləndirmə</p>'
+        + '<h2 id="nk303HubTitle">' + esc(label) + ' nəticələri</h2>'
+        + '<p class="sub">Yüklənir…</p>'
+        + '</div>'
+        + '<button type="button" class="nk303-hub-close" onclick="nk303Call(\'closeHub\')" aria-label="Bağla">'
+        + iconSvg('close') + '</button>'
+        + '</div>'
+        + '<div class="nk303-hub-navwrap"><div class="nk303-hub-navrow">' + hubNavHtml() + hubYearFilterHtml(section) + '</div></div>'
+        + '<div class="nk303-hub-body"><div class="nk303-hub-loading">Səhifə hazırlanır…</div></div>'
+        + '</div>';
+}
+
+function showHubOverlay() {
+    var overlay = document.getElementById('nk303HubOverlay');
+    if (overlay) {
+        overlay.classList.remove('hidden');
+        overlay.removeAttribute('hidden');
+        overlay.setAttribute('aria-hidden', 'false');
+    }
+    document.body.classList.add('nk303-hub-open');
+}
+
+function openHub(section) {
+    if (ui.hub === section) {
+        closeHub();
+        return;
+    }
+    var alreadyOpen = !!ui.hub;
+    ui.hub = section;
+    ui.hubSearch = '';
+    ui.hubPage = 1;
+    ui.hubFilter = '';
+    ui.hubSort = section === 'meqsed' ? 'date' : 'desc';
+    showHubOverlay();
+    syncHubNav();
+    var root = document.getElementById('nk303HubRoot');
+    if (!alreadyOpen && root) {
+        root.innerHTML = hubSkeletonHtml(section);
+    } else if (alreadyOpen) {
+        var body = document.querySelector('#nk303HubRoot .nk303-hub-body');
+        var title = document.getElementById('nk303HubTitle');
+        var tab = HUB_TABS.filter(function(it) { return it.id === section; })[0];
+        if (title && tab) title.textContent = tab.label + ' nəticələri';
+        if (body) body.innerHTML = '<div class="nk303-hub-loading">Səhifə hazırlanır…</div>';
+    }
+    requestAnimationFrame(function() {
+        if (ui.hub !== section) return;
+        renderHub();
+    });
+}
+
+function hubKpiHit(key) {
+    return "nk303Call('hubFilter','" + key + "')";
+}
+
+function hubKpisHtml(view) {
+    var st = view.stats || {};
+    var vis = hubVisCounts(st.byStatus);
+    var total = st.qurum || 0;
+    var donePct = pct(vis.done, total);
+    var f = ui.hubFilter || '';
+    var cards = '';
+    var kpiCls = '';
+    if (view.section === 'meqsed') {
+        kpiCls = ' nk303-kpis--4';
+        cards = kpiCardHtml({
+            ic: 'is-blue', icon: 'chart', label: 'Ümumi müraciət',
+            valueHtml: esc(String(st.total || 0)), subHtml: '<div class="sub">' + esc(String(st.baxilir || 0)) + ' icradadır</div>',
+            onclick: hubKpiHit('all'), on: !f
+        })
+        + kpiCardHtml({
+            ic: 'is-blue', icon: 'building', label: 'Müraciət edən qurum',
+            valueHtml: esc(String(st.qurum || 0)), subHtml: '<div class="sub">unikal qurum</div>',
+            onclick: hubKpiHit('orgs'), on: f === 'orgs'
+        })
+        + kpiCardHtml({
+            ic: 'is-rose', icon: 'star', label: 'Müsbət rəy',
+            valueHtml: esc(String(st.pos || 0)), subHtml: '<div class="sub">nəticə</div>',
+            onclick: hubKpiHit('pos'), on: f === 'pos'
+        })
+        + kpiCardHtml({
+            ic: 'is-red', icon: 'down', label: 'Mənfi rəy',
+            valueHtml: esc(String(st.neg || 0)), subHtml: '<div class="sub">nəticə</div>',
+            onclick: hubKpiHit('neg'), on: f === 'neg'
+        });
+    } else if (view.section === 'exq') {
+        var avg = st.weightedAvg != null ? st.weightedAvg : st.avg;
+        cards = kpiCardHtml({
+            ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə ortalama bal',
+            valueHtml: avg == null ? '—' : esc(fmt1(avg)) + ' <small>/ 100</small>'
+        })
+        + kpiCardHtml({
+            ic: 'is-blue', icon: 'building', label: 'Qiymətləndirilən qurumlar',
+            valueHtml: esc(String(st.qurumWithSvc || st.qurum || 0)), subHtml: '<div class="sub">cəmi qurum</div>',
+            onclick: hubKpiHit('all'), on: !f
+        })
+        + kpiCardHtml({
+            ic: 'is-green', icon: 'check', label: 'Nəticəsi olan',
+            valueHtml: esc(String(st.hasResult || 0)), subHtml: '<div class="sub">qeyd</div>',
+            onclick: hubKpiHit('has_result'), on: f === 'has_result'
+        })
+        + kpiCardHtml({
+            ic: 'is-green', icon: 'star', label: 'Tamamlanmış',
+            valueHtml: esc(String(vis.done)) + ' <small>/ ' + esc(String(total)) + '</small>',
+            subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
+            onclick: hubKpiHit('done'), on: f === 'done'
+        })
+        + kpiCardHtml({
+            ic: 'is-red', icon: 'down', label: 'Nəticəsiz',
+            valueHtml: esc(String(st.noResult || 0)),
+            onclick: hubKpiHit('no_result'), on: f === 'no_result'
+        })
+        + kpiCardHtml({
+            ic: 'is-amber', icon: 'flag', label: 'İcradadır',
+            valueHtml: esc(String(vis.in_progress || 0)),
+            subHtml: '<div class="sub">qurum</div>',
+            onclick: hubKpiHit('in_progress'), on: f === 'in_progress'
+        });
+    } else {
+        var isRadar = view.section === 'diag' || view.section === 'self';
+        var best = st.bestDirection;
+        var ranked = (st.dirRadar || []).filter(function(d) { return d.avg != null; })
+            .slice().sort(function(a, b) { return a.avg - b.avg; });
+        var weak = ranked[0];
+        cards = kpiCardHtml({
+            ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə ortalama bal',
+            valueHtml: st.avg == null ? '—' : esc(fmt1(st.avg)) + ' <small>/ 100</small>'
+        })
+        + kpiCardHtml({
+            ic: 'is-blue', icon: 'building', label: 'Qiymətləndirilən qurumlar',
+            valueHtml: esc(String(st.qurum || 0)), subHtml: '<div class="sub">cəmi qurum</div>',
+            onclick: hubKpiHit('all'), on: !f
+        })
+        + kpiCardHtml({
+            ic: 'is-green', icon: 'check', label: 'Nəticəsi olan',
+            valueHtml: esc(String(st.hasResult || 0)) + ' <small>/ ' + esc(String(st.total || 0)) + '</small>',
+            onclick: hubKpiHit('has_result'), on: f === 'has_result'
+        })
+        + kpiCardHtml(isRadar ? {
+            ic: 'is-green', icon: 'star', label: 'Ən güclü istiqamət',
+            valueHtml: esc(best && best.avg != null ? (best.short || best.title) : '—'),
+            valClass: 'is-name',
+            subHtml: best && best.avg != null
+                ? '<div class="sub is-up">' + esc(fmt1(best.avg)) + ' bal</div>'
+                : ''
+        } : {
+            ic: 'is-green', icon: 'star', label: 'Tamamlanmış',
+            valueHtml: esc(String(vis.done)),
+            subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
+            onclick: hubKpiHit('done'), on: f === 'done'
+        })
+        + kpiCardHtml(isRadar ? {
+            ic: 'is-red', icon: 'down', label: 'Ən zəif istiqamət',
+            valueHtml: esc(weak ? (weak.short || weak.title) : '—'),
+            valClass: 'is-name',
+            subHtml: weak
+                ? '<div class="sub is-down">' + esc(fmt1(weak.avg)) + ' bal</div>'
+                : ''
+        } : {
+            ic: 'is-red', icon: 'down', label: 'Nəticəsiz',
+            valueHtml: esc(String(st.noResult || 0)),
+            onclick: hubKpiHit('no_result'), on: f === 'no_result'
+        })
+        + kpiCardHtml({
+            ic: 'is-amber', icon: 'flag', label: 'İcradadır',
+            valueHtml: esc(String(vis.in_progress || 0)),
+            subHtml: '<div class="sub">qurum</div>',
+            onclick: hubKpiHit('in_progress'), on: f === 'in_progress'
+        });
+    }
+    return '<div class="nk303-kpis' + kpiCls + '">' + cards + '</div>';
+}
+
+function hubGaugeHtml(score, law) {
+    var mat = maturityOf(score);
+    return '<div class="nk303-gauge">'
+        + '<div class="nk303-gauge-box"><canvas id="nkHubGauge"></canvas></div>'
+        + (mat ? '<div class="nk303-mat is-' + mat.id + '">' + esc(mat.label) + '</div>'
+            : '<div class="nk303-mat is-none">' + esc(NA) + '</div>')
+        + (law
+            ? '<p class="nk303-hint nk303-hint--law">Qərar 303, bənd 4.10</p>'
+            : '<p class="nk303-hint">Ortalama bal 0–100 şkalası üzrə</p>')
+        + '</div>';
+}
+
+function hubRowHasResult(section, r) {
+    if (section === 'meqsed') {
+        return r.opinion === 'pos' || r.opinion === 'neg' || r.opinion === 'revision' || r.opinion === 'partial';
+    }
+    if (section === 'exq') {
+        if (r.score != null) return true;
+        var txt = String(r.result || '').trim();
+        return !!(txt && txt !== '—' && txt !== NA);
+    }
+    return r.score != null;
+}
+
+function hubRowMatchesFilter(section, r, filter) {
+    if (!filter || filter === 'all' || filter === 'orgs') return true;
+    if (section === 'meqsed') return hubRowMatchesMeqsedFilter(r, filter);
+    if (filter === 'has_result') return hubRowHasResult(section, r);
+    if (filter === 'no_result') return !hubRowHasResult(section, r);
+    if (filter === 'done' || filter === 'in_progress' || filter === 'review' || filter === 'not_started') {
+        var vis = visStatusOf(r.statusGroup);
+        return vis && vis.id === filter;
+    }
+    if (filter === 'svc_sum') return r.svc != null && Number(r.svc) > 0;
+    return true;
+}
+
+function uniqueHubOrgs(list) {
+    var seen = {};
+    return (list || []).filter(function(r) {
+        var k = fold(r.qurum) || r.key || '';
+        if (!k || seen[k]) return false;
+        seen[k] = true;
+        return true;
+    });
+}
+
+function exqQurumsForChart(st) {
+    return ((st && st.byQurum) || []).filter(function(q) {
+        return q && (q.svc || 0) > 0;
+    });
+}
+
+function collapseExqHubRows(list, keepUnevaluated) {
+    var rows = list || [];
+    var map = {};
+    var order = [];
+    rows.forEach(function(r) {
+        var k = fold(r && r.qurum) || (r && r.key) || '';
+        if (!k) return;
+        if (!map[k]) {
+            map[k] = {
+                key: r.key || '',
+                qurum: r.qurum,
+                year: r.year,
+                status: r.status,
+                statusGroup: r.statusGroup,
+                score: null,
+                scores: [],
+                svc: 0,
+                result: r.result || '',
+                time: Number(r.time) || 0,
+                canOpen: !!r.canOpen,
+                scoredKey: ''
+            };
+            order.push(k);
+        }
+        var row = map[k];
+        var svc = Number(r.svc);
+        if (isFinite(svc) && svc > 0) row.svc += svc;
+        if (r.score != null && isFinite(Number(r.score))) {
+            row.scores.push(Number(r.score));
+            if (!row.scoredKey && r.key) {
+                row.scoredKey = r.key;
+                row.key = r.key;
+                row.canOpen = !!r.canOpen;
+            }
+        }
+        var yr = Number(r.year);
+        var prevYr = Number(row.year);
+        if (isFinite(yr) && (!isFinite(prevYr) || yr > prevYr)) row.year = r.year;
+        var t = Number(r.time) || 0;
+        if (t >= (Number(row.time) || 0)) {
+            row.time = t;
+            row.status = r.status;
+            row.statusGroup = r.statusGroup;
+            if (!row.scoredKey && r.key) {
+                row.key = r.key;
+                row.canOpen = !!r.canOpen;
+            }
+        }
+    });
+    var out = order.map(function(k) {
+        var row = map[k];
+        if (row.scores.length) {
+            var sum = 0;
+            row.scores.forEach(function(n) { sum += n; });
+            row.score = sum / row.scores.length;
+        } else {
+            row.score = null;
+        }
+        delete row.scores;
+        delete row.scoredKey;
+        return row;
+    });
+    if (keepUnevaluated) return out;
+    var evaluated = out.filter(function(r) { return (r.svc || 0) > 0; });
+    return evaluated.length ? evaluated : out;
+}
+
+function hubRowMatchesMeqsedFilter(r, filter) {
+    if (!filter || filter === 'all' || filter === 'orgs') return true;
+    var opinion = (r && r.opinion) || '';
+    var kind = (r && r.novuKind) || 'other';
+    var resultKey = (r && r.resultKey) || '';
+    if (filter === 'pos' || filter === 'neg' || filter === 'partial' || filter === 'revision') return opinion === filter;
+    if (filter === 'baxilir') return resultKey === 'baxilir';
+    if (filter === 'new_system' || filter === 'exist_system' || filter === 'new_service'
+        || filter === 'exist_service' || filter === 'fiziki' || filter === 'rsd'
+        || filter === 'cloud' || filter === 'other') {
+        return kind === filter;
+    }
+    if (filter === 'yeni') return !!(r && r.isNew);
+    if (filter === 'movcud') return !!(r && r.isExist);
+    if (filter === 'sistem') return !!(r && r.isSystem);
+    if (filter === 'xidmet') return !!(r && r.isService);
+    return true;
+}
+
+function hubSortMode() {
+    if (ui.hubSort === 'asc' || ui.hubSort === 'date') return ui.hubSort;
+    return 'desc';
+}
+
+function hubRowTime(r) {
+    var t = Number(r && r.time) || 0;
+    if (t) return t;
+    var d = hubParseDateKey(r && r.date);
+    if (d != null) return d;
+    var y = Number(r && r.year);
+    return y ? y * 10000 : 0;
+}
+
+function hubParseDateKey(s) {
+    var t = String(s == null ? '' : s).trim();
+    var m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (m) return Number(m[3] + pad2(Number(m[2])) + pad2(Number(m[1])));
+    m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (m) return Number(m[1] + pad2(Number(m[2])) + pad2(Number(m[3])));
+    return null;
+}
+
+function sortHubRows(list, section, mode) {
+    var rows = (list || []).slice();
+    var byDate = section === 'meqsed' || mode === 'date';
+    if (byDate) {
+        var newestFirst = mode !== 'asc';
+        return rows.sort(function(a, b) {
+            var ta = hubRowTime(a);
+            var tb = hubRowTime(b);
+            if (ta !== tb) return newestFirst ? (tb - ta) : (ta - tb);
+            return fold(a && a.qurum).localeCompare(fold(b && b.qurum), 'az');
+        });
+    }
+    var sign = mode === 'asc' ? 1 : -1;
+    return rows.sort(function(a, b) {
+        var sa = a && a.score;
+        var sb = b && b.score;
+        var aN = sa == null || !isFinite(sa);
+        var bN = sb == null || !isFinite(sb);
+        if (aN && bN) {
+            var ta = hubRowTime(a);
+            var tb = hubRowTime(b);
+            if (ta !== tb) return tb - ta;
+            return fold(a && a.qurum).localeCompare(fold(b && b.qurum), 'az');
+        }
+        if (aN) return 1;
+        if (bN) return -1;
+        if (sa !== sb) return (sa - sb) * sign;
+        return fold(a && a.qurum).localeCompare(fold(b && b.qurum), 'az');
+    });
+}
+
+function hubFilterLabel(key) {
+    if (!key || key === 'all') return '';
+    if (key === 'orgs') return 'Müraciət edən qurumlar';
+    if (key === 'has_result') return 'Nəticəsi olan';
+    if (key === 'no_result') return 'Nəticəsiz';
+    if (key === 'done') return 'Tamamlanmış';
+    if (key === 'in_progress') return 'İcradadır';
+    if (key === 'review') return 'Rəydə';
+    if (key === 'not_started') return 'İcraya başlanmayıb';
+    if (key === 'pos') return 'Müsbət rəy';
+    if (key === 'neg') return 'Mənfi rəy';
+    if (key === 'revision') return 'Düzəlişə göndərilib';
+    if (key === 'baxilir') return 'İcradadır';
+    if (key === 'sistem') return 'Sistem';
+    if (key === 'xidmet') return 'Xidmət';
+    if (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[key]) return MEQSED_NOVU_LABELS[key];
+    return key;
+}
+
+function hubTableHtml(view) {
+    var q = fold(ui.hubSearch || '');
+    var list = (view.rows || []).filter(function(r) {
+        if (!hubRowMatchesFilter(view.section, r, ui.hubFilter)) return false;
+        if (!q) return true;
+        return fold(r.qurum).indexOf(q) !== -1
+            || fold(r.result || '').indexOf(q) !== -1
+            || fold(r.novu || '').indexOf(q) !== -1
+            || fold(r.netice || '').indexOf(q) !== -1
+            || fold(r.key || '').indexOf(q) !== -1
+            || fold(r.status || '').indexOf(q) !== -1;
+    });
+    if (view.section === 'exq') {
+        var keepAll = !!(ui.hubFilter && ui.hubFilter !== 'all' && ui.hubFilter !== 'svc_sum');
+        list = collapseExqHubRows(list, keepAll);
+    }
+    else if (ui.hubFilter === 'orgs') list = uniqueHubOrgs(list);
+    list = sortHubRows(list, view.section, hubSortMode());
+    var pages = Math.max(1, Math.ceil(list.length / HUB_PAGE_SIZE) || 1);
+    if (ui.hubPage > pages) ui.hubPage = pages;
+    if (ui.hubPage < 1) ui.hubPage = 1;
+    var slice = list.slice((ui.hubPage - 1) * HUB_PAGE_SIZE, ui.hubPage * HUB_PAGE_SIZE);
+    var heads;
+    if (view.section === 'exq') heads = ['№', 'Qurum', 'İl', 'Xidmət', 'Bal', 'Status'];
+    else if (view.section === 'meqsed') heads = ['№', 'Qurum', 'Müraciət növü', 'Rəy', 'Tarix'];
+    else if (view.section === 'isq') heads = ['№', 'Qurum', 'İl', 'Bal', 'Nəticə', 'Status'];
+    else heads = ['№', 'Qurum', 'İl', 'Bal', 'Status'];
+    var body = slice.map(function(r, i) {
+        var rank = (ui.hubPage - 1) * HUB_PAGE_SIZE + i + 1;
+        var href = r.key ? jiraBrowseUrl(r.key) : '';
+        var click = href
+            ? ' class="is-click" onclick="nk303Call(\'hubOpen\',\'' + qarg(r.key) + '\')" title="Jira-da aç: ' + esc(r.key) + '"'
+            : '';
+        var cells = '<td class="num">' + rank + '</td>'
+            + '<td class="q" title="' + esc(r.qurum) + (r.key ? ' · ' + esc(r.key) : '') + '">'
+            + (href
+                ? '<a class="nk303-qurum-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">' + esc(r.qurum) + '</a>'
+                : esc(r.qurum))
+            + '</td>';
+        if (view.section === 'meqsed') {
+            var op = hubOpinionLabel(r.opinion || (r.resultKey === 'baxilir' ? 'baxilir' : ''));
+            cells += '<td class="q">' + esc(clipText(r.novu || '—', 80)) + '</td>'
+                + '<td><span class="nk303-pri is-' + op.id + '">' + esc(op.label) + '</span></td>'
+                + '<td>' + esc(r.date || '—') + '</td>';
+        } else if (view.section === 'exq') {
+            var w = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
+            cells += '<td class="num">' + esc(r.year || '—') + '</td>'
+                + '<td class="num">' + esc(r.svc == null ? '—' : String(r.svc)) + '</td>'
+                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score)) + '</b>'
+                + '<span class="bar"><i style="width:' + w + '%;background:' + barColor(r.score) + '"></i></span></div></td>'
+                + '<td>' + esc(r.status || '—') + '</td>';
+        } else if (view.section === 'isq') {
+            cells += '<td class="num">' + esc(r.year || '—') + '</td>'
+                + '<td class="num">' + esc(r.score == null ? '—' : fmt1(r.score)) + '</td>'
+                + '<td class="act">' + esc(clipText(r.result || NA, 90)) + '</td>'
+                + '<td>' + esc(r.status || '—') + '</td>';
+        } else {
+            var sw = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
+            cells += '<td class="num">' + esc(r.year || '—') + '</td>'
+                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score)) + '</b>'
+                + '<span class="bar"><i style="width:' + sw + '%;background:' + barColor(r.score) + '"></i></span></div></td>'
+                + '<td>' + esc(r.status || '—') + '</td>';
+        }
+        return '<tr' + click + '>' + cells + '</tr>';
+    }).join('');
+    var pager = '';
+    if (list.length) {
+        var n;
+        pager = '<div class="nk303-pager">'
+            + '<button type="button" ' + (ui.hubPage <= 1 ? 'disabled' : '') + ' onclick="nk303Call(\'hubPage\',' + (ui.hubPage - 1) + ')">‹</button>';
+        for (n = 1; n <= pages; n++) {
+            pager += '<button type="button" class="' + (n === ui.hubPage ? 'is-on' : '') + '" onclick="nk303Call(\'hubPage\',' + n + ')">' + n + '</button>';
+        }
+        pager += '<button type="button" ' + (ui.hubPage >= pages ? 'disabled' : '') + ' onclick="nk303Call(\'hubPage\',' + (ui.hubPage + 1) + ')">›</button></div>';
+    }
+    var filterChip = '';
+    if (ui.hubFilter && ui.hubFilter !== 'all') {
+        filterChip = '<button type="button" class="nk303-hub-chip" onclick="nk303Call(\'hubFilter\',\'all\')">'
+            + esc(hubFilterLabel(ui.hubFilter)) + ' ×</button>';
+    }
+    var sort = hubSortMode();
+    return '<div class="nk303-list-head">'
+        + '<h3>' + esc(ui.hubFilter && ui.hubFilter !== 'all' ? hubFilterLabel(ui.hubFilter) : 'Qurumlar üzrə nəticələr') + '</h3>'
+        + '<div class="nk303-list-tools">'
+        + '<div class="nk303-hub-search">' + iconSvg('search')
+        + '<input type="search" value="' + esc(ui.hubSearch || '') + '" placeholder="Qurum adı ilə axtar..."'
+        + ' oninput="nk303Call(\'hubSearch\', this.value)"></div>'
+        + '<select class="nk303-select nk303-hub-sort" aria-label="Sıralama" onchange="nk303Call(\'hubSort\', this.value)">'
+        + (view.section === 'meqsed'
+            ? optionHtml('date', 'Tarixə görə (yenidən köhnəyə)', sort)
+                + optionHtml('asc', 'Tarixə görə (köhnədən yeniə)', sort)
+            : optionHtml('date', 'Tarixə görə', sort)
+                + optionHtml('desc', 'Bal üzrə (çoxdan aza)', sort)
+                + optionHtml('asc', 'Bal üzrə (azdan çoxa)', sort))
+        + '</select></div></div>'
+        + '<div class="nk303-hub-tools">'
+        + filterChip
+        + '<p class="nk303-hint" style="margin:0">' + list.length
+        + (view.section === 'exq' ? ' qurum' : ' qeyd')
+        + (view.section !== 'exq' && view.rows && list.length !== view.rows.length ? ' / ' + view.rows.length : '')
+        + (slice.some(function(r) { return r.key; }) ? ' · sətirə klikləyib tapşırığı Jira-da açın' : '')
+        + '</p></div>'
+        + (list.length
+            ? '<div class="nk303-table-wrap"><table class="nk303-table"><thead><tr>'
+                + heads.map(function(h) { return '<th>' + esc(h) + '</th>'; }).join('')
+                + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager
+            : '<p class="nk303-empty">' + esc(NA) + '</p>');
+}
+
+function meqsedKindShareHtml(st) {
+    st = st || {};
+    var order = (MEQSED_NOVU_KINDS || []).slice();
+    var otherN = (st.byKind && st.byKind.other) || 0;
+    var otherSplit = (st.byKindResult && st.byKindResult.other) || {};
+    if (otherN || otherSplit.total) order.push('other');
+    var tones = [
+        { key: 'pos', color: '#5b21b6' },
+        { key: 'neg', color: '#dc2626' },
+        { key: 'revision', color: '#d97706' },
+        { key: 'baxilir', color: '#94a3b8' }
+    ];
+    var rows = order.map(function(kind) {
+        var split = (st.byKindResult && st.byKindResult[kind]) || {};
+        var n = split.total || (st.byKind && st.byKind[kind]) || 0;
+        var on = ui.hubFilter === kind;
+        var segs = tones.map(function(t) {
+            var v = split[t.key] || 0;
+            if (!v) return '';
+            return '<i style="flex-grow:' + v + ';background:' + t.color + '"></i>';
+        }).join('');
+        return '<button type="button" class="nk303-kindshare-row' + (on ? ' is-on' : '') + '"'
+            + ' onclick="nk303Call(\'hubFilter\',\'' + kind + '\')">'
+            + '<span>' + esc((MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[kind]) || kind) + '</span>'
+            + '<div class="nk303-kindshare-bar">' + (segs || '<i class="is-empty"></i>') + '</div>'
+            + '<b>' + n + '</b>'
+            + '</button>';
+    }).join('');
+    return '<div class="nk303-kindshare">' + (rows || '<p class="nk303-empty">' + esc(NA) + '</p>') + '</div>';
+}
+
+function meqsedHubExtraHtml(st) {
+    st = st || {};
+    var hasMonth = (st.byMonth || []).some(function(m) { return m && m.total > 0; });
+    var orgs = st.topQurums || [];
+    var max = orgs.length ? (orgs[0].n || 1) : 1;
+    var orgHtml = orgs.length
+        ? '<ul class="nk303-orgshare">' + orgs.map(function(row) {
+            var w = max ? Math.round((row.n / max) * 100) : 0;
+            return '<li><button type="button" onclick="nk303Call(\'hubSearch\',\'' + qarg(row.name || '') + '\')">'
+                + '<span title="' + esc(row.name) + '">' + esc(row.name) + '</span>'
+                + '<div class="trk" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
+                + '<b>' + esc(String(row.n || 0)) + '</b>'
+                + '</button></li>';
+        }).join('') + '</ul>'
+        : '<p class="nk303-empty">' + esc(NA) + '</p>';
+    return '<div class="nk303-mid nk303-mid--two">'
+        + '<section class="nk303-card"><h3>Aylıq axın</h3>'
+        + (hasMonth
+            ? '<div class="nk303-chart nk303-chart--trend" style="height:13rem"><canvas id="meqsedMonthChart" aria-label="Aylıq müraciət axını"></canvas></div>'
+            : '<p class="nk303-empty">' + esc(NA) + '</p>')
+        + '</section>'
+        + '<section class="nk303-card"><h3>Ən çox müraciət edən qurumlar</h3>'
+        + orgHtml
+        + '</section></div>';
+}
+
+function hubBodyHtml(view) {
+    var st = view.stats || {};
+    var vis = hubVisCounts(st.byStatus);
+    var total = st.qurum || 0;
+    var donePct = pct(vis.done, total);
+    var avg = view.section === 'exq' && st.weightedAvg != null ? st.weightedAvg : st.avg;
+    var rankHtml = '';
+    var isRadar = view.section === 'diag' || view.section === 'self';
+    if (isRadar) {
+        rankHtml = '<ol class="nk303-rank">'
+            + (st.dirRadar || []).map(function(d, i) {
+                var goal = maturityTarget(d.avg);
+                return '<li title="Mövcud: ' + esc(d.avg == null ? '—' : fmt1(d.avg))
+                    + ' · Hədəf: ' + esc(goal == null ? '—' : fmt1(goal)) + '">'
+                    + '<i>' + (i + 1) + '</i>'
+                    + '<span>' + esc(d.short || d.title) + '</span>'
+                    + '<b>' + esc(d.avg == null ? '—' : fmt1(d.avg)) + '</b>'
+                    + '<em>' + esc(goal == null ? '—' : fmt1(goal)) + '</em>'
+                    + '</li>';
+            }).join('')
+            + '</ol>';
+    }
+    var legendItems = view.section === 'meqsed'
+        ? [
+            { id: 'pos', label: 'Müsbət', n: st.pos || 0, color: '#5b21b6', filter: 'pos' },
+            { id: 'neg', label: 'Mənfi', n: st.neg || 0, color: '#dc2626', filter: 'neg' },
+            { id: 'rev', label: 'Düzəliş', n: st.other || 0, color: '#d97706', filter: 'revision' },
+            { id: 'wait', label: 'İcradadır', n: st.baxilir || 0, color: '#94a3b8', filter: 'baxilir' }
+        ]
+        : VIS_STATUS.map(function(s) {
+            return { id: s.id, label: s.label, n: vis[s.id] || 0, color: VIS_COLORS[s.id], filter: s.id };
+        });
+    var legend = '<ul class="nk303-status-legend">'
+        + legendItems.map(function(s) {
+            var n = s.n || 0;
+            var den = view.section === 'meqsed' ? (st.total || 0) : total;
+            var on = s.filter && ui.hubFilter === s.filter;
+            var inner = '<i style="background:' + s.color + '"></i>'
+                + '<span>' + esc(s.label) + '</span>'
+                + '<b>' + n + '</b>'
+                + '<em>' + (den ? pct(n, den) + '%' : '0%') + '</em>';
+            if (s.filter) {
+                return '<li class="is-click' + (on ? ' is-on' : '') + '" onclick="nk303Call(\'hubFilter\',\'' + s.filter + '\')">'
+                    + inner + '</li>';
+            }
+            return '<li>' + inner + '</li>';
+        }).join('')
+        + '</ul>';
+    var midLeftTitle = view.section === 'meqsed' ? 'Rəy payı' : 'Ümumi nəticə';
+    var midRightTitle = isRadar ? 'Rəqəmsallaşma istiqamətləri'
+        : (view.section === 'exq' ? 'Qurumların balları'
+            : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu'));
+    var midRight = isRadar
+        ? '<div class="nk303-hub-radar">'
+            + '<ul class="nk303-compare-legend">'
+            + '<li class="is-now">Mövcud vəziyyət</li>'
+            + '<li class="is-goal">Hədəf olunan</li>'
+            + '</ul>'
+            + '<div class="nk303-radar-row">'
+            + '<div class="nk303-chart nk303-chart--radar"><canvas id="nkHubRadar"></canvas></div>'
+            + rankHtml + '</div></div>'
+        : (view.section === 'meqsed'
+            ? meqsedKindShareHtml(st)
+            : '<div class="nk303-chart nk303-chart--trend" style="height:'
+                + (view.section === 'exq' ? Math.max(16, exqQurumsForChart(st).length * 2.15 + 2.4) : 16)
+                + 'rem"><canvas id="nkHubBars"></canvas></div>');
+    var statusTitle = view.section === 'meqsed' ? 'Rəy vəziyyəti' : 'Qiymətləndirmələrin icra vəziyyəti';
+    return hubKpisHtml(view)
+        + '<div class="nk303-mid">'
+        + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
+        + (view.section === 'meqsed'
+            ? '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>'
+            : hubGaugeHtml(avg, isRadar))
+        + '</section>'
+        + '<section class="nk303-card nk303-card--radar"><h3>' + esc(midRightTitle) + '</h3>'
+        + midRight
+        + '</section>'
+        + '<section class="nk303-card nk303-card--status"><h3>' + esc(statusTitle) + '</h3>'
+        + (view.section === 'meqsed'
+            ? '<p class="nk303-hint" style="margin-top:0">Yeni / mövcud və sistem / xidmət kəsimi</p>'
+                + '<div class="nk303-chart nk303-chart--trend" style="height:13rem"><canvas id="nkHubLife"></canvas></div>'
+            : '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>')
+        + legend
+        + (view.section === 'meqsed' ? '' : ('<div class="nk303-complete is-click" onclick="nk303Call(\'hubFilter\',\'done\')" title="Tamamlanmış qiymətləndirmələrə bax">'
+            + '<div class="nk303-complete-top"><span>Tamamlanma faizi</span><b>' + donePct + '%</b></div>'
+            + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div></div>'))
+        + '</section></div>'
+        + (view.section === 'meqsed' ? meqsedHubExtraHtml(st) : '')
+        + '<section class="nk303-card" id="nk303HubList">'
+        + hubTableHtml(view)
+        + '</section>';
+}
+
+function hubSheetHtml(view) {
+    var period = view.period || getAssessmentPeriodLabel() || 'Bütün illər';
+    return '<div class="nk303-hub-sheet">'
+        + '<div class="nk303-hub-head">'
+        + '<div>'
+        + '<p class="nk303-kicker">Diaqnostika və qiymətləndirmə</p>'
+        + '<h2 id="nk303HubTitle">' + esc(view.label) + ' nəticələri</h2>'
+        + '<p class="sub">Dövr: ' + esc(period) + '</p>'
+        + '</div>'
+        + '<button type="button" class="nk303-hub-close" onclick="nk303Call(\'closeHub\')" aria-label="Bağla">'
+        + iconSvg('close') + '</button>'
+        + '</div>'
+        + '<div class="nk303-hub-navwrap"><div class="nk303-hub-navrow">' + hubNavHtml() + hubYearFilterHtml(view.section) + '</div></div>'
+        + '<div class="nk303-hub-body">' + hubBodyHtml(view) + '</div>'
+        + '</div>';
+}
+
+function drawHubCharts(view) {
+    destroyHubCharts();
+    if (typeof Chart === 'undefined') return;
+    var st = view.stats || {};
+    var avg = view.section === 'exq' && st.weightedAvg != null ? st.weightedAvg : st.avg;
+    if (document.getElementById('nkHubGauge')) {
+        var empty = avg == null;
+        var v = empty ? 0 : Math.max(0, Math.min(100, avg));
+        var col = empty ? '#cbd5e1' : barColor(avg);
+        makeHubChart('nkHubGauge', {
+            type: 'doughnut',
+            data: {
+                datasets: [{
+                    data: empty ? [1] : [Math.max(v, 0.4), Math.max(100 - v, 0.4)],
+                    backgroundColor: empty ? ['#e8eef5'] : [col, '#e8eef5'],
+                    borderWidth: 0,
+                    hoverOffset: 0,
+                    borderRadius: empty ? 0 : 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '78%',
+                rotation: -90,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            },
+            plugins: [centerTextPlugin('nkHubGaugeCenter', [
+                { text: avg == null ? '—' : fmt1(avg), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
+                { text: '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
+            ])]
+        });
+    }
+    if (document.getElementById('nkHubRadar')) {
+        var dirs = (st.dirRadar || []).length ? st.dirRadar : DIRS.map(function(d) {
+            return { short: dirShort(d), avg: null };
+        });
+        makeHubChart('nkHubRadar', {
+            type: 'radar',
+            data: {
+                labels: dirs.map(function(d) { return d.short || d.title; }),
+                datasets: [
+                    {
+                        label: 'Mövcud vəziyyət',
+                        data: dirs.map(function(d) { return d.avg != null ? d.avg : 0; }),
+                        backgroundColor: 'rgba(124, 58, 237, 0.22)',
+                        borderColor: '#7c3aed',
+                        borderWidth: 2.2,
+                        pointBackgroundColor: '#7c3aed',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 5
+                    },
+                    {
+                        label: 'Hədəf olunan',
+                        data: dirs.map(function(d) {
+                            var goal = maturityTarget(d.avg);
+                            return goal != null ? goal : 0;
+                        }),
+                        backgroundColor: 'rgba(196, 181, 253, 0.22)',
+                        borderColor: '#c4b5fd',
+                        borderWidth: 2.2,
+                        pointBackgroundColor: '#c4b5fd',
+                        pointBorderColor: '#fff',
+                        pointBorderWidth: 2,
+                        pointRadius: 4,
+                        pointHoverRadius: 5
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return ctx.dataset.label + ': ' + fmtScore(ctx.parsed.r);
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    r: {
+                        min: 0, max: 100,
+                        ticks: {
+                            stepSize: 20,
+                            color: '#94a3b8',
+                            backdropColor: 'transparent',
+                            font: { size: 10, weight: '600' }
+                        },
+                        grid: { color: 'rgba(148,163,184,0.35)' },
+                        angleLines: { color: 'rgba(148,163,184,0.35)' },
+                        pointLabels: { color: '#334155', font: { size: 11, weight: '700' } }
+                    }
+                }
+            }
+        });
+    }
+    if (document.getElementById('nkHubDonut')) {
+        var items;
+        var centerN;
+        var centerLb;
+        if (view.section === 'meqsed') {
+            items = [
+                { label: 'Müsbət', n: st.pos || 0, color: '#5b21b6', filter: 'pos' },
+                { label: 'Mənfi', n: st.neg || 0, color: '#dc2626', filter: 'neg' },
+                { label: 'Düzəliş', n: st.other || 0, color: '#d97706', filter: 'revision' },
+                { label: 'İcradadır', n: st.baxilir || 0, color: '#94a3b8', filter: 'baxilir' }
+            ];
+            centerN = st.qurum || 0;
+            centerLb = 'Qurum';
+        } else {
+            var vis = hubVisCounts(st.byStatus);
+            items = VIS_STATUS.map(function(s) {
+                return { label: s.label, n: vis[s.id] || 0, color: VIS_COLORS[s.id], filter: s.id };
+            });
+            centerN = st.qurum || 0;
+            centerLb = 'Qurum';
+        }
+        var hasAny = items.some(function(x) { return x.n > 0; });
+        var donutItems = hasAny ? items.filter(function(x) { return x.n > 0; }) : [{ label: NA, n: 1, color: '#e2e8f0' }];
+        var hubDonutPick = donutPickOptions(function(filter) {
+            nk303Call('hubFilter', filter);
+        });
+        makeHubChart('nkHubDonut', {
+            type: 'doughnut',
+            data: {
+                labels: donutItems.map(function(x) { return x.label; }),
+                datasets: [{
+                    data: donutItems.map(function(x) { return x.n; }),
+                    backgroundColor: donutItems.map(function(x) { return x.color; }),
+                    borderWidth: 3,
+                    borderColor: '#fff',
+                    hoverOffset: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '72%',
+                plugins: { legend: { display: false } },
+                onClick: hubDonutPick.onClick,
+                onHover: hubDonutPick.onHover
+            },
+            plugins: [centerTextPlugin('nkHubDonutCenter', [
+                { text: String(centerN), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
+                { text: centerLb, color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
+            ])],
+            _donutItems: donutItems
+        });
+    }
+    if (document.getElementById('nkHubBars')) {
+        if (view.section === 'exq') {
+            var qurums = exqQurumsForChart(st);
+            makeHubChart('nkHubBars', {
+                type: 'bar',
+                data: {
+                    labels: qurums.map(function(q) { return q.name; }),
+                    datasets: [{
+                        data: qurums.map(function(q) {
+                            return q.score != null && isFinite(q.score) ? q.score : 0;
+                        }),
+                        backgroundColor: qurums.map(function(q) {
+                            return q.score != null && isFinite(q.score) ? barColor(q.score) : '#cbd5e1';
+                        }),
+                        borderRadius: 6,
+                        maxBarThickness: 18
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(ctx) {
+                                    var row = qurums[ctx.dataIndex];
+                                    if (!row) return '';
+                                    var bal = row.score != null && isFinite(row.score) ? fmt1(row.score) : '—';
+                                    var svc = row.svc || 0;
+                                    return ' Bal: ' + bal + (svc ? ' · ' + svc + ' xidmət' : '');
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: { min: 0, max: 100, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.2)' } },
+                        y: { ticks: { color: '#334155', font: { size: 11, weight: '600' } }, grid: { display: false } }
+                    }
+                }
+            });
+        } else {
+            var bands = [
+                { key: 'score_high', label: '≥ 70', color: '#059669' },
+                { key: 'score_mid', label: '40–69', color: '#d97706' },
+                { key: 'score_low', label: '< 40', color: '#dc2626' }
+            ];
+            var byBand = st.byBand || {};
+            makeHubChart('nkHubBars', {
+                type: 'bar',
+                data: {
+                    labels: bands.map(function(b) { return b.label; }),
+                    datasets: [{
+                        data: bands.map(function(b) { return byBand[b.key] || 0; }),
+                        backgroundColor: bands.map(function(b) { return b.color; }),
+                        borderRadius: 8,
+                        maxBarThickness: 42
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.2)' } },
+                        x: { ticks: { color: '#334155', font: { weight: '700' } }, grid: { display: false } }
+                    }
+                }
+            });
+        }
+    }
+    if (document.getElementById('nkHubLife')) {
+        var life = st.byLifeUnit || {};
+        function lifeN(k, u, op) {
+            return (((life[k] || {})[u] || {})[op]) || 0;
+        }
+        makeHubChart('nkHubLife', {
+            type: 'bar',
+            data: {
+                labels: ['Yeni sistem', 'Yeni xidmət', 'Mövcud sistem', 'Mövcud xidmət'],
+                datasets: [
+                    { label: 'Müsbət', backgroundColor: '#5b21b6', data: [lifeN('yeni', 'sistem', 'pos'), lifeN('yeni', 'xidmet', 'pos'), lifeN('movcud', 'sistem', 'pos'), lifeN('movcud', 'xidmet', 'pos')], borderRadius: 6 },
+                    { label: 'Mənfi', backgroundColor: '#dc2626', data: [lifeN('yeni', 'sistem', 'neg'), lifeN('yeni', 'xidmet', 'neg'), lifeN('movcud', 'sistem', 'neg'), lifeN('movcud', 'xidmet', 'neg')], borderRadius: 6 },
+                    { label: 'Düzəliş', backgroundColor: '#d97706', data: [lifeN('yeni', 'sistem', 'revision'), lifeN('yeni', 'xidmet', 'revision'), lifeN('movcud', 'sistem', 'revision'), lifeN('movcud', 'xidmet', 'revision')], borderRadius: 6 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11, weight: '600' } } } },
+                scales: {
+                    x: { stacked: true, ticks: { color: '#334155', font: { size: 11, weight: '600' } }, grid: { display: false } },
+                    y: { stacked: true, beginAtZero: true, ticks: { precision: 0, color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.2)' } }
+                }
+            }
+        });
+    }
+}
+
+function renderHub(opts) {
+    opts = opts || {};
+    var root = document.getElementById('nk303HubRoot');
+    if (!root || !ui.hub) return;
+    var view;
+    try {
+        view = getAssessmentHubView(ui.hub);
+    } catch (e) {
+        view = { section: ui.hub, label: ui.hub, stats: {}, rows: [], period: '' };
+    }
+    var bodyEl = root.querySelector('.nk303-hub-body');
+    var keepY = !opts.scrollToList && bodyEl ? bodyEl.scrollTop : 0;
+    destroyHubCharts();
+    destroyMeqsedOverviewCharts();
+    root.innerHTML = hubSheetHtml(view);
+    requestAnimationFrame(function() {
+        drawHubCharts(view);
+        if (view.section === 'meqsed') drawMeqsedOverviewCharts(view.stats);
+        var nextBody = root.querySelector('.nk303-hub-body');
+        if (opts.scrollToList && nextBody) {
+            var list = document.getElementById('nk303HubList');
+            if (list) {
+                var br = nextBody.getBoundingClientRect();
+                var lr = list.getBoundingClientRect();
+                nextBody.scrollTop += lr.top - br.top - 10;
+            }
+        } else if (nextBody && keepY) nextBody.scrollTop = keepY;
+    });
+    var inp = root.querySelector('input[type="search"]');
+    if (inp && document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('placeholder') === 'Qurum adı ilə axtar...') {
+        inp.focus();
+        var len = inp.value.length;
+        try { inp.setSelectionRange(len, len); } catch (e2) {}
+    }
+}
+
+function scheduleHubPrefetch() {
+    if (hubPrefetchTimer) clearTimeout(hubPrefetchTimer);
+    hubPrefetchTimer = setTimeout(function() {
+        hubPrefetchTimer = null;
+        try { prefetchAssessmentHubViews(); } catch (e) {}
+    }, 50);
+}
+
 function render() {
     var root = document.getElementById(ROOT_ID);
     if (!root) return;
@@ -1992,6 +3309,7 @@ function render() {
     requestAnimationFrame(function() {
         drawCharts(model);
         window.scrollTo(0, y);
+        scheduleHubPrefetch();
     });
 }
 
@@ -2000,10 +3318,14 @@ function bindEsc() {
     ui.escBound = true;
     document.addEventListener('keydown', function(e) {
         if (!ui.open) return;
-        if (e.key === 'Escape' || e.key === 'Esc') {
-            e.preventDefault();
-            closeNk303();
+        if (e.key !== 'Escape' && e.key !== 'Esc') return;
+        if (document.body.classList.contains('assess-modal-open')) return;
+        e.preventDefault();
+        if (ui.hub) {
+            closeHub();
+            return;
         }
+        closeNk303();
     });
 }
 
@@ -2045,6 +3367,7 @@ function hideNk303Page() {
     var page = document.getElementById(PAGE_ID);
     var main = document.getElementById(MAIN_ID);
     ui.open = false;
+    closeHub();
     destroyNkCharts();
     if (page) {
         page.classList.add('hidden');
@@ -2084,6 +3407,7 @@ export function openNk303() {
     if (typeof window.closeDiagModal === 'function') window.closeDiagModal();
     var period = getAssessmentPeriodState();
     ui.year = period && period.year && period.year !== 'custom' ? period.year : 'all';
+    ui.status = '';
     ui.mode = 'country';
     ui.nav = 'overview';
     ui.page = 1;
@@ -2303,7 +3627,7 @@ export function nk303Call(action, payload) {
         ui.maturity = payload || '';
         ui.page = 1;
     } else if (action === 'sort') {
-        ui.sort = payload === 'name' ? 'name' : 'score';
+        ui.sort = payload === 'date' ? 'date' : 'score';
         ui.page = 1;
     } else if (action === 'dir') {
         ui.dirId = payload || '';
@@ -2358,12 +3682,14 @@ export function nk303Call(action, payload) {
         else window.print();
         return;
     } else if (action === 'highGaps') {
-        ui.mode = 'country';
-        ui.orgKey = '';
-        ui.nav = 'gaps';
-        ui.expandDir = '';
-        ui.expandCrit = '';
-        window.scrollTo(0, 0);
+        toggleCountryNav('gaps');
+    } else if (action === 'orgsList') {
+        toggleCountryNav('orgs');
+    } else if (action === 'doneList') {
+        toggleCountryNav('done');
+    } else if (action === 'statusList') {
+        var sid = String(payload || '');
+        if (isVisNav(sid)) toggleCountryNav(sid);
     } else if (action === 'openGap') {
         var bits = darg(payload || '').split('\t');
         ui.orgKey = bits[0] || '';
@@ -2376,6 +3702,47 @@ export function nk303Call(action, payload) {
             ui.nav = 'overview';
         }
         window.scrollTo(0, 0);
+    } else if (action === 'hub') {
+        openHub(payload || '');
+        return;
+    } else if (action === 'closeHub') {
+        closeHub();
+        return;
+    } else if (action === 'hubSearch') {
+        ui.hubSearch = darg(payload || '');
+        ui.hubPage = 1;
+        renderHub();
+        var hubInp = document.querySelector('#nk303HubRoot input[type="search"]');
+        if (hubInp) {
+            hubInp.focus();
+            var hlen = hubInp.value.length;
+            try { hubInp.setSelectionRange(hlen, hlen); } catch (e3) {}
+        }
+        return;
+    } else if (action === 'hubYear') {
+        applyHubYear(payload);
+        return;
+    } else if (action === 'hubSort') {
+        ui.hubSort = payload === 'asc' ? 'asc' : (payload === 'date' ? 'date' : 'desc');
+        ui.hubPage = 1;
+        renderHub();
+        return;
+    } else if (action === 'hubFilter' || action === 'hubMeqsedFilter') {
+        var nextFilter = String(payload == null ? '' : payload).trim();
+        if (nextFilter === 'all' || nextFilter === '') ui.hubFilter = '';
+        else ui.hubFilter = ui.hubFilter === nextFilter ? '' : nextFilter;
+        ui.hubPage = 1;
+        renderHub({ scrollToList: true });
+        return;
+    } else if (action === 'hubPage') {
+        ui.hubPage = Math.max(1, Number(payload) || 1);
+        renderHub();
+        return;
+    } else if (action === 'hubOpen') {
+        var issueKey = darg(payload || '');
+        var href = jiraBrowseUrl(issueKey);
+        if (href) window.open(href, '_blank', 'noopener,noreferrer');
+        return;
     } else if (action === 'upload') {
         pickExcelFile();
         return;
@@ -2385,3 +3752,14 @@ export function nk303Call(action, payload) {
     }
     render();
 }
+
+export function nk303MeqsedFilter(key) {
+    nk303Call('hubFilter', key);
+}
+
+export function nk303MeqsedSearch(query) {
+    nk303Call('hubSearch', query || '');
+}
+
+window.nk303MeqsedFilter = nk303MeqsedFilter;
+window.nk303MeqsedSearch = nk303MeqsedSearch;

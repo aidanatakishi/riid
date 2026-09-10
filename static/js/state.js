@@ -24,6 +24,7 @@ export const state = {
     assessCatChart: null,
     meqsedOpinionBarChart: null,
     meqsedOpinionDonutChart: null,
+    meqsedMonthChart: null,
     exqStatusChart: null,
     assessListDonutChart: null,
     assessScoreBandChart: null,

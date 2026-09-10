@@ -1452,6 +1452,14 @@ var ASSESS_RESERVED_IDS = {
     customfield_17319: true
 };
 
+export var SELF_OVERALL_FIELD = 'customfield_17315';
+export var SELF_DIR_FIELDS = [
+    { id: 'customfield_17314', title: 'Strategiya üzrə nəticə' },
+    { id: 'customfield_17312', title: 'Texniki-texnoloji infrastruktur üzrə nəticə' },
+    { id: 'customfield_17311', title: 'Xidmətlər üzrə nəticə' },
+    { id: 'customfield_17313', title: 'Əməliyyat modelləri üzrə nəticə' }
+];
+
 function foldAz(str) {
     return normalizeStr(str)
         .replace(/ı/g, 'i')
@@ -1642,9 +1650,9 @@ function readActivityDirectionValue(t) {
 
 function isMeqsedNovuFieldName(folded) {
     if (!folded) return false;
+    if (folded.indexOf('meqseduygun') !== -1 && folded.indexOf('nov') !== -1) return true;
     if (folded.indexOf('muracietin novu') !== -1) return true;
-    if (folded.indexOf('muraciet') !== -1 && folded.indexOf('nov') !== -1) return true;
-    return folded.indexOf('meqseduygun') !== -1 && folded.indexOf('nov') !== -1;
+    return folded.indexOf('muraciet') !== -1 && folded.indexOf('nov') !== -1;
 }
 
 function isMeqsedNeticeFieldName(folded) {
@@ -1701,6 +1709,14 @@ export function collectMeqsedDisplayFieldIds() {
     return ids;
 }
 
+export function collectSelfDisplayFieldIds() {
+    var ids = [SELF_OVERALL_FIELD];
+    (SELF_DIR_FIELDS || []).forEach(function(d) {
+        if (d && d.id && ids.indexOf(d.id) === -1) ids.push(d.id);
+    });
+    return ids;
+}
+
 function formatJiraOptionText(val) {
     if (isEmptyJiraValue(val)) return '—';
     var texts = [];
@@ -1741,19 +1757,33 @@ function formatMeqsedSayi(val) {
     return text && text !== '—' ? text : '—';
 }
 
-export var MEQSED_NOVU_KINDS = ['new_system', 'exist_system', 'new_service', 'exist_service'];
+export var MEQSED_NOVU_KINDS = [
+    'new_system',
+    'new_service',
+    'exist_system',
+    'exist_service',
+    'fiziki',
+    'rsd',
+    'cloud'
+];
 
 export var MEQSED_NOVU_LABELS = {
     new_system: 'Yeni yaradılan sistem',
-    exist_system: 'Mövcud sistemdə əhəmiyyətli dəyişiklik',
     new_service: 'Yeni yaradılan xidmət',
+    exist_system: 'Mövcud sistemdə əhəmiyyətli dəyişiklik',
     exist_service: 'Mövcud xidmətdə əhəmiyyətli dəyişiklik',
+    fiziki: 'Fizikidən rəqəmsala keçən',
+    rsd: 'RSD',
+    cloud: 'Hökumət buludu',
     other: 'Digər'
 };
 
 export function classifyMeqsedNovu(novu) {
     var f = foldAz(novu);
-    if (!f || f === '-') return '';
+    if (!f || f === '-' || f === 'none' || f === 'yoxdur') return '';
+    if (hayHasWord(f, 'rsd')) return 'rsd';
+    if (f.indexOf('hukumet') !== -1 || f.indexOf('bulud') !== -1) return 'cloud';
+    if (f.indexOf('fiziki') !== -1 || f.indexOf('reqemsal') !== -1) return 'fiziki';
     var hasXidmet = f.indexOf('xidmet') !== -1;
     var hasSistem = f.indexOf('sistem') !== -1;
     var isExist = f.indexOf('movcud') !== -1;
@@ -1813,7 +1843,11 @@ export function meqsedModalVisibility(kind) {
 }
 
 export function getMeqsedInfo(t) {
-    var novu = readFirstMatchingNamedField(t, isMeqsedNovuFieldName);
+    if (memoHas('meqsed', t)) return memoGet('meqsed', t);
+    var novu = readFirstMatchingNamedField(t, function(folded) {
+        return folded && folded.indexOf('meqseduygun') !== -1 && folded.indexOf('nov') !== -1;
+    });
+    if (novu == null) novu = readFirstMatchingNamedField(t, isMeqsedNovuFieldName);
     var netice = readFirstMatchingNamedField(t, isMeqsedNeticeFieldName);
     var xidmetSayi = readFirstMatchingNamedField(t, isMeqsedXidmetSayiFieldName);
     var xidmetMelumat = readFirstMatchingNamedField(t, isMeqsedXidmetMelumatFieldName);
@@ -1823,7 +1857,7 @@ export function getMeqsedInfo(t) {
     }
     var novuText = formatJiraOptionText(novu);
     var neticeText = formatJiraOptionText(netice);
-    return {
+    return memoSet('meqsed', t, {
         novu: novuText,
         novuKind: classifyMeqsedNovu(novuText),
         netice: neticeText,
@@ -1831,7 +1865,7 @@ export function getMeqsedInfo(t) {
         xidmetSayi: formatMeqsedSayi(xidmetSayi),
         xidmetMelumat: formatJiraOptionText(xidmetMelumat),
         sistemAdi: formatJiraOptionText(sistemRaw)
-    };
+    });
 }
 
 export function collectAssessmentHaystack(t) {
@@ -1923,6 +1957,28 @@ export function classifyAssessmentNode(node) {
 
 var assessChildIndex = null;
 var assessChildIndexRef = null;
+var assessMemo = typeof WeakMap !== 'undefined' ? {
+    diagParse: new WeakMap(),
+    diagHeadline: new WeakMap(),
+    meqsed: new WeakMap(),
+    self: new WeakMap(),
+    fieldText: new WeakMap()
+} : null;
+var fieldNeedleCache = {};
+var fieldNeedleNamesRef = null;
+
+function memoHas(map, obj) {
+    return !!(assessMemo && obj && typeof obj === 'object' && assessMemo[map].has(obj));
+}
+
+function memoGet(map, obj) {
+    return assessMemo[map].get(obj);
+}
+
+function memoSet(map, obj, val) {
+    if (assessMemo && obj && typeof obj === 'object') assessMemo[map].set(obj, val);
+    return val;
+}
 
 function getAssessChildIndex() {
     if (assessChildIndex && assessChildIndexRef === state.issueIndex) return assessChildIndex;
@@ -2765,6 +2821,7 @@ function ingestTabAndWikiTables(text, sink) {
 }
 
 export function parseDiagUmumiNetice(raw) {
+    if (memoHas('diagParse', raw)) return memoGet('diagParse', raw);
     var dirMap = {};
     var extras = [];
     var overallScore = null;
@@ -2862,7 +2919,7 @@ export function parseDiagUmumiNetice(raw) {
         }
     }
 
-    return {
+    return memoSet('diagParse', raw, {
         overall: { score: overallScore || '—', text: overallText || '' },
         directions: DIAG_NETICE_HEADINGS.map(function(title) {
             var d = dirMap[title] || { score: '—', text: '' };
@@ -2872,33 +2929,50 @@ export function parseDiagUmumiNetice(raw) {
         }),
         extras: extras,
         unmapped: unmapped
-    };
+    });
 }
 
 export function getDiagHeadline(t) {
+    if (memoHas('diagHeadline', t)) return memoGet('diagHeadline', t);
     var parsed = parseDiagUmumiNetice(t && t.fields ? t.fields.customfield_17319 : null);
-    if (parsed.overall.score && parsed.overall.score !== '—') return parsed.overall.score;
-    var nearby = getDiagScore(t);
-    if (nearby && nearby !== '—') return nearby;
-    if (parsed.overall.text) {
-        var ot = parsed.overall.text.replace(/\s+/g, ' ').trim();
-        if (ot && !isHeaderOnlyText(ot) && !looksLikeFlattenedTable(ot)) {
-            return shortenLabel(ot, 80);
+    var out = '—';
+    if (parsed.overall.score && parsed.overall.score !== '—') {
+        out = parsed.overall.score;
+    } else {
+        var nearby = getDiagScore(t);
+        if (nearby && nearby !== '—') {
+            out = nearby;
+        } else if (parsed.overall.text) {
+            var ot = parsed.overall.text.replace(/\s+/g, ' ').trim();
+            if (ot && !isHeaderOnlyText(ot) && !looksLikeFlattenedTable(ot)) {
+                out = shortenLabel(ot, 80);
+            }
+        }
+        if (out === '—') {
+            var i;
+            for (i = 0; i < parsed.directions.length; i++) {
+                if (parsed.directions[i].score && parsed.directions[i].score !== '—') {
+                    out = parsed.directions[i].score;
+                    break;
+                }
+            }
         }
     }
-    var i;
-    for (i = 0; i < parsed.directions.length; i++) {
-        if (parsed.directions[i].score && parsed.directions[i].score !== '—') {
-            return parsed.directions[i].score;
-        }
-    }
-    return '—';
+    return memoSet('diagHeadline', t, out);
 }
 
 export function findJiraFieldsByNeedles(needles) {
+    var names = state.jiraFieldNames || {};
+    if (fieldNeedleNamesRef !== names) {
+        fieldNeedleCache = {};
+        fieldNeedleNamesRef = names;
+    }
+    var cacheKey = (needles || []).join('\0');
+    if (Object.prototype.hasOwnProperty.call(fieldNeedleCache, cacheKey)) {
+        return fieldNeedleCache[cacheKey];
+    }
     var hits = [];
     var seen = {};
-    var names = state.jiraFieldNames || {};
     var foldedNeedles = (needles || []).map(foldAz).filter(Boolean);
     var key;
     for (key in names) {
@@ -2913,6 +2987,7 @@ export function findJiraFieldsByNeedles(needles) {
             hits.push({ id: key, name: names[key] });
         }
     }
+    fieldNeedleCache[cacheKey] = hits;
     return hits;
 }
 
@@ -2955,17 +3030,21 @@ export function formatAssessmentScore(val) {
 
 export function formatAssessmentFieldText(val) {
     if (isEmptyJiraValue(val)) return '—';
+    if (memoHas('fieldText', val)) return memoGet('fieldText', val);
     var blocks = parseAssessmentNetice(val);
-    if (!blocks.length) return formatAssessmentScore(val);
-    if (blocks.length === 1) {
+    var out;
+    if (!blocks.length) out = formatAssessmentScore(val);
+    else if (blocks.length === 1) {
         var only = blocks[0];
-        if (!only.label || foldAz(only.label).indexOf('umumi') !== -1) return only.value || '—';
-        return (only.label + ': ' + (only.value || '—')).trim();
+        if (!only.label || foldAz(only.label).indexOf('umumi') !== -1) out = only.value || '—';
+        else out = (only.label + ': ' + (only.value || '—')).trim();
+    } else {
+        out = blocks.map(function(b) {
+            if (b.label && b.value) return b.label + ': ' + b.value;
+            return b.value || b.label || '';
+        }).filter(Boolean).join(' · ') || '—';
     }
-    return blocks.map(function(b) {
-        if (b.label && b.value) return b.label + ': ' + b.value;
-        return b.value || b.label || '';
-    }).filter(Boolean).join(' · ') || '—';
+    return memoSet('fieldText', val, out);
 }
 
 function fieldNameFold(id) {
@@ -3072,94 +3151,56 @@ export function parseTaskUmumiNetice(t) {
 }
 
 export function getSelfAssessInfo(t) {
-    var fields = findJiraFieldsByNeedles([
-        'özünüqiymətləndirmə', 'ozunuqiymetlendirme', 'self-assess', 'self assess', 'selfassess'
-    ]);
-    var seen = {};
-    var list = [];
-    var i;
-    for (i = 0; i < fields.length; i++) {
-        if (ASSESS_RESERVED_IDS[fields[i].id]) continue;
-        seen[fields[i].id] = true;
-        list.push(fields[i]);
-    }
-    for (i = 0; i < ASSESS_NEARBY_IDS.length; i++) {
-        var id = ASSESS_NEARBY_IDS[i];
-        if (seen[id] || ASSESS_RESERVED_IDS[id]) continue;
-        var nm = (state.jiraFieldNames && state.jiraFieldNames[id]) || '';
-        var fn = foldAz(nm);
-        if (fn && (fn.indexOf('isq') !== -1 || fn.indexOf('exq') !== -1 || fn.indexOf('diaqnostika') !== -1 || fn.indexOf('elektron xidmet') !== -1)) continue;
-        seen[id] = true;
-        list.push({ id: id, name: nm });
-    }
-    var names = state.jiraFieldNames || {};
-    var key;
-    for (key in names) {
-        if (seen[key] || ASSESS_RESERVED_IDS[key]) continue;
-        if (isSelfAssessFieldName(foldAz(names[key]))) {
-            seen[key] = true;
-            list.push({ id: key, name: names[key] });
-        }
-    }
-    var score = null;
-    var detailRaw = null;
-    var detailName = '';
-    var usedIds = [];
-    for (i = 0; i < list.length; i++) {
-        var f = list[i];
-        var val = readIssueField(t, f.id);
-        if (isEmptyJiraValue(val)) continue;
-        usedIds.push(f.id);
-        var fname = foldAz(f.name);
-        var blocks = parseAssessmentNetice(val);
-        var num = coerceScoreNumber(val);
-        var multi = blocks.length > 1 || (blocks.length === 1 && blocks[0].label && foldAz(blocks[0].label).indexOf('umumi') === -1);
-        var nameLooksDetail = fname.indexOf('netice') !== -1 || fname.indexOf('etrafli') !== -1 || fname.indexOf('tesvir') !== -1;
-        var nameLooksScore = fname.indexOf('bal') !== -1 || fname.indexOf('score') !== -1;
-        if (multi || nameLooksDetail) {
-            if (detailRaw == null) {
-                detailRaw = val;
-                detailName = f.name || f.id;
-            }
-            if (num != null && score == null) score = num;
-        } else if (num != null || nameLooksScore) {
-            if (score == null) score = num != null ? num : val;
-            if (detailRaw == null && typeof val === 'string' && stripMarkupToText(val).length > 12 && num == null) {
-                detailRaw = val;
-                detailName = f.name || f.id;
-            }
-        } else if (detailRaw == null) {
-            detailRaw = val;
-            detailName = f.name || f.id;
-            if (num != null && score == null) score = num;
-        }
-    }
-    var umumiRaw = readUmumiNeticeRaw(t);
-    if (detailRaw == null && !isEmptyJiraValue(umumiRaw)) {
-        detailRaw = umumiRaw;
-        detailName = 'Ümumi Nəticə';
-        if (usedIds.indexOf('customfield_17319') === -1) usedIds.push('customfield_17319');
-    }
-    if (detailRaw == null && t && t.fields && !isEmptyJiraValue(t.fields.description)) {
-        detailRaw = t.fields.description;
-        detailName = 'Təsvir';
-    }
-    var parsedUmumi = parseDiagUmumiNetice(umumiRaw);
-    if (score == null && parsedUmumi.overall && parsedUmumi.overall.score && parsedUmumi.overall.score !== '—') {
-        score = parsedUmumi.overall.score;
-    }
-    var detailBlocks = parseAssessmentNetice(detailRaw);
-    if (!detailBlocks.length && detailRaw != null && !isEmptyJiraValue(detailRaw)) {
-        var plain = jiraValuePlainText(detailRaw);
-        if (plain) detailBlocks = [{ label: detailName || 'Ətraflı', value: plain }];
-    }
-    return {
-        score: score != null ? formatAssessmentScore(score) : '—',
-        blocks: detailBlocks,
-        detailName: detailName,
-        fieldIds: usedIds,
-        parsedUmumi: parsedUmumi
+    if (memoHas('self', t)) return memoGet('self', t);
+    var overallSlot = selfScoreSlot(t, SELF_OVERALL_FIELD);
+    var directions = SELF_DIR_FIELDS.map(function(d) {
+        var slot = selfScoreSlot(t, d.id);
+        return { title: d.title, score: slot.score, text: slot.text, fieldId: d.id };
+    });
+    var fieldIds = [SELF_OVERALL_FIELD].concat(SELF_DIR_FIELDS.map(function(d) { return d.id; }));
+    var parsedUmumi = {
+        overall: { score: overallSlot.score, text: overallSlot.text },
+        directions: directions,
+        extras: [],
+        unmapped: []
     };
+    var blocks = [];
+    if (overallSlot.score !== '—' || overallSlot.text) {
+        blocks.push({
+            label: 'Ümumi nəticə',
+            value: overallSlot.score !== '—' ? overallSlot.score : overallSlot.text
+        });
+    }
+    directions.forEach(function(d) {
+        if (d.score !== '—' || d.text) {
+            blocks.push({ label: d.title, value: d.score !== '—' ? d.score : d.text });
+        }
+    });
+    return memoSet('self', t, {
+        score: overallSlot.score,
+        blocks: blocks,
+        detailName: 'Ümumi nəticə',
+        fieldIds: fieldIds,
+        parsedUmumi: parsedUmumi,
+        directions: directions,
+        overall: parsedUmumi.overall
+    });
+}
+
+function selfScoreSlot(t, id) {
+    var raw = readIssueField(t, id);
+    if (isEmptyJiraValue(raw)) return { score: '—', text: '' };
+    var n = coerceScoreNumber(raw);
+    var score = n != null ? formatAssessmentScore(n) : formatAssessmentScore(raw);
+    if (!score || score === '—' || isHeaderOnlyText(score)) score = '—';
+    var text = '';
+    if (n == null) {
+        var plain = dropHeaderLines(jiraValuePlainText(raw) || formatAssessmentFieldText(raw) || '');
+        if (plain && plain !== score && !isHeaderOnlyText(plain) && !looksLikeFlattenedTable(plain)) {
+            text = plain;
+        }
+    }
+    return { score: score, text: text };
 }
 
 export function getExqServiceCount(t) {
