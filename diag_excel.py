@@ -8,7 +8,15 @@ import os
 import re
 from collections import OrderedDict
 
-from openpyxl import load_workbook
+
+def require_openpyxl():
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        raise RuntimeError(
+            'Excel oxumaq üçün openpyxl lazımdır. Terminalda: pip install -r requirements.txt'
+        ) from None
+    return load_workbook
 
 DIR_NEEDLES = (
     ('strategiya', ('strategiya', 'strategy', 'strategic')),
@@ -586,7 +594,7 @@ def parse_diag_excel(path, filename=None):
         orgs = finalize_orgs(bucket, filename, meta)
         return {'orgs': orgs, 'warnings': [] if orgs else ['Cədvəldə diaqnostika sətiri tapılmadı.']}
 
-    wb = load_workbook(path, data_only=True)
+    wb = require_openpyxl()(path, data_only=True)
     bucket = OrderedDict()
     meta_all = {}
     for ws in wb.worksheets:
