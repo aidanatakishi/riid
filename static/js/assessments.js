@@ -14,6 +14,12 @@ import {
     getDiagScore,
     getExqServiceCount,
     getExqScore,
+    getExqResult,
+    EXQ_STAR_BANDS,
+    EXQ_LAW_URL,
+    exqStarFromPercent,
+    exqStarColor,
+    exqStarLabel,
     getPhaseFieldText,
     PHASE_FIELDS,
     getMeqsedInfo,
@@ -340,8 +346,14 @@ function serializeHubRow(section, r, i) {
         row.score = parseScoreForSort(selfInfo && selfInfo.score);
         row.result = selfInfo && selfInfo.score != null && selfInfo.score !== '' ? String(selfInfo.score) : '';
     } else if (section === 'exq') {
-        row.score = exqNumericScore(r);
+        row.score = null;
+        row.star = null;
         row.svc = getExqServiceCount(t);
+        var exq = getExqResult(t);
+        if (exq) {
+            row.score = exq.percent != null ? exq.percent : null;
+            row.star = exq.star || (row.score != null ? exqStarFromPercent(row.score) : null);
+        }
         row.result = formatAssessmentFieldText(t && t.fields && t.fields.customfield_17317);
     } else if (section === 'meqsed') {
         var info = getMeqsedInfo(t);
@@ -686,7 +698,7 @@ function listFilterGroups(section) {
         return { key: 'st_' + g, label: STATUS_GROUP_LABELS[g] || g };
     });
     var groups = [{ title: 'Status', items: statusItems }];
-    if (section === 'diag' || section === 'isq' || section === 'self' || section === 'exq') {
+    if (section === 'diag' || section === 'isq' || section === 'self') {
         groups.push({
             title: 'Nəticə',
             items: [
@@ -697,6 +709,12 @@ function listFilterGroups(section) {
         });
     }
     if (section === 'exq') {
+        groups.push({
+            title: 'Ulduz (Qərar 380)',
+            items: (EXQ_STAR_BANDS || []).map(function(b) {
+                return { key: 'star_' + b.star, label: b.star + ' ulduz (' + b.lo + '–' + b.hi + '%)' };
+            })
+        });
         groups.push({
             title: 'Xidmət',
             items: [
@@ -1448,16 +1466,17 @@ function renderExq(rows) {
     var body = (rows || []).map(function(r) {
         var t = r.task;
         var status = (t.fields && t.fields.status && t.fields.status.name) || '—';
-        var bal = getExqScore(t);
+        var exq = getExqResult(t);
+        var bal = exq && exq.percent != null ? exq.percent : getExqScore(t);
         var count = getExqServiceCount(t);
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
             { label: 'Status', html: statusPill(status, t) },
-            { label: 'Xidmət və bal', cls: 'assess-hub-cell--exq-metrics', html: exqRowMetricsHtml(bal, count, avg, maxSvc) },
+            { label: 'Xidmət və yekun', cls: 'assess-hub-cell--exq-metrics', html: exqRowMetricsHtml(bal, count, avg, maxSvc) },
             { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
     }).join('');
-    return hubTable('exq', ['Qurum adı', 'Status', 'Xidmət və bal', ''], body);
+    return hubTable('exq', ['Qurum adı', 'Status', 'Xidmət və yekun', ''], body);
 }
 
 function parseXidmetUnits(info) {
@@ -1750,6 +1769,11 @@ var COMMON_DASH_FILTER_LABELS = {
     score_mid: 'Bal 40–69',
     score_low: 'Bal < 40',
     score_none: 'Balsız',
+    star_1: '1 ulduz',
+    star_2: '2 ulduz',
+    star_3: '3 ulduz',
+    star_4: '4 ulduz',
+    star_5: '5 ulduz',
     svc_none: 'Xidmət yox',
     svc_1_5: '1–5 xidmət',
     svc_6_20: '6–20 xidmət',
@@ -1868,23 +1892,31 @@ function scoreToneClass(n) {
     return 'none';
 }
 
+function exqMeterToneClass(n) {
+    var star = exqStarFromPercent(n);
+    return star ? ('star' + star) : 'none';
+}
+
 function exqScoreMeterHtml(score, opts) {
     opts = opts || {};
     var has = score != null && isFinite(Number(score));
     var n = has ? Number(score) : null;
     var pct = has ? Math.max(0, Math.min(100, n)) : 0;
-    var tone = scoreToneClass(n);
+    var tone = exqMeterToneClass(n);
     var shown = has ? (Math.round(n * 10) / 10) : '—';
+    var star = has ? exqStarFromPercent(n) : null;
     var avg = opts.avg;
     var avgPct = avg != null && isFinite(avg) ? Math.max(0, Math.min(100, avg)) : null;
     var cls = 'exq-meter is-' + tone + (opts.compact ? ' is-compact' : '');
     var avgMark = avgPct != null
-        ? '<em class="exq-meter-avg" style="left:' + avgPct + '%" title="Ümumi orta: ' + escapeHtml(formatAvg(avg)) + '"></em>'
+        ? '<em class="exq-meter-avg" style="left:' + avgPct + '%" title="Ümumi orta: ' + escapeHtml(formatAvg(avg)) + '%"></em>'
         : '';
     return '<div class="' + cls + '">'
         + '<div class="exq-meter-top">'
-        + '<span>' + escapeHtml(opts.label || 'Orta bal') + '</span>'
-        + '<b>' + (has ? escapeHtml(String(shown)) + ' <i>/ 100</i>' : '—') + '</b>'
+        + '<span>' + escapeHtml(opts.label || 'Yekun nəticə') + '</span>'
+        + '<b>' + (has ? escapeHtml(String(shown)) + ' <i>%</i>' : '—')
+        + (star ? ' <em class="exq-meter-star">' + escapeHtml(exqStarLabel(star)) + '</em>' : '')
+        + '</b>'
         + '</div>'
         + '<div class="exq-meter-track" role="meter" aria-valuemin="0" aria-valuemax="100"'
         + (has ? ' aria-valuenow="' + Math.round(pct) + '"' : ' aria-valuetext="Bal yoxdur"')
@@ -1918,7 +1950,7 @@ function exqRowMetricsHtml(score, count, avg, maxSvc) {
         + '<div class="exq-row-svc"><span>Qiymətləndirilmiş xidmət</span><b>' + (hasSvc ? svcN : '—') + '</b></div>'
         + '<div class="exq-meter-track" aria-hidden="true"><i style="width:' + pct + '%"></i></div>'
         + '</div>'
-        + exqScoreMeterHtml(n, { label: 'Bal', compact: true, avg: avg })
+        + exqScoreMeterHtml(n, { label: 'Yekun nəticə', compact: true, avg: avg })
         + '</div>';
 }
 
@@ -1998,6 +2030,9 @@ function exqRowMatchesDashFilter(r, filter) {
     if (filter === 'svc_sum') return count != null && count > 0;
     if (filter === 'svc_none' || filter === 'svc_1_5' || filter === 'svc_6_20' || filter === 'svc_21') {
         return exqSvcBandKey(count) === filter;
+    }
+    if (filter.indexOf('star_') === 0) {
+        return exqStarOf(r) === Number(filter.slice(5));
     }
     if (filter === 'score_high' || filter === 'score_mid' || filter === 'score_low' || filter === 'score_none') {
         return scoreBandKey(score) === filter;
@@ -2226,7 +2261,14 @@ function isqNumericScore(r) {
 }
 
 function exqNumericScore(r) {
-    return parseScoreForSort(getExqScore(r && r.task));
+    if (r && r.score != null && isFinite(Number(r.score))) return Number(r.score);
+    var exq = getExqResult(r && r.task);
+    return exq && exq.percent != null ? exq.percent : null;
+}
+
+function exqStarOf(r) {
+    if (r && r.star != null && isFinite(Number(r.star))) return Number(r.star);
+    return exqStarFromPercent(exqNumericScore(r));
 }
 
 function collectIsqListStats(rows) {
@@ -2346,6 +2388,7 @@ function collectExqListStats(rows) {
         scoreWeightedSum: 0,
         byStatus: emptyStatusCounts(),
         byBand: { score_high: 0, score_mid: 0, score_low: 0, score_none: 0 },
+        byStar: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, none: 0 },
         bySvc: { svc_none: 0, svc_1_5: 0, svc_6_20: 0, svc_21: 0 },
         byQurum: []
     };
@@ -2410,6 +2453,11 @@ function collectExqListStats(rows) {
     stats.qurumWithSvc = stats.byQurum.filter(function(q) {
         return (q.svc || 0) > 0;
     }).length;
+    stats.byQurum.forEach(function(q) {
+        var st = exqStarFromPercent(q.score);
+        if (st) stats.byStar[st] += 1;
+        else stats.byStar.none += 1;
+    });
     return stats;
 }
 
@@ -2559,6 +2607,30 @@ function isqListDashHtml(stats) {
     );
 }
 
+function exqStarMixHtml(byStar) {
+    var parts = (EXQ_STAR_BANDS || []).map(function(b) {
+        return {
+            key: 'star_' + b.star,
+            label: b.star + '★',
+            n: (byStar && byStar[b.star]) || 0,
+            color: b.color
+        };
+    });
+    var total = parts.reduce(function(s, p) { return s + p.n; }, 0);
+    var segs = parts.filter(function(p) { return p.n > 0; }).map(function(p) {
+        var pct = total ? Math.round((p.n / total) * 100) : 0;
+        var on = listDashFilterOn('exq', p.key);
+        return '<button type="button" class="exq-mix-seg' + (on ? ' is-active' : '') + '"'
+            + ' style="flex-grow:' + Math.max(p.n, 0) + ';background:' + p.color + '"'
+            + ' title="' + escapeHtml(p.label) + ': ' + p.n + ' qurum"'
+            + ' onclick="event.stopPropagation(); setAssessListFilter(\'' + p.key + '\')">'
+            + escapeHtml(p.label) + ' · ' + pct + '%'
+            + '</button>';
+    }).join('');
+    if (!segs) return '';
+    return '<div class="exq-mix" aria-label="Ulduz payı">' + segs + '</div>';
+}
+
 function exqSvcMixHtml(bySvc) {
     var section = 'exq';
     var parts = [
@@ -2601,10 +2673,14 @@ function exqListDashHtml(stats) {
         + '<div class="meqsed-ld-card assess-ld-panel exq-ld-combo assess-ld-combo">'
         + '<div class="exq-overview">'
         + exqSvcHeroHtml(svcSum, qurumWithSvc, 'svc_sum')
-        + exqScoreMeterHtml(overall, { label: 'Ölkə üzrə bal ortalaması' })
+        + exqScoreMeterHtml(overall, { label: 'Ölkə üzrə yekun nəticə' })
         + '</div>'
         + '<p class="exq-overview-summary">' + escapeHtml(summary) + '</p>'
-        + '<p class="assess-ld-block-label">Qurumların balları</p>'
+        + exqStarMixHtml(stats.byStar)
+        + '<p class="exq-law-hint">Qərar 380, bənd 4.14–4.18 · '
+        + '<a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a>'
+        + ' · yekun nəticə = toplanmış / mümkün × 100, sonra 5 ulduz şkalası</p>'
+        + '<p class="assess-ld-block-label">Qurumların yekun nəticəsi</p>'
         + (hasQurum
             ? '<div class="exq-qurum-chart-wrap">'
                 + '<div class="meqsed-ld-chart-box exq-qurum-chart" style="height:' + chartH + 'rem">'
@@ -2974,7 +3050,7 @@ function drawExqQurumSvcChart(items) {
                 label: 'Bal',
                 data: scores,
                 backgroundColor: rows.map(function(q) {
-                    return q.score != null && isFinite(q.score) ? '#6366f1' : '#cbd5e1';
+                    return q.score != null && isFinite(q.score) ? exqStarColor(q.score) : '#cbd5e1';
                 }),
                 borderRadius: 5,
                 borderSkipped: false,
@@ -3008,8 +3084,9 @@ function drawExqQurumSvcChart(items) {
                         },
                         afterLabel: function(ctx) {
                             var row = rows[ctx.dataIndex];
-                            var bal = row && row.score != null ? formatAvg(row.score) : '—';
-                            return ' Bal: ' + bal;
+                            var bal = row && row.score != null ? formatAvg(row.score) + '%' : '—';
+                            var star = row ? exqStarFromPercent(row.score) : null;
+                            return ' Yekun: ' + bal + (star ? ' · ' + star + ' ulduz' : '');
                         }
                     }
                 }

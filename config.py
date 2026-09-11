@@ -27,6 +27,8 @@ _JIRA_PAT_FALLBACK = ''
 JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', 'https://jira.idda.az').rstrip('/')
 JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
+SECRET_KEY = os.environ.get('SECRET_KEY') or ''
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or ''
 
 SEARCH_FIELDS = (
     "summary,status,duedate,description,customfield_10807,customfield_10808,"

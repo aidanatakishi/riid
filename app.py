@@ -1,11 +1,58 @@
 import os
+import subprocess
+import sys
+
+REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl')
+
+
+def _can_import(name):
+    try:
+        __import__(name)
+        return True
+    except ImportError:
+        return False
+
+
+def ensure_requirements():
+    missing = [name for name in REQUIRED_PACKAGES if not _can_import(name)]
+    if not missing:
+        return
+    here = os.path.dirname(os.path.abspath(__file__))
+    req = os.path.join(here, 'requirements.txt')
+    print('Əskik paketlər: ' + ', '.join(missing))
+    print('Quraşdırılır (bir dəfəlik, internet lazımdır)...')
+    cmd = [sys.executable, '-m', 'pip', 'install', '-r', req]
+    try:
+        subprocess.check_call(cmd)
+    except subprocess.CalledProcessError:
+        try:
+            subprocess.check_call(cmd + ['--user'])
+        except subprocess.CalledProcessError:
+            print('Paketlər quraşdırılmadı. Terminalda bunu işlədin:')
+            print('  ' + sys.executable + ' -m pip install -r requirements.txt')
+            raise SystemExit(1)
+    still = [name for name in REQUIRED_PACKAGES if not _can_import(name)]
+    if still:
+        print('Hələ də tapılmayan paketlər: ' + ', '.join(still))
+        print('  ' + sys.executable + ' -m pip install -r requirements.txt')
+        raise SystemExit(1)
+
+
+ensure_requirements()
+
+from datetime import timedelta
 
 from flask import Flask, render_template, request
 
+from config import SECRET_KEY
 from routes import api
 
 app = Flask(__name__)
+app.secret_key = SECRET_KEY or os.urandom(32)
 app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 app.register_blueprint(api)
 
 # Xarici origin (riid.netlify.app və ya cloudflared) /api/jira çağıranda CORS lazımdır.
@@ -33,6 +80,7 @@ def serve_dashboard():
 
 
 @app.route('/diaqnostika')
+@app.route('/diaqnostika/admin')
 def serve_diaqnostika():
     return render_template('index.html')
 

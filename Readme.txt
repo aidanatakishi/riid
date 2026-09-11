@@ -39,27 +39,21 @@ customfield_12424 - Qurum (Ehtiyat field)
 customfield_10015 / 10016 - Target Start / End
 
 🚀 Sistemi İşə Salmaq (Run Etmək)
-Addım 1: Python və kitabxanaların qurulması
-Komputerinizdə Python 3 quraşdırılmış olmalıdır. Terminalı (və ya CMD-ni) açıb aşağıdakı əmrləri yazın:
+Komputerinizdə Python 3 olmalıdır. Layihə qovluğunda:
 
-bash
+  python app.py
 
-pip install -r requirements.txt
-Addım 2: Backend serverin başladılması
-Layihə qovluğuna terminal vasitəsilə daxil olun və Flask serverini işə salın:
+və ya Windows-da run.bat-a iki dəfə klik.
 
-bash
-
-python app.py
+İlk dəfə əskik paketlər (flask, openpyxl və s.) avtomatik quraşır — internet lazımdır.
 Server uğurla başladıqdan sonra terminalda Running on http://127.0.0.1:5000 yazısı görünəcək. Bu pəncərəni açıq saxlayın.
 
-Addım 3: Dashboard-u açmaq
+Dashboard-u açmaq
 Brauzerinizi (Google Chrome, Edge və s.) açın və ünvan çubuğuna yazın:
 
-text
-
 http://127.0.0.1:5000
-Addım 4: Jira tokenini yazmaq
+
+Jira tokenini yazmaq
 Saytın yuxarısındakı Token düyməsinə basın və öz PAT-inizi yazın. Hər kəs öz tokeni ilə daxil olur.
 
 🔧 Dəyişiklik Edilməsi Üçün Təlimat

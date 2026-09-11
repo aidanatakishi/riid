@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda24';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda25';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -10,7 +10,12 @@ import {
     getPhaseFieldText,
     PHASE_FIELDS,
     MEQSED_NOVU_KINDS,
-    MEQSED_NOVU_LABELS
+    MEQSED_NOVU_LABELS,
+    EXQ_STAR_BANDS,
+    EXQ_LAW_URL,
+    exqStarFromPercent,
+    exqStarColor,
+    exqStarLabel
 } from './model.js';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
@@ -25,6 +30,7 @@ var nkCharts = {};
 var nkHubCharts = {};
 var histBound = false;
 var excelStore = { files: [], orgs: [], loaded: false };
+var adminState = { isAdmin: false, bound: false };
 var hubPrefetchTimer = null;
 var HUB_TABS = [
     { id: 'diag', label: 'Diaqnostika', color: '#7c3aed' },
@@ -319,6 +325,11 @@ function looksLikeFinding(text) {
         || f.indexOf('proble') !== -1;
 }
 
+function isClosedGap(text) {
+    var f = fold(text);
+    return f.indexOf('askar edilmeyib') !== -1 || f.indexOf('ashkar edilmeyib') !== -1;
+}
+
 function looksLikeAction(text) {
     var f = fold(text);
     return f.indexOf('fealiyyet') !== -1
@@ -383,6 +394,24 @@ function gaugeHtml(score) {
 function barColor(score) {
     var mat = maturityOf(score);
     return (mat && mat.color) || '#94a3b8';
+}
+
+function exqBarColor(score) {
+    return exqStarColor(score) || '#94a3b8';
+}
+
+function exqStarsHtml(star) {
+    var i;
+    var html = '<span class="nk303-stars" aria-hidden="true">';
+    for (i = 1; i <= 5; i++) {
+        html += '<i class="' + (star && i <= star ? 'is-on' : '') + '">★</i>';
+    }
+    return html + '</span>';
+}
+
+function exqStarOfRow(r) {
+    if (r && r.star != null && isFinite(Number(r.star))) return Number(r.star);
+    return exqStarFromPercent(r && r.score);
 }
 
 function orgKey(row, i) {
@@ -508,11 +537,19 @@ function excelOrgFromUpload(raw, index) {
     if (qrsg == null && dirVals.length === 4) qrsg = avg(dirVals);
     var updated = raw.uploadedAt ? new Date(raw.uploadedAt) : new Date();
     if (isNaN(updated.getTime())) updated = new Date();
+    var start = null;
+    if (raw.date) {
+        start = new Date(raw.date);
+        if (isNaN(start.getTime())) start = null;
+    }
+    var year = raw.year != null && isFinite(Number(raw.year)) ? Number(raw.year) : null;
+    if (year == null && start) year = start.getFullYear();
+    if (year == null && updated && !isNaN(updated.getTime())) year = updated.getFullYear();
     return {
         key: qurumMatchKey(name) || ('excel_' + index),
         issueKey: '',
         name: name,
-        year: raw.year != null && isFinite(Number(raw.year)) ? Number(raw.year) : null,
+        year: year,
         time: updated.getTime(),
         statusName: 'Excel',
         statusGroup: 'done',
@@ -529,7 +566,7 @@ function excelOrgFromUpload(raw, index) {
         overallCurrent: String(raw.overallCurrent || '').trim(),
         overallGaps: String(raw.overallGaps || '').trim(),
         hasResult: qrsg != null || dirVals.length > 0 || extras.length > 0,
-        start: null,
+        start: start,
         updated: updated,
         processIdx: 5,
         phases: [],
@@ -582,7 +619,8 @@ function mergeExcelIntoOrg(org, excel) {
             byTitle[k] = e;
         }
     });
-    if (excel.year != null && org.year == null) org.year = excel.year;
+    if (excel.start) org.start = excel.start;
+    if (excel.year != null) org.year = excel.year;
     return org;
 }
 
@@ -604,8 +642,9 @@ function latestByOrg(items) {
 function applyUiFilters(items, opts) {
     opts = opts || {};
     var skipOrg = !!opts.skipOrg;
+    var skipYear = !!opts.skipYear || !!(ui.orgKey && !skipOrg);
     return items.filter(function(it) {
-        if (ui.year !== 'all' && Number(it.year) !== Number(ui.year)) return false;
+        if (!skipYear && ui.year !== 'all' && Number(it.year) !== Number(ui.year)) return false;
         if (!skipOrg && ui.orgKey && it.key !== ui.orgKey) return false;
         if (ui.status && it.visId !== ui.status) return false;
         if (ui.dirId) {
@@ -615,7 +654,7 @@ function applyUiFilters(items, opts) {
     });
 }
 
-function buildModel() {
+function collectAllOrgs() {
     var rows = getDiagPeriodRows() || [];
     var all = rows.map(parseRow);
     var byKey = {};
@@ -628,13 +667,48 @@ function buildModel() {
             byKey[ex.key] = ex;
         }
     });
+    return all;
+}
+
+function yearOfOrgKey(key) {
+    if (!key) return null;
+    var hits = collectAllOrgs().filter(function(o) { return o.key === key; });
+    if (!hits.length) return null;
+    hits.sort(function(a, b) {
+        var ay = a.year == null ? -1 : Number(a.year);
+        var by = b.year == null ? -1 : Number(b.year);
+        if (by !== ay) return by - ay;
+        return (b.time || 0) - (a.time || 0);
+    });
+    var y = hits[0].year;
+    return y != null && isFinite(Number(y)) ? Number(y) : null;
+}
+
+function applyOrgYear(key) {
+    var y = yearOfOrgKey(key);
+    if (y == null) return false;
+    ui.year = String(y);
+    return true;
+}
+
+function uniqueYearsFromOrgs(orgs) {
+    var ys = [];
+    (orgs || []).forEach(function(o) {
+        var y = o && o.year != null ? Number(o.year) : NaN;
+        if (isFinite(y) && ys.indexOf(y) === -1) ys.push(y);
+    });
+    return ys;
+}
+
+function buildModel() {
+    var all = collectAllOrgs();
     var years = {};
     all.forEach(function(it) {
         if (it.year != null && isFinite(it.year)) years[Number(it.year)] = true;
     });
     var yearList = Object.keys(years).map(Number).sort(function(a, b) { return b - a; });
     var skipOrg = ui.nav === 'orgs' || ui.nav === 'compare' || ui.mode === 'country';
-    var orgOptions = latestByOrg(applyUiFilters(all, { skipOrg: true }));
+    var orgOptions = latestByOrg(applyUiFilters(all, { skipOrg: true, skipYear: true }));
     var scoped = applyUiFilters(all, { skipOrg: skipOrg });
     var orgs = latestByOrg(scoped);
     var scored = orgs.filter(function(o) { return o.qrsg != null; });
@@ -750,7 +824,7 @@ function collectGaps(orgs) {
                     deficiency: def || (looksLikeFinding(txt) ? txt : (txt || NA)),
                     extraKey: ''
                 });
-            } else if (def || (txt && looksLikeFinding(txt))) {
+            } else if ((def && !isClosedGap(def)) || (txt && looksLikeFinding(txt))) {
                 out.push({
                     org: o.name,
                     orgKey: o.key,
@@ -766,6 +840,7 @@ function collectGaps(orgs) {
         });
         o.extras.forEach(function(e) {
             var weak = e.score != null && e.score < 50;
+            if (isClosedGap(e.deficiency) && !weak) return;
             var finding = looksLikeFinding(e.deficiency) || looksLikeFinding(e.text) || looksLikeFinding(e.title);
             if (!weak && !finding && !e.text && !e.current && !e.deficiency) return;
             if (!weak && !finding && !e.deficiency && e.score != null && e.score >= 50) return;
@@ -902,10 +977,17 @@ function pageHeadHtml(model) {
         + '</div>'
         + '<div class="nk303-tools">'
         + '<div class="nk303-filters">'
-        + '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>'
+        + (ui.orgKey ? '' : '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>')
         + '<label class="nk303-field"><span>Qurum</span><select onchange="nk303Call(\'org\', this.value)">' + orgOpts + '</select></label>'
         + '</div>'
+        + (isAdmin()
+            ? '<div class="nk303-admin-row">'
+                + '<button type="button" class="nk303-upload" onclick="nk303Call(\'upload\')">' + iconSvg('upload') + ' Excel yüklə</button>'
+                + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'logout\')">Çıx</button>'
+                + '</div>'
+            : '')
         + '</div></div>'
+        + excelFilesHtml()
         + hubNavHtml();
 }
 
@@ -963,7 +1045,12 @@ function hubNavHtml() {
         + '</nav>';
 }
 
+function isAdmin() {
+    return !!adminState.isAdmin;
+}
+
 function excelFilesHtml() {
+    if (!isAdmin()) return '';
     var files = excelStore.files || [];
     if (!files.length) return '';
     return '<div class="nk303-xl-files">' + files.map(function(f) {
@@ -1011,6 +1098,49 @@ function trendChartHtml(model) {
         + '</section>';
 }
 
+function scoredTrendPts(trend) {
+    return (trend || []).filter(function(t) {
+        return t && t.avg != null && isFinite(Number(t.avg));
+    }).slice().sort(function(a, b) { return Number(a.y) - Number(b.y); });
+}
+
+function easeInOutCubic(t) {
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function curvedTrendSeries(trend) {
+    var src = scoredTrendPts(trend);
+    if (!src.length) return [];
+    if (src.length === 1) {
+        return [{ x: Number(src[0].y), y: src[0].avg, year: src[0].y, n: src[0].n, real: true }];
+    }
+    var out = [];
+    var steps = 14;
+    src.forEach(function(p, i) {
+        var cur = { x: Number(p.y), y: p.avg, year: p.y, n: p.n, real: true };
+        if (i === 0) {
+            out.push(cur);
+            return;
+        }
+        var prev = src[i - 1];
+        var x0 = Number(prev.y);
+        var x1 = Number(p.y);
+        var y0 = prev.avg;
+        var y1 = p.avg;
+        var s;
+        for (s = 1; s < steps; s++) {
+            var t = s / steps;
+            out.push({
+                x: x0 + (x1 - x0) * t,
+                y: y0 + (y1 - y0) * easeInOutCubic(t),
+                real: false
+            });
+        }
+        out.push(cur);
+    });
+    return out;
+}
+
 function hubPageHtml(view) {
     var period = view.period || getAssessmentPeriodLabel() || 'Bütün illər';
     return '<div class="nk303-hub-toolbar">'
@@ -1018,7 +1148,9 @@ function hubPageHtml(view) {
         + backToCountryHtml(true)
         + '<div class="nk303-hub-toolbar-title">'
         + '<h3 id="nk303HubTitle">' + esc(view.label) + ' nəticələri</h3>'
-        + '<p class="nk303-hint">Dövr: ' + esc(period) + '</p>'
+        + '<p class="nk303-hint">Dövr: ' + esc(period)
+        + (view.section === 'exq' ? ' · Qərar 380, bənd 4.14–4.18' : '')
+        + '</p>'
         + '</div></div>'
         + hubYearFilterHtml(view.section)
         + '</div>'
@@ -1201,7 +1333,7 @@ function orgTableHtml(model, rows) {
         return '<tr class="' + on.trim() + '" onclick="nk303Call(\'openOrg\',\'' + qarg(o.key) + '\')">'
             + '<td class="num">' + rank + '</td>'
             + '<td class="q" title="' + esc(o.name) + '">' + esc(o.name)
-            + (o.fromExcel ? ' <em class="nk303-xl">Excel</em>' : '') + '</td>'
+            + (o.fromExcel && isAdmin() ? ' <em class="nk303-xl">Excel</em>' : '') + '</td>'
             + '<td><div class="nk303-scorecell"><b>' + esc(o.qrsg == null ? '—' : fmt1(o.qrsg)) + '</b>'
             + '<span class="bar"><i style="width:' + w + '%;background:' + barColor(o.qrsg) + '"></i></span></div></td>'
             + '<td>' + matBadge(o.qrsg) + '</td>'
@@ -1625,8 +1757,8 @@ function countryBody(model) {
         + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div>'
         + '</div></section>'
         + '<section class="nk303-result"><b>Əsas nəticə</b><p>' + esc(summaryText(model)) + '</p></section>'
-        + '</div>'
         + trendChartHtml(model)
+        + '</div>'
         + '<section class="nk303-card nk303-card--orgs"><h3>Qurumlar üzrə rəqəmsal yetkinlik</h3>'
         + orgTableHtml(model, visStatusPick()
             ? (model.rankedOrgs || []).filter(function(o) { return o.visId === visStatusPick(); })
@@ -1835,11 +1967,11 @@ function institutionBody(model) {
         + '<p class="nk303-kicker">Qurumun diaqnostika nəticələri</p>'
         + '<h3 style="margin:0;font-size:1.05rem">' + esc(org.name) + '</h3>'
         + '<dl class="nk303-meta">'
-        + '<div><dt>Diaqnostika ili</dt><dd>' + esc(org.year != null ? String(org.year) : NA) + '</dd></div>'
+        + '<div><dt>Diaqnostika tarixi</dt><dd>' + esc(org.start ? fmtDate(org.start) : (org.updated ? fmtDate(org.updated) : NA)) + '</dd></div>'
         + '<div><dt>Diaqnostika statusu</dt><dd>' + esc(org.visLabel) + ' · ' + esc(org.statusName) + '</dd></div>'
         + '<div><dt>Son yenilənmə</dt><dd>' + esc(org.updated ? fmtDate(org.updated) : NA) + '</dd></div>'
         + '<div><dt>Tapşırıq</dt><dd>' + issueLinkHtml(org.issueKey) + '</dd></div>'
-        + (org.fromExcel ? '<div><dt>Excel</dt><dd>' + esc(org.excelFile || 'Yüklənib')
+        + (org.fromExcel && isAdmin() ? '<div><dt>Excel</dt><dd>' + esc(org.excelFile || 'Yüklənib')
             + (org.excelFileId ? ' <button type="button" class="nk303-link nk303-del" onclick="nk303Call(\'removeExcel\',\'' + qarg(org.excelFileId) + '\')">Sil</button>' : '')
             + '</dd></div>' : '')
         + '</dl></div>'
@@ -1906,11 +2038,13 @@ function collectFindingTexts(org) {
     pushFinding(defs, 'Ümumi', org.overallGaps, org.qrsg);
     DIRS.forEach(function(d) {
         pushFinding(currents, d.name, org.dirTexts && org.dirTexts[d.id], org.dirs[d.id]);
-        pushFinding(defs, d.name, org.dirGaps && org.dirGaps[d.id], org.dirs[d.id]);
+        var dg = org.dirGaps && org.dirGaps[d.id];
+        if (!isClosedGap(dg)) pushFinding(defs, d.name, dg, org.dirs[d.id]);
         extrasForDir(org, d.id).forEach(function(e) {
             var label = extraLabel(e, d.name);
             var cur = e.current || (!e.deficiency ? e.text : '');
             var def = e.deficiency || (looksLikeFinding(e.text) && !e.current ? e.text : '');
+            if (isClosedGap(def)) def = '';
             pushFinding(currents, label, cur, e.score);
             pushFinding(defs, label, def, e.score);
         });
@@ -1918,6 +2052,7 @@ function collectFindingTexts(org) {
         extrasForDir(org, '').forEach(function(e) {
         var cur = e.current || (!e.deficiency ? e.text : '');
         var def = e.deficiency || (looksLikeFinding(e.text) && !e.current ? e.text : '');
+        if (isClosedGap(def)) def = '';
         pushFinding(currents, extraLabel(e, ''), cur, e.score);
         pushFinding(defs, extraLabel(e, ''), def, e.score);
     });
@@ -2045,7 +2180,7 @@ function reportText(model) {
         var o = model.selected;
         lines.push('Qurumun rəqəmsallaşma diaqnostikası');
         lines.push('Qurum: ' + o.name);
-        lines.push('Diaqnostika ili: ' + (o.year != null ? o.year : NA));
+        lines.push('Diaqnostika tarixi: ' + (o.start ? fmtDate(o.start) : (o.updated ? fmtDate(o.updated) : NA)));
         lines.push('Status: ' + o.visLabel + ' (' + o.statusName + ')');
         lines.push('Ümumi nəticə: ' + (o.qrsg == null ? NA : fmt(o.qrsg)));
         lines.push('Rəqəmsallaşma səviyyəsi: ' + (o.maturity ? o.maturity.label : NA));
@@ -2099,6 +2234,10 @@ function bodyHtml(model) {
 }
 
 function sourceHtml() {
+    if (ui.hub === 'exq') {
+        return '<p class="nk303-src">Mənbə: <a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a>'
+            + ' · NK Qərar 380 (9 dekabr 2025) · bənd 4.14–4.18 · yekun nəticə və 5 ulduz şkalası</p>';
+    }
     return '<p class="nk303-src">Mənbə: <a href="https://e-qanun.az/framework/60692" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60692</a>'
         + ' · metodologiya sənədi: <a href="https://nk.gov.az/uploads/doc/docs/68f9c02089229.pdf" target="_blank" rel="noopener noreferrer">nk.gov.az PDF</a>'
         + ' · rəsmi istiqamətlər: Strategiya, Xidmətlər, Texniki-texnoloji infrastruktur, Əməliyyat modelləri</p>';
@@ -2281,47 +2420,57 @@ function drawCharts(model) {
         });
     }
     if (document.getElementById('nkTrendChart')) {
-        var pts = model.trend || [];
-        var hasPts = pts.some(function(t) { return t && t.avg != null; });
-        if (hasPts) {
+        var series = curvedTrendSeries(model.trend || []);
+        if (series.length) {
+            var yearTicks = series.filter(function(p) { return p.real; }).map(function(p) { return p.x; });
             makeChart('nkTrendChart', {
                 type: 'line',
                 data: {
-                    labels: pts.map(function(t) { return String(t.y); }),
                     datasets: [{
                         label: 'Ölkə indeksi',
-                        data: pts.map(function(t) { return t.avg; }),
+                        data: series.map(function(p) { return { x: p.x, y: p.y }; }),
                         borderColor: '#7c3aed',
-                        backgroundColor: 'rgba(124,58,237,0.12)',
+                        backgroundColor: 'rgba(124,58,237,0.14)',
                         fill: true,
                         spanGaps: true,
-                        tension: 0.35,
-                        pointRadius: 5,
-                        pointHoverRadius: 7,
+                        tension: 0.2,
+                        cubicInterpolationMode: 'monotone',
+                        pointRadius: function(ctx) {
+                            var p = series[ctx.dataIndex];
+                            return p && p.real ? 5 : 0;
+                        },
+                        pointHoverRadius: function(ctx) {
+                            var p = series[ctx.dataIndex];
+                            return p && p.real ? 7 : 0;
+                        },
                         pointBackgroundColor: '#7c3aed',
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
-                        borderWidth: 2.6
+                        borderWidth: 2.8
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: { mode: 'index', intersect: false },
+                    interaction: { mode: 'nearest', intersect: false, axis: 'x' },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
+                            filter: function(item) {
+                                var p = series[item.dataIndex];
+                                return !!(p && p.real);
+                            },
                             callbacks: {
                                 title: function(items) {
                                     var i = items && items[0] && items[0].dataIndex;
-                                    var row = pts[i];
-                                    return row ? String(row.y) : '';
+                                    var row = series[i];
+                                    return row && row.year != null ? String(row.year) : '';
                                 },
                                 label: function(ctx) {
-                                    var row = pts[ctx.dataIndex] || {};
-                                    if (row.avg == null) return 'Bal yoxdur';
+                                    var row = series[ctx.dataIndex] || {};
+                                    if (row.y == null) return 'Bal yoxdur';
                                     var n = row.n || 0;
-                                    return 'Ortalama: ' + fmt1(row.avg) + ' · ' + n + ' qurum';
+                                    return 'Ortalama: ' + fmt1(row.y) + ' · ' + n + ' qurum';
                                 }
                             }
                         }
@@ -2335,7 +2484,18 @@ function drawCharts(model) {
                             border: { display: false }
                         },
                         x: {
-                            ticks: { color: '#64748b', font: { size: 11, weight: '700' } },
+                            type: 'linear',
+                            min: yearTicks.length ? yearTicks[0] : undefined,
+                            max: yearTicks.length ? yearTicks[yearTicks.length - 1] : undefined,
+                            ticks: {
+                                color: '#64748b',
+                                font: { size: 11, weight: '700' },
+                                stepSize: 1,
+                                callback: function(v) {
+                                    if (Math.abs(v - Math.round(v)) > 0.001) return '';
+                                    return String(Math.round(v));
+                                }
+                            },
                             grid: { display: false },
                             border: { display: false }
                         }
@@ -2481,9 +2641,13 @@ function hubKpisHtml(view) {
     } else if (view.section === 'exq') {
         var avg = st.weightedAvg != null ? st.weightedAvg : st.avg;
         kpiCls = ' nk303-kpis--4';
+        var star = exqStarFromPercent(avg);
         cards = kpiCardHtml({
-            ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə ortalama bal',
-            valueHtml: avg == null ? '—' : esc(fmt1(avg)) + ' <small>/ 100</small>'
+            ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə yekun nəticə',
+            valueHtml: avg == null ? '—' : esc(fmt1(avg)) + ' <small>%</small>',
+            subHtml: star
+                ? '<div class="sub">' + esc(exqStarLabel(star)) + ' · Qərar 380, bənd 4.18</div>'
+                : '<div class="sub">xidmət sayı ilə çəkili ortalama</div>'
         })
         + kpiCardHtml({
             ic: 'is-blue', icon: 'building', label: 'Əhatə olunan qurumlar',
@@ -2569,12 +2733,46 @@ function hubGaugeHtml(score, law) {
         + '</div>';
 }
 
+function hubExqGaugeHtml(score) {
+    var star = exqStarFromPercent(score);
+    var pos = score == null || !isFinite(score) ? 0 : Math.max(0, Math.min(100, score));
+    var f = ui.hubFilter || '';
+    var scale = (EXQ_STAR_BANDS || []).map(function(b) {
+        var key = 'star_' + b.star;
+        var on = f === key || (star && star === b.star && !f);
+        return '<i class="is-s' + b.star + (on ? ' is-on' : '') + '"'
+            + ' onclick="nk303Call(\'hubFilter\',\'' + key + '\')" title="'
+            + esc(b.star + ' ulduz · ' + b.lo + '–' + b.hi + '%') + '"></i>';
+    }).join('');
+    var caps = (EXQ_STAR_BANDS || []).map(function(b) {
+        var on = star && star === b.star;
+        return '<span class="' + (on ? 'is-on' : '') + '">'
+            + esc(b.lo + '–' + b.hi + '%') + '<br>' + esc(b.star + ' ulduz') + '</span>';
+    }).join('');
+    return '<div class="nk303-gauge">'
+        + '<div class="nk303-gauge-box"><canvas id="nkHubGauge"></canvas></div>'
+        + (star
+            ? '<div class="nk303-mat is-s' + star + '">' + esc(exqStarLabel(star)) + '</div>'
+            : '<div class="nk303-mat is-none">' + esc(NA) + '</div>')
+        + exqStarsHtml(star)
+        + '<div class="nk303-scale-col">'
+        + (score == null ? '' : '<div class="nk303-scale-pointer" style="left:' + pos + '%" aria-hidden="true">▼</div>')
+        + '<div class="nk303-scalebar nk303-scalebar--exq">' + scale + '</div>'
+        + '<div class="nk303-scalecaps is-5">' + caps + '</div></div>'
+        + '<p class="nk303-hint nk303-hint--law">Qərar 380, bənd 4.14–4.18 · '
+        + '<a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a></p>'
+        + '<p class="nk303-exq-formula">Yekun nəticə = ümumi toplanmış / ümumi mümkün × 100. '
+        + 'Çəkilər: 1★ 0,2 · 2★ 0,4 · 3★ 0,6 · 4★ 0,8 · 5★ 1 (bənd 4.16). '
+        + 'N/A altmeyarlar mümkün nəticəyə daxil edilmir.</p>'
+        + '</div>';
+}
+
 function hubRowHasResult(section, r) {
     if (section === 'meqsed') {
         return r.opinion === 'pos' || r.opinion === 'neg' || r.opinion === 'revision' || r.opinion === 'partial';
     }
     if (section === 'exq') {
-        if (r.score != null) return true;
+        if (r.score != null || (r.star != null && isFinite(Number(r.star)))) return true;
         var txt = String(r.result || '').trim();
         return !!(txt && txt !== '—' && txt !== NA);
     }
@@ -2591,6 +2789,10 @@ function hubRowMatchesFilter(section, r, filter) {
         return vis && vis.id === filter;
     }
     if (filter === 'svc_sum') return r.svc != null && Number(r.svc) > 0;
+    if (filter.indexOf('star_') === 0) {
+        var want = Number(filter.slice(5));
+        return exqStarOfRow(r) === want;
+    }
     return true;
 }
 
@@ -2626,6 +2828,7 @@ function collapseExqHubRows(list, keepUnevaluated) {
                 statusGroup: r.statusGroup,
                 score: null,
                 scores: [],
+                stars: [],
                 svc: 0,
                 result: r.result || '',
                 time: Number(r.time) || 0,
@@ -2645,6 +2848,8 @@ function collapseExqHubRows(list, keepUnevaluated) {
                 row.canOpen = !!r.canOpen;
             }
         }
+        var rowStar = exqStarOfRow(r);
+        if (rowStar) row.stars.push(rowStar);
         var yr = Number(r.year);
         var prevYr = Number(row.year);
         if (isFinite(yr) && (!isFinite(prevYr) || yr > prevYr)) row.year = r.year;
@@ -2665,10 +2870,13 @@ function collapseExqHubRows(list, keepUnevaluated) {
             var sum = 0;
             row.scores.forEach(function(n) { sum += n; });
             row.score = sum / row.scores.length;
+            row.star = exqStarFromPercent(row.score);
         } else {
             row.score = null;
+            if (row.stars && row.stars.length) row.star = row.stars[row.stars.length - 1];
         }
         delete row.scores;
+        delete row.stars;
         delete row.scoredKey;
         return row;
     });
@@ -2766,6 +2974,8 @@ function hubFilterLabel(key) {
     if (key === 'sistem') return 'Sistem';
     if (key === 'xidmet') return 'Xidmət';
     if (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[key]) return MEQSED_NOVU_LABELS[key];
+    if (key === 'svc_sum') return 'Xidməti olan';
+    if (key.indexOf('star_') === 0) return exqStarLabel(Number(key.slice(5))) || key;
     return key;
 }
 
@@ -2793,7 +3003,7 @@ function hubTableHtml(view) {
     if (ui.hubPage < 1) ui.hubPage = 1;
     var slice = list.slice((ui.hubPage - 1) * HUB_PAGE_SIZE, ui.hubPage * HUB_PAGE_SIZE);
     var heads;
-    if (view.section === 'exq') heads = ['№', 'Qurum', 'İl', 'Xidmət', 'Bal', 'Status'];
+    if (view.section === 'exq') heads = ['№', 'Qurum', 'İl', 'Xidmət', 'Yekun', 'Status'];
     else if (view.section === 'meqsed') heads = ['№', 'Qurum', 'Müraciət növü', 'Rəy', 'Tarix'];
     else if (view.section === 'isq') heads = ['№', 'Qurum', 'İl', 'Bal', 'Nəticə', 'Status'];
     else heads = ['№', 'Qurum', 'İl', 'Bal', 'Status'];
@@ -2816,10 +3026,12 @@ function hubTableHtml(view) {
                 + '<td>' + esc(r.date || '—') + '</td>';
         } else if (view.section === 'exq') {
             var w = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
+            var rowStar = exqStarOfRow(r);
             cells += '<td class="num">' + esc(r.year || '—') + '</td>'
                 + '<td class="num">' + esc(r.svc == null ? '—' : String(r.svc)) + '</td>'
-                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score)) + '</b>'
-                + '<span class="bar"><i style="width:' + w + '%;background:' + barColor(r.score) + '"></i></span></div></td>'
+                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score) + '%') + '</b>'
+                + (rowStar ? '<em class="nk303-star-mini">' + esc(exqStarLabel(rowStar)) + '</em>' : '')
+                + '<span class="bar"><i style="width:' + w + '%;background:' + exqBarColor(r.score) + '"></i></span></div></td>'
                 + '<td>' + esc(r.status || '—') + '</td>';
         } else if (view.section === 'isq') {
             cells += '<td class="num">' + esc(r.year || '—') + '</td>'
@@ -2988,9 +3200,10 @@ function hubBodyHtml(view) {
             return '<li>' + inner + '</li>';
         }).join('')
         + '</ul>';
-    var midLeftTitle = view.section === 'meqsed' ? 'Rəy payı' : 'Ümumi nəticə';
+    var midLeftTitle = view.section === 'meqsed' ? 'Rəy payı'
+        : (view.section === 'exq' ? 'Yekun nəticə' : 'Ümumi nəticə');
     var midRightTitle = isRadar ? 'Rəqəmsallaşma istiqamətləri'
-        : (view.section === 'exq' ? 'Qurumların balları'
+        : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
             : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu'));
     var midRight = isRadar
         ? '<div class="nk303-hub-radar">'
@@ -3012,7 +3225,7 @@ function hubBodyHtml(view) {
         + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
         + (view.section === 'meqsed'
             ? '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>'
-            : hubGaugeHtml(avg, isRadar))
+            : (view.section === 'exq' ? hubExqGaugeHtml(avg) : hubGaugeHtml(avg, isRadar)))
         + '</section>'
         + '<section class="nk303-card nk303-card--radar"><h3>' + esc(midRightTitle) + '</h3>'
         + midRight
@@ -3058,7 +3271,7 @@ function drawHubCharts(view) {
     if (document.getElementById('nkHubGauge')) {
         var empty = avg == null;
         var v = empty ? 0 : Math.max(0, Math.min(100, avg));
-        var col = empty ? '#cbd5e1' : barColor(avg);
+        var col = empty ? '#cbd5e1' : (view.section === 'exq' ? exqBarColor(avg) : barColor(avg));
         makeHubChart('nkHubGauge', {
             type: 'doughnut',
             data: {
@@ -3079,7 +3292,7 @@ function drawHubCharts(view) {
             },
             plugins: [centerTextPlugin('nkHubGaugeCenter', [
                 { text: avg == null ? '—' : fmt1(avg), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
-                { text: '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
+                { text: view.section === 'exq' ? '%' : '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
             ])]
         });
     }
@@ -3217,7 +3430,7 @@ function drawHubCharts(view) {
                             return q.score != null && isFinite(q.score) ? q.score : 0;
                         }),
                         backgroundColor: qurums.map(function(q) {
-                            return q.score != null && isFinite(q.score) ? barColor(q.score) : '#cbd5e1';
+                            return q.score != null && isFinite(q.score) ? exqBarColor(q.score) : '#cbd5e1';
                         }),
                         borderRadius: 6,
                         maxBarThickness: 18
@@ -3234,9 +3447,12 @@ function drawHubCharts(view) {
                                 label: function(ctx) {
                                     var row = qurums[ctx.dataIndex];
                                     if (!row) return '';
-                                    var bal = row.score != null && isFinite(row.score) ? fmt1(row.score) : '—';
+                                    var bal = row.score != null && isFinite(row.score) ? fmt1(row.score) + '%' : '—';
+                                    var star = exqStarFromPercent(row.score);
                                     var svc = row.svc || 0;
-                                    return ' Bal: ' + bal + (svc ? ' · ' + svc + ' xidmət' : '');
+                                    return ' Yekun: ' + bal
+                                        + (star ? ' · ' + star + ' ulduz' : '')
+                                        + (svc ? ' · ' + svc + ' xidmət' : '');
                                 }
                             }
                         }
@@ -3382,7 +3598,154 @@ function bindHistory() {
 
 function isNk303Path() {
     var p = String(location.pathname || '').replace(/\/+$/, '');
-    return p === '/diaqnostika';
+    return p === '/diaqnostika' || p === '/diaqnostika/admin';
+}
+
+function isAdminPath() {
+    var p = String(location.pathname || '').replace(/\/+$/, '');
+    return p === '/diaqnostika/admin';
+}
+
+function diagApi(url, opts) {
+    opts = opts || {};
+    if (!opts.credentials) opts.credentials = 'same-origin';
+    return fetch(url, opts);
+}
+
+function showAdminGate() {
+    var gate = document.getElementById('nk303AdminGate');
+    if (!gate) return;
+    gate.classList.remove('hidden');
+    gate.removeAttribute('hidden');
+    document.body.classList.add('nk303-admin-locked');
+    var root = document.getElementById(ROOT_ID);
+    if (root) root.setAttribute('aria-hidden', 'true');
+    var err = document.getElementById('nk303AdminError');
+    if (err) {
+        err.textContent = '';
+        err.classList.add('hidden');
+        err.setAttribute('hidden', '');
+    }
+    var input = document.getElementById('nk303AdminPassword');
+    if (input) {
+        input.value = '';
+        setTimeout(function() { try { input.focus(); } catch (e) {} }, 30);
+    }
+}
+
+function hideAdminGate() {
+    var gate = document.getElementById('nk303AdminGate');
+    if (gate) {
+        gate.classList.add('hidden');
+        gate.setAttribute('hidden', '');
+    }
+    document.body.classList.remove('nk303-admin-locked');
+    var root = document.getElementById(ROOT_ID);
+    if (root) root.removeAttribute('aria-hidden');
+}
+
+function setAdminError(msg) {
+    var err = document.getElementById('nk303AdminError');
+    if (!err) return;
+    if (msg) {
+        err.textContent = msg;
+        err.classList.remove('hidden');
+        err.removeAttribute('hidden');
+    } else {
+        err.textContent = '';
+        err.classList.add('hidden');
+        err.setAttribute('hidden', '');
+    }
+}
+
+function submitAdminLogin(ev) {
+    if (ev) ev.preventDefault();
+    var input = document.getElementById('nk303AdminPassword');
+    var btn = document.getElementById('nk303AdminSubmit');
+    var pass = input ? String(input.value || '') : '';
+    if (!pass) {
+        setAdminError('Parolu yazın.');
+        if (input) input.focus();
+        return;
+    }
+    if (btn) btn.disabled = true;
+    setAdminError('');
+    diagApi('/api/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pass })
+    })
+        .then(function(r) {
+            return r.json().then(function(data) {
+                return { ok: r.ok, data: data };
+            }).catch(function() {
+                return { ok: false, data: { error: 'Daxil olmaq mümkün olmadı' } };
+            });
+        })
+        .then(function(res) {
+            if (btn) btn.disabled = false;
+            if (!res.ok) {
+                setAdminError((res.data && res.data.error) || 'Parol səhvdir');
+                if (input) {
+                    input.value = '';
+                    input.focus();
+                }
+                return;
+            }
+            adminState.isAdmin = true;
+            if (input) input.value = '';
+            hideAdminGate();
+            try { history.replaceState({ nk303: true }, '', '/diaqnostika'); } catch (e) {}
+            showToast('Admin olaraq daxil oldunuz', 'success');
+            render();
+            return loadExcelUploads();
+        })
+        .catch(function() {
+            if (btn) btn.disabled = false;
+            setAdminError('Daxil olmaq mümkün olmadı');
+        });
+}
+
+function logoutAdmin() {
+    diagApi('/api/admin/logout', { method: 'POST' })
+        .then(function() {
+            adminState.isAdmin = false;
+            hideAdminGate();
+            if (isAdminPath()) {
+                try { history.replaceState({ nk303: true }, '', '/diaqnostika'); } catch (e) {}
+            }
+            showToast('Admin sessiyası bağlandı', 'success');
+            render();
+            return loadExcelUploads();
+        })
+        .catch(function() {
+            showToast('Çıxış alınmadı', 'error');
+        });
+}
+
+function bindAdminGate() {
+    if (adminState.bound) return;
+    adminState.bound = true;
+    var form = document.getElementById('nk303AdminForm');
+    if (form) form.addEventListener('submit', submitAdminLogin);
+}
+
+function loadAdminState() {
+    return diagApi('/api/admin/me')
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            adminState.isAdmin = !!(data && data.admin);
+        })
+        .catch(function() {
+            adminState.isAdmin = false;
+        })
+        .then(function() {
+            if (isAdminPath() && !adminState.isAdmin) showAdminGate();
+            else hideAdminGate();
+            if (adminState.isAdmin && isAdminPath()) {
+                try { history.replaceState({ nk303: true }, '', '/diaqnostika'); } catch (e2) {}
+            }
+        });
 }
 
 function showNk303Page() {
@@ -3402,8 +3765,14 @@ function showNk303Page() {
     document.title = 'Ölkə üzrə Rəqəmsallaşma Diaqnostikası';
     bindEsc();
     bindHistory();
+    bindAdminGate();
+    if (isAdminPath() && !adminState.isAdmin) showAdminGate();
     render();
-    loadExcelUploads();
+    loadAdminState().then(function() {
+        if (!ui.open) return;
+        render();
+        loadExcelUploads();
+    });
 }
 
 function hideNk303Page() {
@@ -3423,6 +3792,8 @@ function hideNk303Page() {
         main.setAttribute('aria-hidden', 'false');
     }
     document.body.classList.remove('nk303-page');
+    document.body.classList.remove('nk303-admin-locked');
+    hideAdminGate();
     document.title = 'Rəqəmsal İdarəetmə Paneli';
 }
 
@@ -3519,10 +3890,11 @@ function applyExcelPayload(data) {
     excelStore.files = (data && data.files) || [];
     excelStore.orgs = (data && data.orgs) || [];
     excelStore.loaded = true;
+    if (data && data.admin != null) adminState.isAdmin = !!data.admin;
 }
 
 function loadExcelUploads() {
-    return fetch('/api/diaqnostika/uploads')
+    return diagApi('/api/diaqnostika/uploads')
         .then(function(r) { return r.json(); })
         .then(function(data) {
             applyExcelPayload(data);
@@ -3534,6 +3906,7 @@ function loadExcelUploads() {
 }
 
 function pickExcelFile() {
+    if (!isAdmin()) return;
     var input = document.getElementById('nk303ExcelInput');
     if (!input) {
         input = document.createElement('input');
@@ -3557,7 +3930,7 @@ function onExcelChosen(ev) {
     for (i = 0; i < files.length; i++) fd.append('file', files[i]);
     input.value = '';
     showToast('Excel oxunur…', 'info');
-    fetch('/api/diaqnostika/upload', { method: 'POST', body: fd })
+    fetch('/api/diaqnostika/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
         .then(function(r) {
             return r.json().then(function(data) {
                 return { ok: r.ok, status: r.status, data: data };
@@ -3571,10 +3944,10 @@ function onExcelChosen(ev) {
         })
         .then(function(res) {
             if (!res.ok) {
-                showToast((res.data && res.data.error) || 'Excel oxunmadı', 'error');
+                showToast((res.data && res.data.error) || (res.status === 401 ? 'Admin girişi lazımdır' : 'Excel oxunmadı'), 'error');
                 return;
             }
-            return fetch('/api/diaqnostika/uploads').then(function(r) { return r.json(); }).then(function(data) {
+            return diagApi('/api/diaqnostika/uploads').then(function(r) { return r.json(); }).then(function(data) {
                 applyExcelPayload(data);
                 var names = [];
                 (res.data.files || []).forEach(function(f) {
@@ -3590,15 +3963,20 @@ function onExcelChosen(ev) {
                     showToast(res.data.errors[0], 'error');
                 }
                 ui.status = '';
-                ui.year = 'all';
+                var uploadedOrgs = [];
+                (res.data.files || []).forEach(function(f) {
+                    (f.orgs || []).forEach(function(o) { uploadedOrgs.push(o); });
+                });
+                var ys = uniqueYearsFromOrgs(uploadedOrgs);
+                ui.year = ys.length === 1 ? String(ys[0]) : 'all';
                 if (names.length === 1) {
                     ui.orgKey = qurumMatchKey(names[0]) || ui.orgKey;
                     ui.mode = 'institution';
                     ui.nav = 'overview';
+                    applyOrgYear(ui.orgKey);
                 } else {
                     ui.mode = 'country';
                     ui.nav = 'orgs';
-                    ui.year = 'all';
                 }
                 render();
                 window.scrollTo(0, 0);
@@ -3609,11 +3987,11 @@ function onExcelChosen(ev) {
 
 function removeExcelFile(fileId) {
     fileId = darg(fileId || '');
-    if (!fileId) return;
+    if (!fileId || !isAdmin()) return;
     var file = (excelStore.files || []).filter(function(f) { return f.id === fileId; })[0];
     var label = file && file.name ? file.name : 'Excel';
     if (!window.confirm(label + ' silinsin? Bu fayldan gələn qurum nəticələri səhifədən çıxacaq.')) return;
-    fetch('/api/diaqnostika/uploads/' + encodeURIComponent(fileId), { method: 'DELETE' })
+    fetch('/api/diaqnostika/uploads/' + encodeURIComponent(fileId), { method: 'DELETE', credentials: 'same-origin' })
         .then(function(r) {
             return r.json().then(function(data) { return { ok: r.ok, data: data }; });
         })
@@ -3622,7 +4000,7 @@ function removeExcelFile(fileId) {
                 showToast((res.data && res.data.error) || 'Silinmədi', 'error');
                 return;
             }
-            return fetch('/api/diaqnostika/uploads').then(function(r) { return r.json(); }).then(function(data) {
+            return diagApi('/api/diaqnostika/uploads').then(function(r) { return r.json(); }).then(function(data) {
                 applyExcelPayload(data);
                 var still = buildModel();
                 if (ui.orgKey && !still.selected) {
@@ -3666,6 +4044,7 @@ export function nk303Call(action, payload) {
             resetHubState();
             ui.mode = 'institution';
             ui.nav = 'overview';
+            applyOrgYear(ui.orgKey);
         } else {
             ui.mode = 'country';
         }
@@ -3705,6 +4084,7 @@ export function nk303Call(action, payload) {
         ui.nav = 'overview';
         ui.expandDir = '';
         ui.expandCrit = '';
+        applyOrgYear(ui.orgKey);
         window.scrollTo(0, 0);
     } else if (action === 'openDir') {
         ui.dirId = payload || '';
@@ -3802,6 +4182,9 @@ export function nk303Call(action, payload) {
         return;
     } else if (action === 'removeExcel') {
         removeExcelFile(payload);
+        return;
+    } else if (action === 'logout') {
+        logoutAdmin();
         return;
     }
     render();

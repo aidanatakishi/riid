@@ -8,8 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda25">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda29">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda26">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda32">
 </head>
 <body class="app-page">
 
@@ -621,6 +621,26 @@
     </div>
 
     <div id="nk303Page" class="nk303-shell hidden" hidden>
+        <div id="nk303AdminGate" class="nk303-admin-gate hidden" hidden>
+            <div class="nk303-admin-dialog" role="dialog" aria-modal="true" aria-labelledby="nk303AdminTitle">
+                <span class="nk303-admin-lock" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="5" y="11" width="14" height="10" rx="2"></rect>
+                        <path d="M8 11V8a4 4 0 018 0v3"></path>
+                    </svg>
+                </span>
+                <h2 id="nk303AdminTitle">Admin girişi</h2>
+                <p class="nk303-admin-hint">Excel yükləmək üçün parolu yazın.</p>
+                <form id="nk303AdminForm" action="#" method="post">
+                    <label class="nk303-field nk303-admin-field">
+                        <span>Parol</span>
+                        <input id="nk303AdminPassword" type="password" name="password" autocomplete="current-password" aria-label="Parol">
+                    </label>
+                    <p id="nk303AdminError" class="nk303-admin-error hidden" hidden></p>
+                    <button type="submit" id="nk303AdminSubmit" class="nk303-upload nk303-admin-submit">Daxil ol</button>
+                </form>
+            </div>
+        </div>
         <div id="nk303Root"></div>
         <div id="nk303HubOverlay" class="nk303-hub-overlay hidden" hidden role="presentation" onclick="nk303Call('closeHub')">
             <div class="nk303-hub-panel" role="dialog" aria-modal="true" aria-labelledby="nk303HubTitle" onclick="event.stopPropagation()">
@@ -644,7 +664,7 @@
         </div>
     </div>
     <div id="datePopoverOverlay" class="date-popover-overlay hidden" onclick="onDateOverlayClick()"></div>
-    <script type="module" src="/static/js/main.js?v=idda30"></script>
+    <script type="module" src="/static/js/main.js?v=idda34"></script>
 
 </body>
 </html>

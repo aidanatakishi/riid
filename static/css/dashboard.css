@@ -1519,7 +1519,26 @@ button.meqsed-ld-kpi:hover {
 .exq-meter.is-high .exq-meter-track > i { background: #059669; }
 .exq-meter.is-mid .exq-meter-track > i { background: #d97706; }
 .exq-meter.is-low .exq-meter-track > i { background: #dc2626; }
+.exq-meter.is-star1 .exq-meter-track > i { background: #64748b; }
+.exq-meter.is-star2 .exq-meter-track > i { background: #ea580c; }
+.exq-meter.is-star3 .exq-meter-track > i { background: #ca8a04; }
+.exq-meter.is-star4 .exq-meter-track > i { background: #2563eb; }
+.exq-meter.is-star5 .exq-meter-track > i { background: #059669; }
 .exq-meter.is-none .exq-meter-track > i { width: 0 !important; }
+.exq-meter-star {
+    font-style: normal;
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #64748b;
+    margin-left: 0.25rem;
+}
+.exq-law-hint {
+    margin: 0.35rem 0 0.7rem;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: #64748b;
+}
+.exq-law-hint a { color: #7c3aed; font-weight: 700; }
 .exq-meter-avg {
     position: absolute;
     top: -3px;

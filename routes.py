@@ -1,12 +1,14 @@
+import hmac
 import json
 import os
 import uuid
 from datetime import datetime, timezone
+from functools import wraps
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, session
 from werkzeug.utils import secure_filename
 
-from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY
+from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
 from diag_excel import parse_diag_excel
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql
 from jql import build_date_filter_jql, generate_recommendations
@@ -23,6 +25,72 @@ def options_ok():
 
 def request_json():
     return request.json or {}
+
+
+def is_admin_session():
+    return bool(session.get('diag_admin'))
+
+
+def admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return options_ok()
+        if not is_admin_session():
+            return jsonify({'error': 'Admin girişi lazımdır'}), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def password_ok(given, expected):
+    if given is None or not expected:
+        return False
+    got = str(given).encode('utf-8')
+    want = str(expected).encode('utf-8')
+    if len(got) != len(want):
+        return False
+    return hmac.compare_digest(got, want)
+
+
+def public_orgs(index):
+    rows = []
+    for org in flatten_diag_orgs(index):
+        row = dict(org)
+        row.pop('fileId', None)
+        row.pop('fileName', None)
+        rows.append(row)
+    return rows
+
+
+@api.route('/api/admin/me', methods=['GET', 'OPTIONS'])
+def admin_me():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    return jsonify({'admin': is_admin_session()}), 200
+
+
+@api.route('/api/admin/login', methods=['POST', 'OPTIONS'])
+def admin_login():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    if not ADMIN_PASSWORD:
+        return jsonify({'error': 'Admin parolu serverdə təyin edilməyib (.env: ADMIN_PASSWORD)'}), 503
+    data = request_json()
+    given = '' if not isinstance(data, dict) else data.get('password')
+    if not password_ok(given, ADMIN_PASSWORD):
+        return jsonify({'error': 'Parol səhvdir'}), 401
+    session.clear()
+    session['diag_admin'] = True
+    session.permanent = True
+    return jsonify({'admin': True}), 200
+
+
+@api.route('/api/admin/logout', methods=['POST', 'OPTIONS'])
+def admin_logout():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    session.clear()
+    return jsonify({'admin': False}), 200
 
 
 def resolve_credentials(data):
@@ -397,7 +465,14 @@ def list_diag_uploads():
     if request.method == 'OPTIONS':
         return options_ok()
     index = diag_index()
+    if not is_admin_session():
+        return jsonify({
+            'admin': False,
+            'files': [],
+            'orgs': public_orgs(index)
+        }), 200
     return jsonify({
+        'admin': True,
         'files': [{
             'id': f.get('id'),
             'name': f.get('name'),
@@ -409,9 +484,8 @@ def list_diag_uploads():
 
 
 @api.route('/api/diaqnostika/upload', methods=['POST', 'OPTIONS'])
+@admin_required
 def upload_diag_excel():
-    if request.method == 'OPTIONS':
-        return options_ok()
 
     incoming = request.files.getlist('file') or []
     if not incoming:
@@ -483,9 +557,8 @@ def upload_diag_excel():
 
 
 @api.route('/api/diaqnostika/uploads/<file_id>', methods=['DELETE', 'OPTIONS'])
+@admin_required
 def delete_diag_upload(file_id):
-    if request.method == 'OPTIONS':
-        return options_ok()
     index = diag_index()
     keep = []
     removed = None

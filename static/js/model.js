@@ -3243,12 +3243,299 @@ function isExqScoreFieldName(folded) {
     return hasExq && folded.indexOf('netice') !== -1;
 }
 
+/** NK Qərar 380, bənd 4.16 — ulduz sistemi çəki əmsalları. */
+export var EXQ_STAR_WEIGHTS = [0.2, 0.4, 0.6, 0.8, 1];
+
+/** NK Qərar 380, bənd 4.18 — yekun nəticənin ulduz şkalası. */
+export var EXQ_STAR_BANDS = [
+    { star: 1, lo: 0, hi: 20, color: '#64748b' },
+    { star: 2, lo: 21, hi: 40, color: '#ea580c' },
+    { star: 3, lo: 41, hi: 60, color: '#ca8a04' },
+    { star: 4, lo: 61, hi: 80, color: '#2563eb' },
+    { star: 5, lo: 81, hi: 100, color: '#059669' }
+];
+
+export var EXQ_LAW_URL = 'https://e-qanun.az/framework/60998';
+
+export function exqStarFromPercent(p) {
+    if (p == null || !isFinite(Number(p))) return null;
+    var n = Number(p);
+    if (n < 21) return 1;
+    if (n < 41) return 2;
+    if (n < 61) return 3;
+    if (n < 81) return 4;
+    return 5;
+}
+
+export function exqStarBand(star) {
+    var s = Number(star);
+    var i;
+    for (i = 0; i < EXQ_STAR_BANDS.length; i++) {
+        if (EXQ_STAR_BANDS[i].star === s) return EXQ_STAR_BANDS[i];
+    }
+    return null;
+}
+
+export function exqStarColor(percent) {
+    var band = exqStarBand(exqStarFromPercent(percent));
+    return (band && band.color) || '#94a3b8';
+}
+
+export function exqStarLabel(star) {
+    if (star == null || !isFinite(Number(star))) return '';
+    return Number(star) + ' ulduz';
+}
+
+export function exqStarMarks(star) {
+    var n = Number(star);
+    var i;
+    var out = '';
+    for (i = 1; i <= 5; i++) out += i <= n ? '★' : '☆';
+    return out;
+}
+
+function normalizeExqMark(raw) {
+    if (raw === 1 || raw === true) return 1;
+    if (raw === 0 || raw === false) return 0;
+    if (raw == null) return null;
+    var s = String(raw).trim();
+    if (!s) return null;
+    var compact = s.replace(/\s+/g, '').toUpperCase();
+    if (compact === '1') return 1;
+    if (compact === '0') return 0;
+    if (compact === 'NA' || compact === 'N/A' || compact === 'N\\A') return 'NA';
+    var f = foldAz(s);
+    if (f === 'n a' || f === 'na' || f.indexOf('shamil edilmir') !== -1) return 'NA';
+    if (f.indexOf('temin edilmir') !== -1 || f.indexOf('qismen') !== -1) return 0;
+    if (f.indexOf('temin edilir') !== -1) return 1;
+    return null;
+}
+
+function exqStarFromText(text) {
+    var s = String(text || '');
+    var f = foldAz(s);
+    var m = f.match(/\b([1-5])\s*ulduz\b/);
+    if (m) return Number(m[1]);
+    m = s.match(/★{1,5}/);
+    if (m) return Math.min(5, m[0].length);
+    return null;
+}
+
+function parseExqStarLabel(val) {
+    var text = jiraValuePlainText(val) || String(val == null ? '' : val);
+    if (!text || text === '—') return null;
+    if (text.length > 420 && foldAz(text).indexOf('yekun') === -1) return null;
+    return exqStarFromText(text);
+}
+
+function pickExqObjStar(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    var keys = ['star', 'ulduz', 'deyer', 'dəyər', 'weight', 'starValue', 'ulduzDeyeri'];
+    var i;
+    for (i = 0; i < keys.length; i++) {
+        var n = Number(obj[keys[i]]);
+        if (n >= 1 && n <= 5) return n;
+    }
+    var k;
+    for (k in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+        var fk = foldAz(k);
+        if (fk.indexOf('ulduz') !== -1 || fk === 'deyer' || fk === 'star') {
+            var sn = Number(obj[k]);
+            if (sn >= 1 && sn <= 5) return sn;
+        }
+    }
+    return null;
+}
+
+function pickExqObjMark(obj) {
+    if (!obj || typeof obj !== 'object') return null;
+    var keys = ['value', 'qiymet', 'qiymət', 'mark', 'score', 'netice', 'nəticə', 'result'];
+    var i;
+    for (i = 0; i < keys.length; i++) {
+        if (obj[keys[i]] != null && obj[keys[i]] !== '') {
+            var m = normalizeExqMark(obj[keys[i]]);
+            if (m != null) return m;
+        }
+    }
+    return normalizeExqMark(obj);
+}
+
+function pushExqCriterion(items, star, mark, code) {
+    if (!(star >= 1 && star <= 5) || mark == null) return;
+    items.push({ star: star, value: mark, code: code || '' });
+}
+
+function parseExqCriteriaFromObj(obj, items) {
+    if (!obj || typeof obj !== 'object') return;
+    var star = pickExqObjStar(obj);
+    var mark = pickExqObjMark(obj);
+    var code = obj.code || obj.id || obj.altmeyar || obj.key || '';
+    if (!star) {
+        var n = Number(obj.starLevel || obj.level);
+        if (n >= 1 && n <= 5) star = n;
+    }
+    if (star && mark != null) {
+        pushExqCriterion(items, star, mark, String(code || ''));
+        return;
+    }
+    var k;
+    for (k in obj) {
+        if (!Object.prototype.hasOwnProperty.call(obj, k)) continue;
+        var v = obj[k];
+        if (Array.isArray(v)) parseExqCriteriaList(v, items);
+        else if (v && typeof v === 'object') parseExqCriteriaFromObj(v, items);
+    }
+}
+
+function parseExqCriteriaList(list, items) {
+    var i;
+    for (i = 0; i < (list || []).length; i++) {
+        var row = list[i];
+        if (Array.isArray(row)) {
+            var star = null;
+            var mark = null;
+            var code = '';
+            var j;
+            for (j = 0; j < row.length; j++) {
+                var cell = row[j];
+                if (cell && typeof cell === 'object') {
+                    parseExqCriteriaFromObj(cell, items);
+                    continue;
+                }
+                var s = String(cell == null ? '' : cell).trim();
+                if (!code) {
+                    var cm = s.match(/(\d+\.\d+\.\d+)/);
+                    if (cm) code = cm[1];
+                }
+                if (mark == null) mark = normalizeExqMark(s);
+                if (star == null) {
+                    var sn = Number(s);
+                    if (sn >= 1 && sn <= 5 && String(s).length === 1) star = sn;
+                }
+            }
+            pushExqCriterion(items, star, mark, code);
+        } else if (row && typeof row === 'object') {
+            parseExqCriteriaFromObj(row, items);
+        }
+    }
+}
+
+function parseExqCriteriaFromText(text, items) {
+    var s = String(text || '');
+    if (!s) return;
+    var re = /(\d+\.\d+\.\d+)\s*[|\t;:,\-]*\s*(?:([1-5])\s*[|\t;:,\-]*\s*)?(1|0|N\/A|NA|n\/a)(?:\s*[|\t;:,\-]*\s*([1-5]))?/gi;
+    var m;
+    while ((m = re.exec(s))) {
+        var mark = normalizeExqMark(m[3]);
+        var star = m[2] ? Number(m[2]) : (m[4] ? Number(m[4]) : null);
+        if (star == null) {
+            var around = s.slice(Math.max(0, m.index), Math.min(s.length, m.index + m[0].length + 24));
+            star = exqStarFromText(around);
+        }
+        pushExqCriterion(items, star, mark, m[1]);
+    }
+    var re2 = /(\d+\.\d+\.\d+)[^\n]{0,80}?\b([1-5])\s*ulduz\b[^\n]{0,40}?\b(1|0|N\/A|NA)\b/gi;
+    while ((m = re2.exec(s))) {
+        pushExqCriterion(items, Number(m[2]), normalizeExqMark(m[3]), m[1]);
+    }
+}
+
+export function parseExqCriteria(raw) {
+    var items = [];
+    if (raw == null || raw === '') return items;
+    if (typeof raw === 'string') {
+        var trimmed = raw.trim();
+        if ((trimmed.charAt(0) === '{' || trimmed.charAt(0) === '[') && trimmed.length > 2) {
+            try {
+                parseExqCriteria(JSON.parse(trimmed)).forEach(function(it) { items.push(it); });
+                if (items.length) return items;
+            } catch (e) {}
+        }
+        parseExqCriteriaFromText(trimmed, items);
+        return items;
+    }
+    if (Array.isArray(raw)) {
+        parseExqCriteriaList(raw, items);
+        if (items.length) return items;
+        parseExqCriteriaFromText(jiraValuePlainText(raw), items);
+        return items;
+    }
+    if (typeof raw === 'object') {
+        parseExqCriteriaFromObj(raw, items);
+        if (items.length) return items;
+        parseExqCriteriaFromText(jiraValuePlainText(raw), items);
+        var blocks = parseAssessmentNetice(raw);
+        var i;
+        for (i = 0; i < blocks.length; i++) {
+            parseExqCriteriaFromText((blocks[i].label || '') + ' ' + (blocks[i].value || ''), items);
+        }
+    }
+    return items;
+}
+
+/**
+ * Qərar 380, bənd 4.14–4.18.
+ * Hər altmeyar: 1 / 0 / N/A və 5 ulduz sistemi üzrə dəyəri (1–5).
+ * Ulduz sistemi k üçün toplanmış və mümkün = həmin ulduz və ondan yuxarı (star ≥ k).
+ * Yekun % = Σ(toplanmış_k × çəki_k) / Σ(mümkün_k × çəki_k) × 100.
+ */
+export function computeExqYekun(items) {
+    var collected = [0, 0, 0, 0, 0];
+    var possible = [0, 0, 0, 0, 0];
+    var applicable = 0;
+    (items || []).forEach(function(it) {
+        var star = Number(it && it.star);
+        if (!(star >= 1 && star <= 5)) return;
+        if (it.value === 'NA' || it.value === 'N/A') return;
+        var met = it.value === 1 || it.value === '1' || it.value === true;
+        var missed = it.value === 0 || it.value === '0' || it.value === false;
+        if (!met && !missed) return;
+        applicable += 1;
+        var k;
+        for (k = 1; k <= 5; k++) {
+            if (star < k) continue;
+            possible[k - 1] += 1;
+            if (met) collected[k - 1] += 1;
+        }
+    });
+    var totC = 0;
+    var totP = 0;
+    var byStar = [];
+    var i;
+    for (i = 0; i < 5; i++) {
+        totC += collected[i] * EXQ_STAR_WEIGHTS[i];
+        totP += possible[i] * EXQ_STAR_WEIGHTS[i];
+        byStar.push({
+            star: i + 1,
+            weight: EXQ_STAR_WEIGHTS[i],
+            collected: collected[i],
+            possible: possible[i]
+        });
+    }
+    if (totP <= 0) {
+        return { percent: null, star: null, collected: totC, possible: totP, applicable: applicable, byStar: byStar };
+    }
+    var percent = (totC / totP) * 100;
+    return {
+        percent: Math.round(percent * 10) / 10,
+        star: exqStarFromPercent(percent),
+        collected: totC,
+        possible: totP,
+        applicable: applicable,
+        byStar: byStar
+    };
+}
+
 function scoreFromExqRaw(val) {
     if (isEmptyJiraValue(val)) return null;
-    var n = coerceScoreNumber(val);
-    if (n != null) return formatAssessmentScore(val);
+    if (typeof val === 'number' && isFinite(val)) return formatAssessmentScore(val);
     var text = jiraValuePlainText(val) || formatAssessmentFieldText(val);
     if (!text || text === '—') return null;
+    if (text.length <= 32) {
+        var n = coerceScoreNumber(val);
+        if (n != null) return formatAssessmentScore(val);
+    }
     var split = splitScoreAndResult(text);
     if (split.score) return split.score;
     var blocks = parseAssessmentNetice(val);
@@ -3264,7 +3551,34 @@ function scoreFromExqRaw(val) {
     return null;
 }
 
-export function getExqScore(t) {
+function emptyExqResult() {
+    return { percent: null, star: null, source: '' };
+}
+
+function resultFromExqRaw(val, preferScore) {
+    if (isEmptyJiraValue(val)) return null;
+    if (!preferScore) {
+        var yekun = computeExqYekun(parseExqCriteria(val));
+        if (yekun.applicable >= 5 && yekun.percent != null) {
+            return { percent: yekun.percent, star: yekun.star, source: 'computed', detail: yekun };
+        }
+    }
+    var scored = scoreFromExqRaw(val);
+    var n = coerceScoreNumber(scored);
+    if (n != null) {
+        var starOnly = parseExqStarLabel(val);
+        var looksStar = starOnly && n === starOnly && n >= 1 && n <= 5
+            && String(scored).indexOf('%') === -1
+            && String(val == null ? '' : val).indexOf('%') === -1;
+        if (looksStar) return { percent: null, star: starOnly, source: 'star' };
+        return { percent: n, star: exqStarFromPercent(n), source: 'jira' };
+    }
+    var st = parseExqStarLabel(val);
+    if (st) return { percent: null, star: st, source: 'star' };
+    return null;
+}
+
+function collectExqScoreFieldIds() {
     var preferBal = [];
     var fallbackNetice = [];
     var seen = {};
@@ -3299,15 +3613,27 @@ export function getExqScore(t) {
         if (!isExqScoreFieldName(nn)) continue;
         consider(nid, names[nid] || '', nn.indexOf('bal') !== -1 || nn.indexOf('score') !== -1);
     }
-    function firstScore(ids) {
-        var j, s;
-        for (j = 0; j < ids.length; j++) {
-            s = scoreFromExqRaw(readIssueField(t, ids[j]));
-            if (s) return s;
+    return { preferBal: preferBal, fallbackNetice: fallbackNetice };
+}
+
+export function getExqResult(t) {
+    var ids = collectExqScoreFieldIds();
+    function scan(list, preferScore) {
+        var j;
+        var got;
+        for (j = 0; j < list.length; j++) {
+            got = resultFromExqRaw(readIssueField(t, list[j]), preferScore);
+            if (got) return got;
         }
         return null;
     }
-    return firstScore(preferBal) || firstScore(fallbackNetice) || '—';
+    return scan(ids.preferBal, true) || scan(ids.fallbackNetice, false) || emptyExqResult();
+}
+
+export function getExqScore(t) {
+    var r = getExqResult(t);
+    if (r && r.percent != null) return formatAssessmentScore(r.percent);
+    return '—';
 }
 
 export function hasAssessmentResult(category, t) {
@@ -3326,8 +3652,10 @@ export function hasAssessmentResult(category, t) {
         });
     }
     if (category === 'exq') {
+        var exq = getExqResult(t);
         return !isEmptyJiraValue(f.customfield_17317)
             || getExqScore(t) !== '—'
+            || !!(exq && exq.star)
             || getExqServiceCount(t) != null;
     }
     if (category === 'meqsed') {
