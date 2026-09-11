@@ -51,18 +51,17 @@ def _build_prompt(question, facts, draft, history):
             hist.append(role + ': ' + text[:800])
     hist_block = '\n'.join(hist) if hist else '(yoxdur)'
     return (
-        'Sən DGD Rəqəmsal İdarəetmə panelinin baş analitiksən.\n'
-        'Sualı diqqətlə oxu, nə istədiyini başa düş, sonra yalnız verilən faktlarla təhlil yaz.\n'
-        'Yeni rəqəm, ad və ya sprint uydurma. Faktlarda yoxdursa, ehtiyatla de və yaxın kəsiyi təhlil et.\n'
-        'Heç vaxt «bağlaya bilmədim», «kömək yazın» və ya istifadəçini düzəltmə. '
-        'Sual qeyri-dəqiqdirsə belə, mövcud panel kəsiyini təmkinlə şərh et.\n'
-        'Azərbaycan dilində, peşəkar, sakit tonda yaz.\n'
-        'Struktur: 1) qısa kontekst, 2) təhlil (3–6 cümlə), 3) diqqət (yalnız risk varsa).\n'
-        'HTML yazma. Lazım olsa qısa siyahı istifadə et.\n\n'
+        'Sən DGD Rəqəmsal İdarəetmə panelinin analitiksən.\n'
+        'Sualın özünə orijinal, dolğun cavab yaz. Hazır şablon, eyni KPI siyahısı və ya '
+        '«lövhədə X iş görünür» tipli hazır cümlə istifadə etmə.\n'
+        'Əvvəl birbaşa nəticəni de, sonra sübut gətir: ad, tapşırıq açarı, rəqəm, istiqamət.\n'
+        'Yalnız JSON faktlardan istifadə et. Yeni rəqəm, ad və ya sprint uydurma.\n'
+        'Faktlarda yoxdursa, ehtiyatla de və yaxın kəsiyi şərh et.\n'
+        'Heç vaxt «bağlaya bilmədim», «kömək yazın» demə və istifadəçini düzəltmə.\n'
+        'Azərbaycan dilində, aydın, peşəkar yaz. 6–12 cümlə. HTML yazma. Lazım olsa qısa siyahı işlət.\n\n'
         'Əvvəlki söhbət:\n' + hist_block + '\n\n'
         'Sual:\n' + str(question)[:2000] + '\n\n'
-        'Panel faktları (JSON):\n' + json.dumps(facts or {}, ensure_ascii=False)[:14000] + '\n\n'
-        'Lokal qeyd (istəyə bağlı, səhv ola bilər):\n' + str(draft or '')[:4000]
+        'Panel faktları (JSON):\n' + json.dumps(facts or {}, ensure_ascii=False)[:16000]
     )
 
 
@@ -77,7 +76,7 @@ def _gemini(key, prompt):
     try:
         res = requests.post(url, json={
             'contents': [{'parts': [{'text': prompt}]}],
-            'generationConfig': {'temperature': 0.25, 'maxOutputTokens': 1800}
+            'generationConfig': {'temperature': 0.45, 'maxOutputTokens': 2500}
         }, timeout=30)
         if res.status_code != 200:
             return None
@@ -98,11 +97,12 @@ def _openai(key, prompt):
             'Content-Type': 'application/json'
         }, json={
             'model': model,
-            'temperature': 0.25,
+            'temperature': 0.45,
+            'max_tokens': 2200,
             'messages': [
                 {
                     'role': 'system',
-                    'content': 'Panel analitiki. Faktlara sadiq qal, təmkinli təhlil yaz, imtina etmə.'
+                    'content': 'Panel analitiki. Suala orijinal cavab yaz, şablon təkrarlama, faktlara sadiq qal.'
                 },
                 {'role': 'user', 'content': prompt}
             ]

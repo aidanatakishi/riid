@@ -860,7 +860,6 @@ function formatBucket(title, kicker, bucket, extra) {
     if (!bucket.total) {
         return '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(title) + '</h4>' + pLead('Bu kəsikdə sayılan tapşırıq yoxdur.');
     }
-    var rate = pct(bucket.done, bucket.total);
     var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(title) + '</h4>';
     if (bucket.dates) html += '<p class="dash-chat-dates">' + esc(bucket.dates) + '</p>';
     html += pLead(writeBucketRead(title, bucket, extra));
@@ -1082,7 +1081,7 @@ function kpiSamples(id, ev) {
 function writeKpiRead(kpis, focus, n, ev) {
     var share = kpis.total ? pct(n, kpis.total) : 0;
     var who = '';
-    if (focus.id === 'blocked' && ev.blocked[0]) {
+    if (focus.id === 'blocked') {
         who = ownersFromItems(ev.blocked);
         return n
             ? ('Bloklanan və ya çətinlik qeydli iş ' + n + ' ədəddir — lövhənin ' + share + '%-i.' + (who ? ' Əsasən: ' + who + '.' : '') + (ev.blocked[0] ? ' Birinci nümunə ' + ev.blocked[0].key + ' — ' + ev.blocked[0].title + '.' : ''))
@@ -1247,22 +1246,89 @@ function helpHtml(parsed) {
         + (parsed.current ? '<p class="dash-chat-note">Cari sprint: <strong>' + esc(parsed.current) + '</strong></p>' : '');
 }
 
-function formatOpenAnalysis(raw, kpis) {
-    var html = '<p class="dash-chat-kicker">Təhlil</p><h4>Sualınız üzrə panel oxunuşu</h4>'
-        + pLead('Sualı belə oxudum: «' + raw + '». Cavabı cari görünüş üzrə verirəm — ' + scopeNote(kpis) + '.')
-        + '<div class="dash-chat-kpis">'
-        + kpi('Ümumi', kpis.total)
-        + kpi('Tamamlanan', kpis.done + ' · ' + pct(kpis.done, kpis.total) + '%')
-        + kpi('İcradakı', kpis.progress)
-        + kpi('Bloklanan', kpis.blocked)
-        + kpi('Gecikən', kpis.late)
-        + kpi('Həftə ərzində', kpis.dueDone + '/' + kpis.due)
-        + '</div>'
-        + pRead(overviewInsight(kpis))
-        + pAttn(overviewAttn(kpis));
-    var dirs = dirLines(kpis.view);
-    if (dirs) html += '<p class="dash-chat-sub">İstiqamət</p>' + dirs;
+function formatIssue(key, ev) {
+    ev = ev || collectEvidence();
+    var t = findTaskByKey(key);
+    if (!t) {
+        return '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(key) + '</h4>'
+            + pLead('Bu açar yüklənmiş panel məlumatında tapılmadı. Tokeni yeniləyin və ya açarı yoxlayın.');
+    }
+    var b = taskBrief(t);
+    var dateSt = getDateStatus(t);
+    var parts = [b.key + ' — «' + b.title + '». Status: ' + b.status + ', icraçı: ' + b.who + '.'];
+    if (b.dir) parts.push('İstiqamət: ' + b.dir + '.');
+    if (b.qurum) parts.push('Qurum: ' + b.qurum + '.');
+    if (b.due) parts.push('Bitmə tarixi ' + b.due + (dateSt === 'late' ? ' — gecikir' : '') + '.');
+    if (b.reason) parts.push('Qeyd: ' + b.reason + '.');
+    var ctx = [];
+    if (dateSt === 'late') ctx.push('Bu iş gecikən qrupdadır; paneldə ümumilikdə ' + ev.kpis.late + ' gecikən iş var.');
+    if (isBlockedUnit(t)) ctx.push('Blok/çətinlik qeydi var; ümumilikdə ' + ev.kpis.blocked + ' belə iş sayılır.');
+    var person = ev.people.filter(function(p) { return p.name === b.who; })[0];
+    if (person) ctx.push(b.who + ' bu kəsikdə cəmi ' + person.total + ' iş daşıyır.');
+    return '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(b.key) + '</h4>'
+        + pLead(parts.join(' '))
+        + (ctx.length ? pRead(ctx.join(' ')) : '');
+}
+
+function formatRisk(kpis, ev) {
+    ev = ev || collectEvidence();
+    var parts = [];
+    if (kpis.due) parts.push('Həftə öhdəliyi ' + kpis.dueDone + '/' + kpis.due + ' (' + kpis.rate + '%).');
+    else parts.push('Bu kəsikdə həftə ərzində bitmə tarixi düşən iş yoxdur.');
+    if (kpis.late) parts.push(kpis.late + ' iş gecikir.');
+    if (kpis.blocked) parts.push(kpis.blocked + ' iş blokdadır və ya çətinlik qeydi var.');
+    if (ev.people[0] && (ev.people[0].late || ev.people[0].blocked)) {
+        parts.push('Yük və risk ' + ev.people[0].name + ' üzərində cəmlənib (' + ev.people[0].total + ' iş).');
+    }
+    if (ev.dirs[0] && ev.dirs[0].rate < 50 && ev.dirs[0].total >= 3) {
+        parts.push(ev.dirs[0].name + ' həm böyükdür, həm də yekunlaşma ' + ev.dirs[0].rate + '%-dir.');
+    }
+    var samples = (ev.late || []).concat(ev.blocked || []).slice(0, 6);
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>Nə saxlayır</h4>'
+        + pLead(parts.join(' ') || 'Açıq kritik risk görünmür.')
+        + (samples.length ? '<p class="dash-chat-sub">Əvvəl bunlara baxın</p>' + itemList(samples) : '')
+        + pAttn(kpis.due && kpis.rate < 50 ? 'Həftəni bağlamaq üçün əvvəl gecikən və bloklanan işlər açılmalıdır.' : '');
     return html;
+}
+
+function formatOpenAnalysis(raw, kpis, ev) {
+    ev = ev || collectEvidence();
+    var qFold = fold(raw);
+    if (isRiskQuestion(qFold) || /hesabat|yukle|export/.test(qFold)) {
+        return formatRisk(kpis, ev);
+    }
+    var titled = findTasksByWords(qFold);
+    if (titled.length) {
+        return '<p class="dash-chat-kicker">Cavab</p><h4>Sualınıza düşən işlər</h4>'
+            + pLead('Sualdakı sözlər ' + titled.length + ' tapşırıqla üst-üstə düşür. Cari kəsik: ' + scopeNote(kpis) + '.')
+            + itemList(titled.slice(0, 6))
+            + pRead(overviewBody(kpis, ev));
+    }
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(kpis.sprint || 'Cari kəsik') + '</h4>'
+        + pLead(overviewLead(kpis, ev))
+        + pRead(overviewBody(kpis, ev));
+    var samples = ev.dueOpen.length ? ev.dueOpen : ev.late;
+    if (samples.length) {
+        html += '<p class="dash-chat-sub">Əlaqəli işlər</p>' + itemList(samples.slice(0, 5));
+    }
+    html += pAttn(overviewAttn(kpis, ev));
+    return html;
+}
+
+function findTasksByWords(qFold) {
+    var out = [];
+    var stop = { tapsiriq: 1, sprint: 1, panel: 1, nece: 1, necedir: 1, hansi: 1, bu: 1, ve: 1, ile: 1, ucun: 1, dashboard: 1 };
+    var qWords = qFold.split(' ').filter(function(w) { return w.length >= 5 && !stop[w]; });
+    if (!qWords.length) return out;
+    (state.allTasks || []).forEach(function(t) {
+        var title = fold((t.fields && t.fields.summary) || '');
+        if (title.length < 8) return;
+        var hits = qWords.filter(function(w) { return title.indexOf(w) !== -1; });
+        if (hits.length >= Math.min(2, qWords.length) || (hits.length && title.indexOf(qFold) !== -1)) {
+            out.push(taskBrief(t));
+        }
+    });
+    return out.slice(0, 6);
 }
 
 function factsFromBuckets(kind, a, b, meta) {
@@ -1287,7 +1353,10 @@ function compactBucket(b) {
         dueDone: b.dueDone,
         avgScore: b.avgScore,
         groups: b.groups,
-        dirs: b.dirs
+        dirs: b.dirs,
+        people: peopleRank(b.people, 5),
+        lateItems: (b.lateItems || []).slice(0, 5),
+        blockedItems: (b.blockedItems || []).slice(0, 5)
     };
 }
 
@@ -1315,42 +1384,55 @@ function answerQuestion(raw) {
             facts: { kind: 'empty' }
         };
     }
-    var kpis = liveKpis();
+    var ev = collectEvidence();
+    var kpis = ev.kpis;
+    if (parsed.kind === 'issue') {
+        html = formatIssue(parsed.key, ev);
+        text = stripHtml(html);
+        facts = { kind: 'issue', key: parsed.key, kpis: compactKpis(kpis) };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+    }
+    if (parsed.kind === 'risk') {
+        html = formatRisk(kpis, ev);
+        text = stripHtml(html);
+        facts = { kind: 'risk', kpis: compactKpis(kpis) };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+    }
     if (parsed.kind === 'overview') {
-        html = formatOverview(kpis);
+        html = formatOverview(kpis, ev);
         text = stripHtml(html);
         facts = { kind: 'overview', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'kpi') {
-        html = formatKpi(kpis, parsed.focus);
+        html = formatKpi(kpis, parsed.focus, ev);
         text = stripHtml(html);
         facts = { kind: 'kpi', focus: parsed.focus.id, kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'people' || parsed.kind === 'person') {
-        html = formatPeople(kpis, parsed.person);
+        html = formatPeople(kpis, parsed.person, ev);
         text = stripHtml(html);
         facts = { kind: parsed.kind, person: parsed.person || '', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'qurum') {
-        html = formatQurum(kpis, parsed.qurum);
+        html = formatQurum(kpis, parsed.qurum, ev);
         text = stripHtml(html);
         facts = { kind: 'qurum', qurum: parsed.qurum, kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'assess') {
         html = formatAssess(kpis);
         text = stripHtml(html);
         facts = { kind: 'assess', assess: kpis.assess };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'directions') {
-        html = formatDirections(kpis);
+        html = formatDirections(kpis, ev);
         text = stripHtml(html);
         facts = { kind: 'directions', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'sprintCompare') {
         var names = parsed.names;
@@ -1403,28 +1485,31 @@ function answerQuestion(raw) {
         text = stripHtml(html);
         facts = factsFromBuckets('sprint', sb, null, {});
     } else {
-        html = formatOpenAnalysis(raw, kpis);
+        html = formatOpenAnalysis(raw, kpis, ev);
         text = stripHtml(html);
         facts = { kind: 'open', question: raw, kpis: compactKpis(kpis) };
     }
-    return { html: html, text: text, facts: facts };
+    return { html: html, text: text, facts: facts, evidence: ev, question: raw };
 }
 
 function packChatFacts(local) {
-    var panel = {};
+    var ev = local.evidence;
     var names = [];
-    var dirs = [];
-    try { panel = compactKpis(liveKpis()); } catch (e) { panel = {}; }
     try { names = sprintList().slice(0, 12); } catch (e) { names = []; }
-    try {
-        dirs = directionEntities().map(function(d) { return d.label; }).slice(0, 12);
-    } catch (e) { dirs = []; }
     return {
         kind: (local.facts && local.facts.kind) || 'open',
-        panel: panel,
+        question: local.question || '',
+        scope: ev && ev.kpis ? scopeNote(ev.kpis) : '',
+        numbers: ev && ev.kpis ? compactKpis(ev.kpis) : ((local.facts && local.facts.kpis) || {}),
+        people: ev ? ev.people : [],
+        directions: ev ? ev.dirs : [],
+        qurums: ev ? ev.qurums : [],
+        late: ev ? ev.late : [],
+        blocked: ev ? ev.blocked : [],
+        dueOpen: ev ? ev.dueOpen : [],
+        compare: local.facts && local.facts.a ? { a: local.facts.a, b: local.facts.b, meta: local.facts.meta || {} } : null,
         sprints: names,
-        directions: dirs,
-        local: local.facts || {}
+        localKind: (local.facts && local.facts.kind) || 'open'
     };
 }
 
@@ -1654,7 +1739,6 @@ async function reply(question) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     question: question,
-                    draft: local.text,
                     facts: packChatFacts(local),
                     history: chatHistory.slice(0, -1).slice(-8),
                     llmKey: readChatKey()

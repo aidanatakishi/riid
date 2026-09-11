@@ -4807,8 +4807,8 @@ body.app-page {
 .dash-chat-fab:hover { background: #5b21b6; }
 .dash-chat.is-open .dash-chat-fab { display: none; }
 .dash-chat-panel {
-    width: min(420px, calc(100vw - 1.4rem));
-    height: min(640px, calc(100vh - 2rem));
+    width: min(460px, calc(100vw - 1.4rem));
+    height: min(680px, calc(100vh - 2rem));
     display: flex;
     flex-direction: column;
     background: #fff;
@@ -4976,6 +4976,35 @@ body.app-page {
 }
 .dash-chat-kpi span { display: block; font-size: 0.68rem; color: #64748b; }
 .dash-chat-kpi strong { font-size: 0.92rem; color: #4c1d95; }
+.dash-chat-items {
+    margin: 0 0 0.55rem;
+    padding: 0;
+    list-style: none;
+}
+.dash-chat-items li {
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #f1e9fb;
+}
+.dash-chat-items strong {
+    display: block;
+    font-size: 0.72rem;
+    color: #6d28d9;
+    font-family: ui-monospace, Consolas, monospace;
+}
+.dash-chat-items span {
+    display: block;
+    color: #0f172a;
+    font-size: 0.78rem;
+    line-height: 1.4;
+    margin-top: 0.08rem;
+}
+.dash-chat-items em {
+    display: block;
+    color: #64748b;
+    font-style: normal;
+    font-size: 0.7rem;
+    margin-top: 0.12rem;
+}
 .dash-chat-status,
 .dash-chat-dirs,
 .dash-chat-help { margin: 0; padding: 0; list-style: none; }
