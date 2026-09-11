@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { normalizeStr, showToast, toggleSettings } from './utils.js';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, hasKomplaynsComponent } from './model.js';
-import { applyFilters, loadFiltersFromStorage, populateSprintFilter } from './filters.js';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -41,10 +41,14 @@ function saveClientCredentials(baseUrl, pat, projectKey) {
     var proxy = readProxyInput();
     if (proxy) localStorage.setItem('jiraProxyUrl', proxy);
     else localStorage.removeItem('jiraProxyUrl');
+    var chatEl = document.getElementById('chatApiKey');
+    var chatKey = chatEl ? String(chatEl.value || '').trim() : '';
+    if (chatKey) localStorage.setItem('jiraChatApiKey', chatKey);
+    else localStorage.removeItem('jiraChatApiKey');
 }
 
 export async function loadServerConfig() {
-    var cfg = { baseUrl: DEFAULT_BASE_URL, projectKey: DEFAULT_PROJECT_KEY, hasToken: false };
+    var cfg = { baseUrl: DEFAULT_BASE_URL, projectKey: DEFAULT_PROJECT_KEY, hasToken: false, hasChatLlm: false };
     if (useFlaskProxy()) {
         try {
             var res = await fetch('/api/config');
@@ -52,6 +56,8 @@ export async function loadServerConfig() {
                 var remote = await res.json();
                 if (remote.baseUrl) cfg.baseUrl = remote.baseUrl;
                 if (remote.projectKey) cfg.projectKey = remote.projectKey;
+                if (remote.hasToken) cfg.hasToken = true;
+                if (remote.hasChatLlm) cfg.hasChatLlm = true;
             }
         } catch (e) {
             console.error('Server konfiqi yüklənmədi:', e);
@@ -468,7 +474,15 @@ export async function fetchTodayChanges() {
             if (idx !== -1) { state.allTasks[idx] = t; updatedCount++; }
             else { state.allTasks.unshift(t); updatedCount++; }
         });
-        if (updatedCount > 0) applyFilters();
+        if (updatedCount > 0) {
+            var snap = captureViewState();
+            state.restoreQuiet = true;
+            applyFilters();
+            afterFilterPaint(function() {
+                restoreViewChrome(snap);
+                state.restoreQuiet = false;
+            });
+        }
     } catch (error) {
         console.error('Bugünkü dəyişikliklər yüklənmədi:', error);
     }
@@ -528,7 +542,8 @@ function bumpDataEpoch() {
     state.dataEpoch = (state.dataEpoch || 0) + 1;
 }
 
-function applyDashboardPayload(data) {
+function applyDashboardPayload(data, opts) {
+    opts = opts || {};
     if (data.names) mergeFieldNames(data.names);
     state.issueIndex = {};
     state.issueIndexById = {};
@@ -536,11 +551,15 @@ function applyDashboardPayload(data) {
     (data.issues || []).forEach(indexIssue);
     rebuildDashboardListsFromIndex();
     bumpDataEpoch();
-    document.getElementById('settingsPanel').classList.add('hidden');
+    if (!opts.silent) {
+        var settings = document.getElementById('settingsPanel');
+        if (settings) settings.classList.add('hidden');
+    }
     populateSprintFilter();
     loadFiltersFromStorage();
     applyFilters();
     refreshTodayTasks();
+    state.hasLoadedDashboard = true;
 }
 
 function mergeFetchedIssues(data, opts) {
@@ -602,7 +621,10 @@ export async function loadAssessmentCreatedRange(startIso, endIso) {
     }
 }
 
-export async function fetchDashboardData() {
+export async function fetchDashboardData(opts) {
+     opts = opts || {};
+     var silent = !!opts.silent;
+     if (state.dashboardFetchBusy) return;
      var baseUrl = document.getElementById('baseUrl').value;
      var pat = document.getElementById('pat').value;
      var projectKey = document.getElementById('projectKey').value.toUpperCase();
@@ -610,22 +632,42 @@ export async function fetchDashboardData() {
      if (!pat) { toggleSettings(); showToast('Yuxarıdakı Token düyməsindən PAT daxil edin.', 'error'); return; }
      saveClientCredentials(baseUrl, pat, projectKey);
      state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
-     document.getElementById('loadingOverlay').classList.remove('hidden');
+     state.dashboardFetchBusy = true;
+     var firstLoad = !state.hasLoadedDashboard;
+     var snap = firstLoad ? null : captureViewState();
+     if (!firstLoad) {
+         state.listViewAction = snap.listViewAction || state.listViewAction;
+         if (snap.taskListView) state.taskListView = snap.taskListView;
+         if (typeof snap.taskListSearch === 'string') state.taskListSearch = snap.taskListSearch;
+         if (snap.currentPage) state.currentPage = snap.currentPage;
+         state.restoreQuiet = true;
+         restoreOpenSections(snap);
+     }
+     if (!silent) document.getElementById('loadingOverlay').classList.remove('hidden');
      try {
          lastJqlCache.key = '';
          lastJqlCache.data = null;
          var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);
-         applyDashboardPayload(data);
-         document.getElementById('loadingOverlay').classList.add('hidden');
-         showToast('Məlumatlar uğurla yeniləndi!', 'success');
-         if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
-         if (state.todayRefreshInterval) clearInterval(state.todayRefreshInterval);
-         state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
-         if (state.autoRefreshInterval) clearInterval(state.autoRefreshInterval);
-         state.autoRefreshInterval = setInterval(function() { fetchDashboardData(); }, 900000);
+         applyDashboardPayload(data, { silent: silent });
+         if (!silent) showToast('Məlumatlar uğurla yeniləndi!', 'success');
+         if (!silent && typeof window.syncNk303Route === 'function') window.syncNk303Route();
+         if (!state.todayRefreshInterval) {
+             state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+         }
+         if (!state.autoRefreshInterval) {
+             state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, 900000);
+         }
+         afterFilterPaint(function() {
+             if (snap) restoreViewChrome(snap);
+             persistViewState();
+             state.restoreQuiet = false;
+         });
+         setTimeout(function() { state.restoreQuiet = false; }, 2000);
      } catch (error) {
+         state.restoreQuiet = false;
          showToast(error.message, 'error');
      } finally {
+         state.dashboardFetchBusy = false;
          document.getElementById('loadingOverlay').classList.add('hidden');
      }
 }

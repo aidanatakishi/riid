@@ -16,14 +16,8 @@ export function renderStats(tasks) {
     animateValue('totalTasks', 0, total, kpiMs);
 
     var done = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'done'; }).length;
-    var completionRate = total > 0 ? Math.round((done / total) * 100) : 0;
     var openTasks = total - done;
     if (openTasks < 0) openTasks = 0;
-
-    var compRateEl = document.getElementById('completionRate');
-    var openTasksEl = document.getElementById('openTasks');
-    if (compRateEl) compRateEl.innerText = completionRate + '%';
-    if (openTasksEl) openTasksEl.innerText = openTasks;
 
     function hasDiff(t) {
         var g = getStatusGroup(t.fields.status.name || '');
@@ -43,18 +37,23 @@ export function renderStats(tasks) {
     var dueWeekPool = collectDueThisWeekTasks();
     var sprintDueWeek = dueWeekPool.length;
     var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
+    var completionRate = sprintDueWeek > 0 ? Math.round((sprintDueWeekDone / sprintDueWeek) * 100) : 0;
+
+    var compRateEl = document.getElementById('completionRate');
+    var openTasksEl = document.getElementById('openTasks');
+    if (compRateEl) compRateEl.innerText = completionRate + '%';
+    if (openTasksEl) openTasksEl.innerText = openTasks;
+
+    var totalProgressBarEl = document.getElementById('totalProgressBar');
+    var totalCompletionRateEl = document.getElementById('totalCompletionRate');
+    if (totalProgressBarEl) totalProgressBarEl.style.width = completionRate + '%';
+    if (totalCompletionRateEl) totalCompletionRateEl.innerText = completionRate + '%';
     
     var planned = validTasks.filter(function(t) { return isNextWeekBoxTask(t); }).length;
     var other = collectOtherDashboardUnits().length;
     var backlog = collectBacklogDashboardUnits().length;
 
     var lateTasks = validTasks.filter(function(t) { return getDateStatus(t) === 'late'; }).length;
-
-    var totalCompletionRateVal = total > 0 ? Math.round((done / total) * 100) : 0;
-    var totalProgressBarEl = document.getElementById('totalProgressBar');
-    var totalCompletionRateEl = document.getElementById('totalCompletionRate');
-    if (totalProgressBarEl) totalProgressBarEl.style.width = totalCompletionRateVal + '%';
-    if (totalCompletionRateEl) totalCompletionRateEl.innerText = totalCompletionRateVal + '%';
 
     animateValue('doneTasks', 0, done, kpiMs);
     animateValue('plannedTasks', 0, planned, kpiMs);
@@ -70,12 +69,14 @@ export function renderStats(tasks) {
     if (dueWeekEl) dueWeekEl.innerText = sprintDueWeek;
     var dueWeekDoneEl = document.getElementById('sprintTasksDueWeekDone');
     if (dueWeekDoneEl) dueWeekDoneEl.innerText = sprintDueWeekDone;
+    var dueWeekOpenEl = document.getElementById('sprintTasksDueWeekOpen');
+    var dueOpen = sprintDueWeek - sprintDueWeekDone;
+    if (dueOpen < 0) dueOpen = 0;
+    if (dueWeekOpenEl) dueWeekOpenEl.innerText = dueOpen;
     var dueLabelEl = document.getElementById('duePeriodLabel');
     if (dueLabelEl) dueLabelEl.textContent = duePeriodLabel();
     var dueDoneSeg = document.getElementById('dueWeekDoneSeg');
     var dueRestSeg = document.getElementById('dueWeekRestSeg');
-    var dueOpen = sprintDueWeek - sprintDueWeekDone;
-    if (dueOpen < 0) dueOpen = 0;
     if (dueDoneSeg) {
         if (sprintDueWeekDone > 0 && sprintDueWeek > 0) {
             dueDoneSeg.hidden = false;
@@ -387,10 +388,12 @@ export function renderTaskList(tasks, title, opts) {
     if (!opts.keepView) {
         state.taskListSource = (tasks || []).slice();
         state.taskListTitle = title || 'Tapşırıqların Siyahısı';
-        state.taskListView = 'mixed';
-        state.taskListSearch = '';
         state.taskListKeepNested = !!opts.keepNested;
-        state.currentPage = 1;
+        if (!state.restoreQuiet) {
+            state.taskListView = 'mixed';
+            state.taskListSearch = '';
+            state.currentPage = 1;
+        }
     }
     var sourceTasks = (state.taskListSource || []).filter(isTaskOrSubtaskType);
     var displayTitle = state.taskListTitle || title || 'Tapşırıqların Siyahısı';
@@ -629,7 +632,20 @@ export function openTaskListSection() {
     listEl.classList.add('slide-down');
     var icon = document.getElementById('icon-taskListContent');
     if (icon) icon.style.transform = 'rotate(180deg)';
-    listEl.scrollIntoView({ behavior: 'smooth' });
+    var toggleBtn = document.querySelector('[aria-controls="taskListContent"]');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+    if (!state.restoreQuiet) listEl.scrollIntoView({ behavior: 'smooth' });
+}
+
+export function restoreNestedPanels(ids) {
+    (ids || []).forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.classList.remove('hidden');
+    });
+    document.querySelectorAll('.tl-row--parent').forEach(function(row) {
+        var key = (row.id || '').replace(/^tl-row-/, '');
+        if (key) syncTaskRowOpen(key);
+    });
 }
 
 export function showTaskListKind(kind) {
@@ -659,6 +675,8 @@ export function resetTaskListFilter() {
     state.taskListSearch = '';
     state.taskListView = 'mixed';
     state.currentPage = 1;
+    state.listViewAction = { kind: 'default' };
+    if (typeof state.onViewChange === 'function') state.onViewChange();
     renderTaskList(state.filteredTasks, 'Tapşırıqların Siyahısı');
 }
 

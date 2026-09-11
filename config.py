@@ -29,6 +29,8 @@ JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
 SECRET_KEY = os.environ.get('SECRET_KEY') or ''
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or ''
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') or ''
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or ''
 
 SEARCH_FIELDS = (
     "summary,status,duedate,description,customfield_10807,customfield_10808,"

@@ -2252,6 +2252,22 @@ function diagMaturityTarget(score) {
     return 100;
 }
 
+function diagBandColor(score) {
+    if (score == null || !isFinite(score)) return '#94a3b8';
+    if (score < 25) return '#ef4444';
+    if (score < 50) return '#f59e0b';
+    if (score < 75) return '#3b82f6';
+    return '#10b981';
+}
+
+function hexToRgba(hex, a) {
+    var h = String(hex || '').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    var n = parseInt(h, 16);
+    if (!isFinite(n)) return 'rgba(148,163,184,' + a + ')';
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
+}
+
 function isqNumericScore(r) {
     var raw = r && r.task && r.task.fields ? r.task.fields.customfield_17316 : null;
     var text = formatAssessmentFieldText(raw);
@@ -2569,8 +2585,8 @@ function diagListDashHtml(stats) {
                 + '</div>'
             : '')
         + '<ul class="nk303-compare-legend">'
-        + '<li class="is-now">Mövcud vəziyyət</li>'
-        + '<li class="is-goal">Hədəf olunan</li>'
+        + '<li class="is-now" style="--nk-now:' + diagBandColor(stats.avg) + '">Mövcud vəziyyət</li>'
+        + '<li class="is-goal" style="--nk-goal:' + diagBandColor(diagMaturityTarget(stats.avg)) + '">Hədəf olunan</li>'
         + '</ul>'
         + '<div class="meqsed-ld-chart-box assess-ld-radar-chart">'
         + (hasRadar
@@ -3439,6 +3455,8 @@ function drawDiagRadarChart(stats) {
     var dirs = (stats.dirRadar || []).filter(function(d) { return d && d.avg != null && isFinite(d.avg); });
     if (!canvas || !dirs.length) return;
     var labels = dirs.map(function(d) { return d.short || d.title; });
+    var nowCol = diagBandColor(stats.avg);
+    var goalCol = diagBandColor(diagMaturityTarget(stats.avg));
     state.assessDiagRadarChart = new Chart(canvas.getContext('2d'), {
         type: 'radar',
         data: {
@@ -3447,10 +3465,11 @@ function drawDiagRadarChart(stats) {
                 {
                     label: 'Mövcud vəziyyət',
                     data: dirs.map(function(d) { return d.avg; }),
-                    backgroundColor: 'rgba(124, 58, 237, 0.22)',
-                    borderColor: '#7c3aed',
+                    fill: true,
+                    backgroundColor: hexToRgba(nowCol, 0.22),
+                    borderColor: nowCol,
                     borderWidth: 2.2,
-                    pointBackgroundColor: '#7c3aed',
+                    pointBackgroundColor: nowCol,
                     pointBorderColor: '#fff',
                     pointBorderWidth: 2,
                     pointRadius: 4,
@@ -3462,10 +3481,12 @@ function drawDiagRadarChart(stats) {
                         var goal = d.target != null ? d.target : diagMaturityTarget(d.avg);
                         return goal != null ? goal : 0;
                     }),
-                    backgroundColor: 'rgba(196, 181, 253, 0.22)',
-                    borderColor: '#c4b5fd',
+                    fill: true,
+                    backgroundColor: hexToRgba(goalCol, 0.16),
+                    borderColor: goalCol,
                     borderWidth: 2.2,
-                    pointBackgroundColor: '#c4b5fd',
+                    borderDash: [5, 4],
+                    pointBackgroundColor: goalCol,
                     pointBorderColor: '#fff',
                     pointBorderWidth: 2,
                     pointRadius: 4,

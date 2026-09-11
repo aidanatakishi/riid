@@ -8,8 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda26">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda32">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda48">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda52">
 </head>
 <body class="app-page">
 
@@ -59,8 +59,9 @@
             <input id="pat" type="password" placeholder="Öz PAT tokeninizi yazın">
             <input id="projectKey" type="text" value="DGD" placeholder="Layihə (DGD)" class="uppercase">
             <input id="proxyUrl" type="text" placeholder="Tunnel proxy (istəyə bağlı): https://….trycloudflare.com">
+            <input id="chatApiKey" type="password" placeholder="Chatbot AI açarı (Gemini və ya OpenAI, istəyə bağlı)">
             <button type="button" onclick="fetchDashboardData()" class="app-btn app-btn--primary">Məlumatları Yüklə</button>
-            <p class="app-settings-note">Netlify linki daxili Jira-ya çıxa bilməz. Lokal panel: <span>python app.py</span> → http://127.0.0.1:5000. İctimai canlı link: Flask + <span>cloudflared tunnel --url http://127.0.0.1:5000</span> — ya tunnel linkini açın, ya da buradakı Proxy sahəsinə yazın.</p>
+            <p class="app-settings-note">Chatbotun ağıllı təhlili üçün Gemini və ya OpenAI açarını bura və ya <span>.env</span>-ə yazın. Netlify linki daxili Jira-ya çıxa bilməz. Lokal panel: <span>python app.py</span> → http://127.0.0.1:5000. İctimai canlı link: Flask + <span>cloudflared tunnel --url http://127.0.0.1:5000</span> — ya tunnel linkini açın, ya da buradakı Proxy sahəsinə yazın.</p>
         </div>
     </div>
 
@@ -115,10 +116,16 @@
                             <strong id="dateDraftEnd">—</strong>
                         </div>
                     </div>
+                    <div class="date-popover-ghosts">
                     <button type="button" class="date-popover-ghost" onclick="showNoStartDateTasks()">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                         Başlama tarixi yoxdur
                     </button>
+                    <button type="button" class="date-popover-ghost" onclick="showNoDueDateTasks()">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                        Bitmə tarixi yoxdur
+                    </button>
+                    </div>
                     <div class="date-cal-nav">
                         <button type="button" class="date-cal-nav-btn" onclick="shiftDateCalendar(-1)" aria-label="Əvvəlki ay">‹</button>
                         <span id="dateCalTitle">—</span>
@@ -159,7 +166,7 @@
                 </div>
             </div>
             <div class="dash-hero-meta">
-                <div class="dash-hero-rate">
+                <div class="dash-hero-rate" onclick="event.stopPropagation(); showDueThisWeekTasks();" title="Bu həftə bitməli tapşırıqlar üzrə">
                     <span>Tamamlanma</span>
                     <strong id="totalCompletionRate">0%</strong>
                 </div>
@@ -189,12 +196,12 @@
                 </div>
             </div>
             <div class="dash-stat-foot" onclick="filterTasks('done');">
-                <div class="stat-foot">
+                    <div class="stat-foot">
                     <div class="stat-foot-copy">
                         <span class="dot is-green"></span>
                         <span class="stat-foot-label">Tamamlanma faizi</span>
                     </div>
-                    <p id="completionRate" class="stat-foot-value text-emerald-600">0%</p>
+                    <p id="completionRate" class="stat-foot-value text-emerald-600" title="Bu həftə bitməli tapşırıqlar üzrə">0%</p>
                 </div>
             </div>
         </div>
@@ -238,19 +245,19 @@
             </div>
             <div class="dash-stat-foot">
                 <div class="dash-due">
-                    <p id="duePeriodLabel" class="dash-due-label">Bu həftə bitməli</p>
+                    <p id="duePeriodLabel" class="dash-due-label" onclick="event.stopPropagation(); showDueThisWeekTasks();" title="Bitmə tarixi bu həftəyə düşən bütün tapşırıqlar">Bu həftə bitməli</p>
                     <div class="dash-due-track" role="img" aria-label="Bu həftə bitməli irəliləyiş">
                         <button type="button" id="dueWeekDoneSeg" class="dash-due-seg is-done" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" title="Tamamlananları aç" hidden></button>
-                        <button type="button" id="dueWeekRestSeg" class="dash-due-seg is-rest" onclick="event.stopPropagation(); showDueThisWeekTasks();" title="Hamısını aç" hidden></button>
+                        <button type="button" id="dueWeekRestSeg" class="dash-due-seg is-rest" onclick="event.stopPropagation(); showDueThisWeekOpenTasks();" title="Tamamlanmayanları aç" hidden></button>
                     </div>
                     <div class="dash-due-metrics">
                         <button type="button" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" class="dash-due-metric is-done" title="Bitmə tarixi bu həftəyə düşən və icra edilmiş tapşırıqlar">
                             <strong id="sprintTasksDueWeekDone">0</strong>
                             <span>tamamlanan</span>
                         </button>
-                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekTasks();" class="dash-due-metric is-all" title="Bitmə tarixi bu həftəyə düşən bütün tapşırıqlar">
-                            <strong id="sprintTasksDueWeek">0</strong>
-                            <span>ümumi</span>
+                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekOpenTasks();" class="dash-due-metric is-all" title="Bitmə tarixi bu həftəyə düşən, hələ bitməyənlər">
+                            <strong id="sprintTasksDueWeekOpen">0</strong>
+                            <span>tamamlanmayan</span>
                         </button>
                     </div>
                 </div>
@@ -630,7 +637,7 @@
                     </svg>
                 </span>
                 <h2 id="nk303AdminTitle">Admin girişi</h2>
-                <p class="nk303-admin-hint">Excel yükləmək üçün parolu yazın.</p>
+                <p class="nk303-admin-hint">Excel və PPTX yükləmək üçün parolu yazın.</p>
                 <form id="nk303AdminForm" action="#" method="post">
                     <label class="nk303-field nk303-admin-field">
                         <span>Parol</span>
@@ -664,7 +671,7 @@
         </div>
     </div>
     <div id="datePopoverOverlay" class="date-popover-overlay hidden" onclick="onDateOverlayClick()"></div>
-    <script type="module" src="/static/js/main.js?v=idda34"></script>
+    <script type="module" src="/static/js/main.js?v=idda52"></script>
 
 </body>
 </html>

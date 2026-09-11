@@ -2,6 +2,7 @@ import { state } from './state.js';
 import { getStatusGroup } from './model.js';
 
 export function showToast(message, type) {
+    if (state.restoreQuiet) return;
     type = type || 'info';
     var container = document.getElementById('toastContainer');
     var toast = document.createElement('div');
@@ -122,6 +123,7 @@ export function toggleDropdown(id) {
                 console.error('Section open failed:', openId, err);
             }
         });
+        if (typeof state.onViewChange === 'function') state.onViewChange();
         setTimeout(function() {
             try {
                 if (id === 'assessmentHubContent') {
@@ -142,5 +144,6 @@ export function toggleDropdown(id) {
         }, 300);
     } else {
         if (icon) icon.style.transform = 'rotate(0deg)';
+        if (typeof state.onViewChange === 'function') state.onViewChange();
     }
 }

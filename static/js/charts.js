@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
-import { applyFilters, filterQurumByStatus, filterQurumList, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
+import { applyFilters, filterQurumByStatus, filterQurumList, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 
 var chartRebuildRaf = {};
@@ -135,12 +135,14 @@ function drawStatusChart(tasks) {
                 if (!c.length) return;
                 var k = keys[c[0].index];
                 if (k === 'blocked') {
+                    rememberListAction({ kind: 'difficulties' });
                     showDifficulties();
                     return;
                 }
                 var list = k === 'other'
                     ? collectOtherDashboardUnits(state.filteredTasks)
                     : countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
+                rememberListAction({ kind: 'chartStatus', group: k });
                 renderTaskList(list, gN[k] + ' - Tapşırıqları', { keepNested: true });
                 openTaskListSection();
             }
@@ -197,6 +199,7 @@ function drawAssigneeChart(tasks) {
             onClick: function(e, c) {
                 if (!c.length) return;
                 state.currentAssigneeFilter = labels[c[0].index];
+                rememberListAction({ kind: 'default' });
                 applyFilters();
                 openTaskListSection();
             },
@@ -417,6 +420,7 @@ function drawLabelChart() {
             var dirObj = state.allDirections.find(function(d) { return d.fields.summary === selectedDir; });
             if (dirObj) {
                 var fTasks = tasksForChartLabel(directionLabelTasks(dirObj.key), selectedLabel);
+                rememberListAction({ kind: 'label', dirKey: dirObj.key, dirName: selectedDir, label: selectedLabel });
                 renderTaskList(fTasks, selectedDir + ' - Etiket: ' + selectedLabel, { keepNested: true });
                 if (fTasks.length === 0) showToast('Bu istiqamət və etiket üçün tapşırıq tapılmadı.', 'info');
                 openTaskListSection();

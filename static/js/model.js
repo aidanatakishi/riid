@@ -254,6 +254,11 @@ export function getTaskDueDate(t) {
     return due;
 }
 
+/** Bitmə tarixi yalnız customfield_10807 — Jira duedate ehtiyatı yoxdur. */
+export function hasBitmeDate(t) {
+    return !!parsePhaseDate(t && t.fields && t.fields['customfield_10807']);
+}
+
 /** Növbəti həftə bitmə tarixi — yalnız customfield_10807 (duedate fallback yox). */
 export function getNextWeekBoxDueDate(t) {
     if (!t || !t.fields) return null;
@@ -468,6 +473,12 @@ export function collectDueThisWeekTasks() {
 export function collectDueThisWeekDoneTasks() {
     return collectDueThisWeekPool().filter(function(t) {
         return getStatusGroup(t.fields.status.name || '') === 'done';
+    });
+}
+
+export function collectDueThisWeekOpenTasks() {
+    return collectDueThisWeekPool().filter(function(t) {
+        return getStatusGroup(t.fields.status.name || '') !== 'done';
     });
 }
 

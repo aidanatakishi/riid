@@ -2,14 +2,17 @@ import { state } from './state.js';
 import { showToast, animateValue, normalizeStr, toggleSettings, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js';
 import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange } from './api.js';
-import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, filterTasks, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js';
+import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js';
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda25';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda35';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda26';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda52';
+import { initChat } from './chat.js?v=idda5';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
+state.onViewChange = persistViewState;
+window.addEventListener('pagehide', persistViewState);
 
 window.showToast = showToast;
 window.animateValue = animateValue;
@@ -69,6 +72,7 @@ window.selectDailyUser = selectDailyUser;
 window.showDifficulties = showDifficulties;
 window.showDueThisWeekTasks = showDueThisWeekTasks;
 window.showDueThisWeekDoneTasks = showDueThisWeekDoneTasks;
+window.showDueThisWeekOpenTasks = showDueThisWeekOpenTasks;
 window.filterTasks = filterTasks;
 window.toggleDatePopover = toggleDatePopover;
 window.closeDatePopover = closeDatePopover;
@@ -78,6 +82,7 @@ window.clearDatePopover = clearDatePopover;
 window.selectViewedMonth = selectViewedMonth;
 window.shiftDateCalendar = shiftDateCalendar;
 window.showNoStartDateTasks = showNoStartDateTasks;
+window.showNoDueDateTasks = showNoDueDateTasks;
 window.renderStatusChart = renderStatusChart;
 window.renderAssigneeChart = renderAssigneeChart;
 window.renderEpicChart = renderEpicChart;
@@ -147,11 +152,16 @@ window.onload = async function() {
     if (u) document.getElementById('baseUrl').value = u;
     if (p) document.getElementById('pat').value = p;
     if (k) document.getElementById('projectKey').value = k;
+    var chatKey = localStorage.getItem('jiraChatApiKey');
+    var chatEl = document.getElementById('chatApiKey');
+    if (chatKey && chatEl) chatEl.value = chatKey;
+    var serverCfg = {};
     try {
-        await loadServerConfig();
+        serverCfg = await loadServerConfig() || {};
     } catch (e) {
         console.error('Server konfiqi yüklənmədi:', e);
     }
+    try { initChat({ hasChatLlm: !!serverCfg.hasChatLlm }); } catch (e) { console.error(e); }
     var baseUrl = document.getElementById('baseUrl').value;
     var pat = document.getElementById('pat').value;
     var projectKey = document.getElementById('projectKey').value;

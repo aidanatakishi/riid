@@ -21,12 +21,15 @@ import {
     jiraBoardWorkUnits,
     collectDueThisWeekTasks,
     collectDueThisWeekDoneTasks,
+    collectDueThisWeekOpenTasks,
     collectBacklogDashboardUnits,
     collectOtherDashboardUnits,
     isNextWeekBoxTask,
     getDateStatus,
     hasValidDifficulty,
-    isActiveExecutionGroup
+    isActiveExecutionGroup,
+    getBlockReason,
+    getTaskDueDate
 } from './model.js';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
@@ -49,10 +52,10 @@ var ASSESS_DEFS = [
     { id: 'meqsed', label: 'Məqsədəuyğunluq rəyi', aliases: ['meqseduygun', 'meqsed'] }
 ];
 var SUGGESTIONS = [
-    'Paneldə indi vəziyyət necədir?',
-    'Bu səhifə nə göstərir?',
-    'Kimdə daha çox tapşırıq var?',
-    'Qiymətləndirmələr necədir?'
+    'Bu həftəni nə saxlayır?',
+    'Kimdə iş çoxdur və kim gecikir?',
+    'Bloklanan işlər hansılardır?',
+    'Bu sprint əvvəlki ilə necə müqayisə olunur?'
 ];
 var KPI_FOCUS = [
     { id: 'blocked', label: 'Bloklanan', re: /blok|cetinlik/ },
@@ -108,6 +111,39 @@ function signed(n) {
     return String(n);
 }
 
+function clip(s, n) {
+    s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    if (!n || s.length <= n) return s;
+    return s.slice(0, n - 1) + '…';
+}
+
+function taskBrief(t) {
+    var f = t && t.fields ? t.fields : {};
+    var statusName = (f.status && f.status.name) || '';
+    var dir = resolveDirection(t);
+    var due = null;
+    var reason = '';
+    try { due = getTaskDueDate(t); } catch (e) { due = null; }
+    try { reason = getBlockReason(t) || ''; } catch (e) { reason = ''; }
+    return {
+        key: (t && t.key) || '',
+        title: clip(f.summary || 'Başlıqsız', 88),
+        who: f.assignee && f.assignee.displayName ? f.assignee.displayName : 'Təyinatsız',
+        status: statusName,
+        group: getStatusGroup(statusName) || 'other',
+        qurum: getQurumName(t) || '',
+        dir: dir && dir.fields ? (dir.fields.summary || '') : '',
+        due: due ? formatDateObj(due) : '',
+        reason: clip(reason, 90)
+    };
+}
+
+function isBlockedUnit(t) {
+    var g = getStatusGroup((t.fields && t.fields.status && t.fields.status.name) || '');
+    if (g === 'done' || g === 'rejected') return false;
+    return g === 'blocked' || hasValidDifficulty(t);
+}
+
 function hasData() {
     return !!(state.allTasks && state.allTasks.length);
 }
@@ -136,7 +172,8 @@ function isSprintWork(t, statusName) {
 function emptyBucket() {
     return {
         total: 0, done: 0, carry: 0, due: 0, dueDone: 0, late: 0, blocked: 0,
-        groups: {}, dirs: {}, qurum: {}, assignees: {}, scores: [], people: {}, qurumDetail: {}
+        groups: {}, dirs: {}, qurum: {}, assignees: {}, scores: [], people: {}, qurumDetail: {},
+        lateItems: [], blockedItems: [], openItems: []
     };
 }
 
@@ -184,6 +221,16 @@ function addTaskToBucket(bucket, t, statusName, sprintName) {
     var q = getQurumName(t);
     if (q) bump(bucket.qurum, q);
     addDetail(bucket.qurumDetail, q, g, t);
+    var brief = taskBrief(t);
+    if (getDateStatus(t) === 'late' && bucket.lateItems && bucket.lateItems.length < 8) {
+        bucket.lateItems.push(brief);
+    }
+    if (isBlockedUnit(t) && bucket.blockedItems && bucket.blockedItems.length < 8) {
+        bucket.blockedItems.push(brief);
+    }
+    if (g !== 'done' && bucket.openItems && bucket.openItems.length < 8) {
+        bucket.openItems.push(brief);
+    }
 }
 
 function sprintBucket(sprintName, isPrev, currentName) {
@@ -368,12 +415,19 @@ function parseQuestion(raw) {
     var who = findPerson(qFold);
     var qurum = findQurum(qFold);
     var focus = findKpiFocus(qFold);
+    var issueKey = findIssueKey(raw);
 
     if (wantsHelp(qFold)) {
         return { kind: 'help', names: names, current: current };
     }
+    if (issueKey) {
+        return { kind: 'issue', key: issueKey, names: names, current: current };
+    }
     if (isAboutDash(qFold)) {
         return { kind: 'about', names: names, current: current };
+    }
+    if (isRiskQuestion(qFold) && !entities.length && !who && !qurum) {
+        return { kind: 'risk', names: names, current: current, raw: raw };
     }
     if ((hasCurrent || wantsCompare || offset) && (offset || hasPrev) && !entities.length) {
         return { kind: 'sprintCompare', current: current, offset: offset || 1, names: names };
@@ -438,6 +492,26 @@ function looksLikeDashQuestion(qFold) {
     return /panel|dashboard|tapsiriq|sprint|status|istiqamet|qurum|qiymet|blok|gecik|backlog|icra|filter|hesabat|gecik/.test(qFold);
 }
 
+function isRiskQuestion(qFold) {
+    return /niye|sebeb|problem|risk|engel|saxlayir|zeif|asagi qal|pisdir|diqqet|kritik|nesaxla|ne saxla/.test(qFold);
+}
+
+function findIssueKey(raw) {
+    var m = String(raw || '').match(/\b([A-Za-z][A-Za-z0-9]+-\d+)\b/);
+    return m ? m[1].toUpperCase() : '';
+}
+
+function findTaskByKey(key) {
+    if (!key) return null;
+    var up = String(key).toUpperCase();
+    var list = state.allTasks || [];
+    var i;
+    for (i = 0; i < list.length; i++) {
+        if (list[i] && String(list[i].key || '').toUpperCase() === up) return list[i];
+    }
+    return null;
+}
+
 function findKpiFocus(qFold) {
     var i;
     for (i = 0; i < KPI_FOCUS.length; i++) {
@@ -480,7 +554,13 @@ function findQurum(qFold) {
         if (!name || seen[name]) return;
         seen[name] = true;
         var f = fold(name);
-        if (f.length < 4 || qFold.indexOf(f) === -1) return;
+        if (f.length < 4) return;
+        var hit = qFold.indexOf(f) !== -1;
+        if (!hit) {
+            var parts = f.split(' ').filter(function(w) { return w.length > 3; });
+            hit = parts.filter(function(w) { return qFold.indexOf(w) !== -1; }).length >= Math.min(2, parts.length);
+        }
+        if (!hit) return;
         if (f.length > bestScore) {
             bestScore = f.length;
             best = name;
@@ -513,6 +593,65 @@ function dirLines(bucket) {
     }).join('') + '</ul>';
 }
 
+function itemList(items) {
+    if (!items || !items.length) return '';
+    return '<ul class="dash-chat-items">' + items.map(function(it) {
+        var meta = [it.who, it.status || '', it.due ? ('bitmə: ' + it.due) : ''].filter(Boolean).join(' · ');
+        return '<li><strong>' + esc(it.key) + '</strong><span>' + esc(it.title) + '</span>'
+            + (meta ? '<em>' + esc(meta) + '</em>' : '')
+            + (it.reason ? '<em>' + esc(it.reason) + '</em>' : '')
+            + '</li>';
+    }).join('') + '</ul>';
+}
+
+function peopleRank(map, n) {
+    return Object.keys(map || {}).map(function(name) {
+        var d = map[name] || {};
+        return {
+            name: name,
+            total: d.total || 0,
+            done: d.done || 0,
+            blocked: d.blocked || 0,
+            late: d.late || 0,
+            progress: d.progress || 0,
+            rate: pct(d.done || 0, d.total || 0)
+        };
+    }).filter(function(p) { return p.total; }).sort(function(a, b) { return b.total - a.total; }).slice(0, n || 6);
+}
+
+function dirRank(dirs, n) {
+    return Object.keys(dirs || {}).map(function(name) {
+        var d = dirs[name] || {};
+        return { name: name, total: d.total || 0, done: d.done || 0, rate: pct(d.done || 0, d.total || 0) };
+    }).sort(function(a, b) { return b.total - a.total; }).slice(0, n || 6);
+}
+
+function collectEvidence() {
+    var kpis = liveKpis();
+    var tasks = state.filteredTasks && state.filteredTasks.length ? state.filteredTasks : (state.allTasks || []);
+    var valid = jiraBoardWorkUnits(tasks);
+    var late = [];
+    var blocked = [];
+    valid.forEach(function(t) {
+        if (getDateStatus(t) === 'late') late.push(taskBrief(t));
+        if (isBlockedUnit(t)) blocked.push(taskBrief(t));
+    });
+    var dueOpen = [];
+    var dueDone = [];
+    try { dueOpen = collectDueThisWeekOpenTasks().map(taskBrief); } catch (e) { dueOpen = []; }
+    try { dueDone = collectDueThisWeekDoneTasks().map(taskBrief); } catch (e) { dueDone = []; }
+    return {
+        kpis: kpis,
+        people: peopleRank(kpis.view.people, 8),
+        dirs: dirRank(kpis.view.dirs, 8),
+        qurums: topEntries(kpis.view.qurum, 8),
+        late: late.slice(0, 8),
+        blocked: blocked.slice(0, 8),
+        dueOpen: dueOpen.slice(0, 8),
+        dueDone: dueDone.slice(0, 6)
+    };
+}
+
 function pLead(text) {
     return '<p class="dash-chat-lead">' + esc(text) + '</p>';
 }
@@ -537,26 +676,39 @@ function writeSprintRead(cur, prev, offset) {
     if (!cur.total && !prev.total) return 'Hər iki sprintdə sayılan tapşırıq yoxdur; müqayisə üçün məlumat kifayət etmir.';
     var parts = [];
     var when = offset === 1 ? 'əvvəlki sprint' : (offset + ' sprint öncə');
-    parts.push(escPlain(cur.name) + ' ilə ' + when + ' (' + escPlain(prev.name) + ') tutuşdurulur.');
-    if (cur.total || prev.total) {
-        var vol = cur.total - prev.total;
-        if (vol > 0) parts.push('Həcm ' + vol + ' iş artıb (' + prev.total + ' → ' + cur.total + ').');
-        else if (vol < 0) parts.push('Həcm ' + (-vol) + ' iş azalıb (' + prev.total + ' → ' + cur.total + ').');
-        else parts.push('Həcm eyni qalıb: ' + cur.total + ' iş.');
-    }
+    var vol = cur.total - prev.total;
     var cr = pct(cur.done, cur.total);
     var pr = pct(prev.done, prev.total);
-    var rd = cr - pr;
+    parts.push(escPlain(cur.name) + ' indi ' + cur.total + ' işdir, ' + when + ' (' + escPlain(prev.name) + ') isə ' + prev.total + ' idi.');
+    if (vol > 0) parts.push('Həcm ' + vol + ' iş artıb.');
+    else if (vol < 0) parts.push('Həcm ' + (-vol) + ' iş azalıb.');
     if (cur.total && prev.total) {
-        if (rd > 0) parts.push('Yekunlaşma payı ' + pr + '%-dən ' + cr + '%-ə qalxıb — icra tempi yaxşılaşıb.');
-        else if (rd < 0) parts.push('Yekunlaşma payı ' + pr + '%-dən ' + cr + '%-ə düşüb. Həcm artıbsa, bu, bitmənin həcmlə ayaqlaşmadığını göstərir.');
-        else parts.push('Yekunlaşma payı dəyişməyib (' + cr + '%).');
+        if (cr > pr) parts.push('Yekunlaşma ' + pr + '%-dən ' + cr + '%-ə qalxıb.');
+        else if (cr < pr) parts.push('Yekunlaşma ' + pr + '%-dən ' + cr + '%-ə düşüb' + (vol > 0 ? ' — həcm artıb, amma bitmə eyni tempdə getməyib.' : '.'));
+        else parts.push('Yekunlaşma payı ' + cr + '%-də qalıb.');
+    }
+    var growName = '';
+    var growN = 0;
+    Object.keys(cur.dirs || {}).forEach(function(name) {
+        var d = (cur.dirs[name].total || 0) - ((prev.dirs[name] && prev.dirs[name].total) || 0);
+        if (d > growN) {
+            growN = d;
+            growName = name;
+        }
+    });
+    var curDirs = dirRank(cur.dirs, 1);
+    if (curDirs[0]) parts.push('İndi ən böyük istiqamət ' + curDirs[0].name + 'dir (' + curDirs[0].total + ' iş, ' + curDirs[0].rate + '% yekun).');
+    if (growName && growN) parts.push(growName + ' üzrə həcm ' + growN + ' iş artıb.');
+    var people = peopleRank(cur.people, 2);
+    if (people[0]) {
+        parts.push('Cari sprintdə yük ' + people[0].name + ' üzərindədir (' + people[0].total + ' iş' + (people[0].late ? ', ' + people[0].late + ' gecikir' : '') + ').');
+        if (people[1]) parts.push('İkinci ' + people[1].name + ' (' + people[1].total + ').');
     }
     if (cur.due || prev.due) {
-        parts.push('Həftə ərzində bitməli işlər: ' + (prev.dueDone || 0) + '/' + (prev.due || 0) + ' qarşı ' + (cur.dueDone || 0) + '/' + (cur.due || 0) + ' (' + pct(cur.dueDone, cur.due) + '%).');
+        parts.push('Həftə öhdəliyi ' + (prev.dueDone || 0) + '/' + (prev.due || 0) + '-dən ' + (cur.dueDone || 0) + '/' + (cur.due || 0) + '-ə keçib.');
     }
-    if ((cur.blocked || 0) + (prev.blocked || 0) || (cur.late || 0) + (prev.late || 0)) {
-        parts.push('Risk: bloklanan ' + (prev.blocked || 0) + ' → ' + (cur.blocked || 0) + ', gecikən ' + (prev.late || 0) + ' → ' + (cur.late || 0) + '.');
+    if (cur.lateItems && cur.lateItems[0]) {
+        parts.push('Gecikən nümunə: ' + cur.lateItems[0].key + ' — ' + cur.lateItems[0].title + '.');
     }
     return parts.join(' ');
 }
@@ -564,26 +716,32 @@ function writeSprintRead(cur, prev, offset) {
 function writeSprintAttn(cur, prev) {
     var notes = [];
     if (cur.total > prev.total && pct(cur.done, cur.total) < pct(prev.done, prev.total)) {
-        notes.push('Həcm artıb, amma yekunlaşma payı geriləyib — prioritet və ya resurs bölgüsü nəzərdən keçirilməlidir.');
+        notes.push('Həcm artıb, yekunlaşma isə geriləyib.');
     }
     if (cur.due && pct(cur.dueDone, cur.due) < 50) {
-        notes.push('Həftə ərzində bitməli işlərin yarısından azı yekunlaşıb.');
+        notes.push('Həftə öhdəliyinin yarısından azı bitib.');
     }
     if ((cur.blocked || 0) > (prev.blocked || 0)) {
-        notes.push('Bloklanan tapşırıq sayı artıb.');
+        notes.push('Bloklanan iş sayı artıb (' + prev.blocked + ' → ' + cur.blocked + ').');
+    }
+    if ((cur.late || 0) > (prev.late || 0)) {
+        notes.push('Gecikən iş artıb (' + prev.late + ' → ' + cur.late + ').');
     }
     return notes.join(' ');
 }
 
 function formatSprintCompare(cur, prev, offset) {
-    var html = '<p class="dash-chat-kicker">Təhlil</p>'
+    var html = '<p class="dash-chat-kicker">Cavab</p>'
         + '<h4>' + esc(cur.name) + ' <span>↔</span> ' + esc(prev.name) + '</h4>';
     if (cur.dates || prev.dates) {
         html += '<p class="dash-chat-dates">' + esc(cur.dates || 'tarix yoxdur') + ' · ' + esc(prev.dates || 'tarix yoxdur') + '</p>';
     }
-    html += pLead((offset === 1 ? 'Əvvəlki sprint' : (offset + ' sprint öncə')) + ' ilə cari/seçilmiş sprint müqayisə olunur. Sayım paneldəki sprint kartı ilə eyni qaydadır.');
+    html += pLead(writeSprintRead(cur, prev, offset));
     html += compareTable(cur, prev);
-    html += pRead(writeSprintRead(cur, prev, offset));
+    var samples = (cur.lateItems || []).concat(cur.blockedItems || []).slice(0, 4);
+    if (samples.length) {
+        html += '<p class="dash-chat-sub">Cari sprintdə diqqət</p>' + itemList(samples);
+    }
     html += pAttn(writeSprintAttn(cur, prev));
     html += '<p class="dash-chat-sub">İstiqamət üzrə (yekunlaşıb / ümumi)</p>';
     html += sideBySideDirs(cur, prev);
@@ -634,10 +792,10 @@ function sideBySideDirs(a, b) {
 }
 
 function formatEntityCompare(left, right, sprintName) {
-    var scope = sprintName ? ('Seçilmiş sprint: ' + sprintName) : 'Bütün yüklənmiş tapşırıqlar';
-    var html = '<p class="dash-chat-kicker">Təhlil</p>'
+    var scope = sprintName ? ('Kəsik: ' + sprintName) : 'Bütün yüklənmiş tapşırıqlar';
+    var html = '<p class="dash-chat-kicker">Cavab</p>'
         + '<h4>' + esc(left.label) + ' <span>↔</span> ' + esc(right.label) + '</h4>'
-        + pLead(scope + '. Tapşırıq və alt-tapşırıqlar eyni qaydada sayılır.');
+        + pLead(insightEntities(left, right, scope));
     html += compareTable(left, right);
     if (left.avgScore != null || right.avgScore != null) {
         html += '<p class="dash-chat-note">Orta bal: '
@@ -645,29 +803,39 @@ function formatEntityCompare(left, right, sprintName) {
             + ' · ' + esc(right.label) + ' — ' + (right.avgScore != null ? right.avgScore : '—')
             + '</p>';
     }
-    html += pRead(insightEntities(left, right));
+    var samples = (left.lateItems || []).concat(left.blockedItems || []).concat(right.lateItems || []).concat(right.blockedItems || []).slice(0, 5);
+    if (samples.length) {
+        html += '<p class="dash-chat-sub">Nümunələr</p>' + itemList(samples);
+    }
     html += pAttn(entityAttn(left, right));
-    html += twoStatus(left, right);
     return html;
 }
 
-function insightEntities(a, b) {
+function insightEntities(a, b, scope) {
     if (!a.total && !b.total) return 'Bu kəsikdə tapşırıq tapılmadı. Sprint filterini və ya adları dəqiqləşdirin.';
     var ar = pct(a.done, a.total);
     var br = pct(b.done, b.total);
     var parts = [];
-    parts.push(a.label + ' üzrə ' + a.total + ' iş var (' + ar + '% yekunlaşıb), ' + b.label + ' üzrə ' + b.total + ' iş (' + br + '% yekunlaşıb).');
+    if (scope) parts.push(scope + '.');
+    parts.push(a.label + ': ' + a.total + ' iş, ' + ar + '% yekun. ' + b.label + ': ' + b.total + ' iş, ' + br + '% yekun.');
     if (a.total && b.total) {
-        if (a.total > b.total) parts.push('Həcm baxımından ' + a.label + ' daha yüklüdür (+' + (a.total - b.total) + ').');
-        else if (b.total > a.total) parts.push('Həcm baxımından ' + b.label + ' daha yüklüdür (+' + (b.total - a.total) + ').');
-        if (ar === br) parts.push('Yekunlaşma tempi eyni səviyyədədir.');
-        else if (ar > br) parts.push(a.label + ' daha yüksək yekunlaşma payı göstərir.');
-        else parts.push(b.label + ' daha yüksək yekunlaşma payı göstərir.');
+        if (a.total !== b.total) {
+            var heavier = a.total > b.total ? a : b;
+            var lighter = a.total > b.total ? b : a;
+            parts.push(heavier.label + ' ' + (heavier.total - lighter.total) + ' iş daha çoxdur.');
+        }
+        if (ar !== br) {
+            var faster = ar > br ? a : b;
+            parts.push('Yekunlaşma ' + faster.label + ' tərəfində daha yüksəkdir (' + Math.abs(ar - br) + ' faiz bəndi).');
+        }
     }
-    var ab = a.groups.blocked || 0;
-    var bb = b.groups.blocked || 0;
-    if (ab || bb) parts.push('Bloklanan iş: ' + a.label + ' — ' + ab + ', ' + b.label + ' — ' + bb + '.');
-    if (a.late || b.late) parts.push('Gecikən iş: ' + (a.late || 0) + ' / ' + (b.late || 0) + '.');
+    var aPeople = peopleRank(a.people, 1);
+    var bPeople = peopleRank(b.people, 1);
+    if (aPeople[0]) parts.push(a.label + ' üzrə yük ' + aPeople[0].name + '-dadır (' + aPeople[0].total + ').');
+    if (bPeople[0]) parts.push(b.label + ' üzrə ' + bPeople[0].name + ' (' + bPeople[0].total + ').');
+    if (a.late || b.late) parts.push('Gecikən: ' + a.label + ' ' + (a.late || 0) + ', ' + b.label + ' ' + (b.late || 0) + '.');
+    if ((a.blocked || 0) || (b.blocked || 0)) parts.push('Bloklanan: ' + (a.blocked || 0) + ' / ' + (b.blocked || 0) + '.');
+    if (a.lateItems && a.lateItems[0]) parts.push('Nümunə: ' + a.lateItems[0].key + ' — ' + a.lateItems[0].title + '.');
     return parts.join(' ');
 }
 
@@ -690,40 +858,39 @@ function twoStatus(a, b) {
 
 function formatBucket(title, kicker, bucket, extra) {
     if (!bucket.total) {
-        return '<p class="dash-chat-kicker">Təhlil</p><h4>' + esc(title) + '</h4><p class="dash-chat-empty">Bu kəsikdə sayılan tapşırıq yoxdur.</p>';
+        return '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(title) + '</h4>' + pLead('Bu kəsikdə sayılan tapşırıq yoxdur.');
     }
-    var html = '<p class="dash-chat-kicker">Təhlil</p><h4>' + esc(title) + '</h4>';
+    var rate = pct(bucket.done, bucket.total);
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(title) + '</h4>';
     if (bucket.dates) html += '<p class="dash-chat-dates">' + esc(bucket.dates) + '</p>';
-    html += pLead(extra ? String(extra).replace(/<[^>]+>/g, '') : (kicker + ' üzrə kəsik.'));
-    html += '<div class="dash-chat-kpis">'
-        + kpi('Ümumi', bucket.total)
-        + kpi('Yekunlaşıb', bucket.done + ' · ' + pct(bucket.done, bucket.total) + '%')
-        + kpi('Davam edir', bucket.carry)
-        + (bucket.due ? kpi('Həftə ərzində', bucket.dueDone + '/' + bucket.due) : '')
-        + (bucket.avgScore != null ? kpi('Orta bal', bucket.avgScore) : '')
-        + '</div>';
-    html += pRead(writeBucketRead(title, bucket));
+    html += pLead(writeBucketRead(title, bucket, extra));
+    var samples = (bucket.lateItems || []).concat(bucket.blockedItems || []);
+    if (!samples.length) samples = bucket.openItems || [];
+    if (samples.length) {
+        html += '<p class="dash-chat-sub">Konkret işlər</p>' + itemList(samples.slice(0, 5));
+    }
     html += pAttn(writeBucketAttn(bucket));
-    html += '<p class="dash-chat-sub">Status</p><ul class="dash-chat-status">' + statusLines(bucket) + '</ul>';
-    var dirs = dirLines(bucket);
-    if (dirs) html += '<p class="dash-chat-sub">İstiqamət</p>' + dirs;
-    var people = topEntries(bucket.assignees, 4);
+    var people = peopleRank(bucket.people, 4);
     if (people.length) {
         html += '<p class="dash-chat-sub">İcraçılar</p><ul class="dash-chat-dirs">' + people.map(function(p) {
-            return '<li><span>' + esc(p.name) + '</span><strong>' + p.n + '</strong></li>';
+            return '<li><span>' + esc(p.name) + '</span><strong>' + p.total + (p.late ? ' · ' + p.late + ' gecikir' : '') + '</strong></li>';
         }).join('') + '</ul>';
     }
     return html;
 }
 
-function writeBucketRead(title, bucket) {
+function writeBucketRead(title, bucket, extra) {
     var rate = pct(bucket.done, bucket.total);
-    var parts = [title + ' üzrə ' + bucket.total + ' iş sayılır; ' + bucket.done + '-i yekunlaşıb (' + rate + '%).'];
-    if (bucket.carry) parts.push(bucket.carry + ' iş hələ açıqdır.');
+    var parts = [];
+    if (extra) parts.push(String(extra).replace(/<[^>]+>/g, ''));
+    parts.push(title + ' üzrə ' + bucket.total + ' iş var; ' + bucket.done + '-i yekunlaşıb (' + rate + '%), ' + bucket.carry + '-i açıqdır.');
     var top = topDirName(bucket);
-    if (top && top.name !== title) parts.push('Ən böyük həcm: ' + top.name + ' (' + top.total + ' iş).');
+    if (top && top.name !== title) parts.push('Ən böyük həcm ' + top.name + 'dır (' + top.total + ').');
+    var people = peopleRank(bucket.people, 1);
+    if (people[0]) parts.push('Ən yüklü icraçı ' + people[0].name + ' (' + people[0].total + ' iş).');
     if (bucket.avgScore != null) parts.push('Orta bal ' + bucket.avgScore + '-dir.');
-    if (bucket.due) parts.push('Həftə ərzində bitməli ' + bucket.due + ' işdən ' + bucket.dueDone + '-i bitib (' + pct(bucket.dueDone, bucket.due) + '%).');
+    if (bucket.due) parts.push('Həftə ərzində bitməli ' + bucket.due + ' işdən ' + bucket.dueDone + '-i bitib.');
+    if (bucket.lateItems && bucket.lateItems[0]) parts.push('Gecikən nümunə: ' + bucket.lateItems[0].key + ' — ' + bucket.lateItems[0].title + '.');
     return parts.join(' ');
 }
 
@@ -818,72 +985,10 @@ function scopeNote(kpis) {
 }
 
 function formatAbout() {
-    return '<p class="dash-chat-kicker">Təhlil</p>'
-        + '<h4>Rəqəmsal İdarəetmə Paneli necə oxunur</h4>'
-        + pLead('Bu səhifə DGD-nin Jira tapşırıqlarını, sprintini və qiymətləndirmələrini bir yerdə toplayır. Yuxarıdakı sprint, tarix, istiqamət və qurum filteri dəyişəndə bütün kartlar eyni kəsiyə keçir.')
-        + '<ul class="dash-chat-help">'
-        + '<li><strong>Kartlar</strong> — ümumi tapşırıq, tamamlanan, növbəti həftə, icradakı, bloklanan, gecikən, backlog</li>'
-        + '<li><strong>Qrafiklər</strong> — status payı, icraçılar üzrə iş yükü, istiqamət həcmi</li>'
-        + '<li><strong>Qiymətləndirmə</strong> — diaqnostika, İSQ, EXQ, özünüqiymətləndirmə, məqsədəuyğunluq</li>'
-        + '<li><strong>Digər</strong> — gündəlik fəaliyyət, həftə müqayisəsi, tapşırıq siyahısı, Word hesabatı</li>'
-        + '</ul>'
-        + pRead('Rəqəmləri şərh edərkən əvvəl filteri yoxlayın: «bütün sprintlər» ümumi fondur, seçilmiş sprint isə həftəlik icra kəsiyidir. Tamamlanma faizi əsasən bu həftə bitməli işlər üzrə hesablanır.');
-}
-
-function formatOverview(kpis) {
-    var html = '<p class="dash-chat-kicker">Təhlil</p><h4>Cari panel vəziyyəti</h4>'
-        + pLead(scopeNote(kpis) + '. Rəqəmlər ekrandakı kartlarla eyni metodikadır.')
-        + '<div class="dash-chat-kpis">'
-        + kpi('Ümumi', kpis.total)
-        + kpi('Tamamlanan', kpis.done + ' · ' + pct(kpis.done, kpis.total) + '%')
-        + kpi('İcradakı', kpis.progress)
-        + kpi('Bloklanan', kpis.blocked)
-        + kpi('Gecikən', kpis.late)
-        + kpi('Həftə ərzində', kpis.dueDone + '/' + kpis.due)
-        + kpi('Backlog', kpis.backlog)
-        + kpi('Növbəti həftə', kpis.planned)
-        + '</div>'
-        + pRead(overviewInsight(kpis))
-        + pAttn(overviewAttn(kpis));
-    var dirs = dirLines(kpis.view);
-    if (dirs) html += '<p class="dash-chat-sub">İstiqamət</p>' + dirs;
-    var people = topEntries(kpis.view.assignees, 5);
-    if (people.length) {
-        html += '<p class="dash-chat-sub">İş yükü</p><ul class="dash-chat-dirs">' + people.map(function(p) {
-            return '<li><span>' + esc(p.name) + '</span><strong>' + p.n + ' · ' + pct(p.n, kpis.view.total) + '%</strong></li>';
-        }).join('') + '</ul>';
-    }
-    return html;
-}
-
-function overviewInsight(kpis) {
-    if (!kpis.total) return 'Bu filterdə lövhə tapşırığı yoxdur. Sprint və ya tarix aralığını dəyişib yenidən baxın.';
-    var rate = pct(kpis.done, kpis.total);
-    var parts = [];
-    parts.push('Lövhədə ' + kpis.total + ' iş görünür; ' + kpis.done + '-i yekunlaşıb (' + rate + '%), ' + kpis.open + '-i açıq qalır.');
-    if (kpis.progress) parts.push('Aktiv icrada ' + kpis.progress + ' iş var.');
-    if (kpis.due) {
-        parts.push('Həftə ərzində bitməli ' + kpis.due + ' işdən ' + kpis.dueDone + '-i tamamlanıb — həftə öhdəliyi ' + kpis.rate + '%-dir.');
-    } else {
-        parts.push('Bu kəsikdə həftə ərzində bitmə tarixi düşən iş yoxdur, ona görə həftə tamamlanma faizi 0 görünə bilər.');
-    }
-    var top = topDirName(kpis.view);
-    if (top) parts.push('Ən böyük istiqamət ' + top.name + 'dir (' + top.total + ' iş).');
-    var people = topEntries(kpis.view.assignees, 1);
-    if (people[0] && kpis.view.total) {
-        parts.push('Ən yüklü icraçı ' + people[0].name + ' — ümumi həcmin ' + pct(people[0].n, kpis.view.total) + '%-i.');
-    }
-    return parts.join(' ');
-}
-
-function overviewAttn(kpis) {
-    var notes = [];
-    if (kpis.late) notes.push(kpis.late + ' iş gecikir.');
-    if (kpis.blocked) notes.push(kpis.blocked + ' iş blokdadır və ya çətinlik qeydi var.');
-    if (kpis.due && kpis.rate < 50) notes.push('Həftə öhdəliyinin yarısından azı yerinə yetirilib.');
-    if (kpis.backlog && kpis.backlog > kpis.progress) notes.push('Backlog aktiv icradan böyükdür — növbəti sprint planı sıx ola bilər.');
-    if (!notes.length) return kpis.total ? 'Açıq kritik risk azdır; əsas izləmə həftə öhdəliyi və istiqamət payı üzrə qala bilər.' : '';
-    return 'Diqqət: ' + notes.join(' ');
+    return '<p class="dash-chat-kicker">Cavab</p>'
+        + '<h4>Bu panel nə göstərir</h4>'
+        + pLead('Rəqəmsal İdarəetmə Paneli DGD-nin Jira tapşırıqlarını, sprintini və qiymətləndirmələrini eyni kəsikdə toplayır. Yuxarıdakı sprint, tarix, istiqamət və ya qurum dəyişəndə kartlar, qrafiklər və bu köməkçi eyni rəqəmlərə keçir.')
+        + pRead('«Bütün sprintlər» ümumi fondur. Seçilmiş sprint həftəlik icradır. Kartdakı tamamlanma faizi əsasən bu həftə bitməli işlər üzrədir, bütün lövhənin yekun payı deyil. Hesabat düyməsi eyni filteri Word-ə çıxarır.');
 }
 
 function formatKpi(kpis, focus) {

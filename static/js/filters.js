@@ -1,10 +1,10 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, showUserActivity } from './render.js';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
-import { renderAssessmentSections } from './assessments.js?v=idda25';
+import { renderAssessmentSections } from './assessments.js?v=idda26';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -274,6 +274,36 @@ export function showNoStartDateTasks() {
     filterTasks('noStart');
 }
 
+function tasksWithoutDueDate() {
+    var sprintVal = document.getElementById('sprintFilter') && document.getElementById('sprintFilter').value;
+    var useDateFilter = !!(document.getElementById('startDate').value || document.getElementById('endDate').value);
+    return (state.allTasks || []).filter(function(t) {
+        if (!t || !t.fields) return false;
+        if (!isTaskOrSubtaskType(t)) return false;
+        if (hasBitmeDate(t)) return false;
+        if (!useDateFilter && sprintVal && sprintVal !== 'all') {
+            if (!issueBelongsToSprint(t, sprintVal)) return false;
+        }
+        if (state.currentDirectionFilter) {
+            var dir = resolveDirection(t);
+            if (!dir || dir.key !== state.currentDirectionFilter) return false;
+        }
+        if (state.currentQurumFilter) {
+            var q = getQurumName(t) || 'Təyin edilməyib';
+            if (!sameQurum(q, state.currentQurumFilter)) return false;
+        }
+        if (state.currentAssigneeFilter) {
+            if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
+        }
+        return true;
+    });
+}
+
+export function showNoDueDateTasks() {
+    closeDatePopover();
+    filterTasks('noDue');
+}
+
 function latestSprintValue(sprintSelect, sortedSprints) {
     var current = currentSprintName(sortedSprints);
     if (current && sprintSelect) {
@@ -313,13 +343,30 @@ export function populateSprintFilter() {
         sprintSelect.appendChild(opt);
     });
 
-    if (usingDates) {
+    // Page open: always the active/latest sprint, never a stored older sprint or leftover dates.
+    if (!state.hasLoadedDashboard) {
+        var startEl = document.getElementById('startDate');
+        var endEl = document.getElementById('endDate');
+        if (startEl) startEl.value = '';
+        if (endEl) endEl.value = '';
+        dateDraft.start = '';
+        dateDraft.end = '';
+        userChoseSprint = false;
+        sprintSelect.value = latestSprintValue(sprintSelect, sortedSprints) || 'all';
         updateSprintFilterState();
         return;
     }
 
     var optionExists = Array.from(sprintSelect.options).some(function(opt) { return opt.value === previousVal; });
-    if (userChoseSprint && previousVal && previousVal !== 'all' && optionExists) {
+    if (usingDates) {
+        if (previousVal && optionExists) sprintSelect.value = previousVal;
+        updateSprintFilterState();
+        return;
+    }
+    if (previousVal && optionExists) {
+        sprintSelect.value = previousVal;
+        userChoseSprint = previousVal !== 'all';
+    } else if (userChoseSprint && previousVal && previousVal !== 'all' && optionExists) {
         sprintSelect.value = previousVal;
     } else {
         sprintSelect.value = latestSprintValue(sprintSelect, sortedSprints) || 'all';
@@ -401,6 +448,7 @@ export function resetAllFilters() {
     state.currentQurumFilter = null;
     state.activeLabelFilter = null;
     state.currentPage = 1;
+    rememberListAction(null);
     localStorage.removeItem('dgd_filter_sprint');
     localStorage.removeItem('dgd_filter_startDate');
     localStorage.removeItem('dgd_filter_endDate');
@@ -420,7 +468,7 @@ export function applyFilters() {
     if (state.currentQurumFilter) {
         state.currentQurumFilter = canonicalQurumName(state.currentQurumFilter) || state.currentQurumFilter;
     }
-    state.currentPage = 1;
+    if (!state.restoreQuiet) state.currentPage = 1;
     var sprintSelectEl = document.getElementById('sprintFilter');
     var sprintVal = sprintSelectEl.value;
     var startStr = document.getElementById('startDate').value;
@@ -533,6 +581,167 @@ export function applyFilters() {
     scheduleFilterPaint();
 }
 
+var paintWaiters = [];
+var VIEW_SECTION_IDS = [
+    'dailyActivityContent', 'labelChartContent', 'qurumStatContent', 'sprintComparisonContent',
+    'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent', 'assessmentHubContent'
+];
+var VIEW_STORAGE_KEY = 'dgd_view';
+var CHART_STATUS_NAMES = {
+    done: 'İcra edilib', progress: 'İcradadır', review: 'Rəy gözlənilir', esd: 'ESD',
+    planned: 'Planlaşdırılıb', blocked: 'Bloklanıb', rejected: 'İmtina', paused: 'Dayandırılıb', other: 'Digər'
+};
+
+export function rememberListAction(action) {
+    state.listViewAction = action || null;
+    if (!state.restoreQuiet) persistViewState();
+}
+
+export function captureViewState() {
+    var qurumSearch = document.getElementById('qurumSearch');
+    var nested = [];
+    document.querySelectorAll('.tl-nested:not(.hidden)').forEach(function(el) {
+        if (el.id) nested.push(el.id);
+    });
+    return {
+        openSections: VIEW_SECTION_IDS.filter(function(id) { return isSectionOpen(id); }),
+        scrollY: window.scrollY || 0,
+        listViewAction: state.listViewAction,
+        taskListView: state.taskListView,
+        taskListSearch: state.taskListSearch,
+        currentPage: state.currentPage,
+        qurumSearch: qurumSearch ? qurumSearch.value : '',
+        nestedOpen: nested,
+        dailyUser: sessionStorage.getItem('selectedDailyUser') || ''
+    };
+}
+
+export function persistViewState() {
+    try {
+        sessionStorage.setItem(VIEW_STORAGE_KEY, JSON.stringify(captureViewState()));
+    } catch (e) {}
+}
+
+function openSectionQuiet(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('hidden');
+    el.classList.add('slide-down');
+    var icon = document.getElementById('icon-' + id);
+    if (icon) icon.style.transform = 'rotate(180deg)';
+    var toggleBtn = document.querySelector('[aria-controls="' + id + '"]');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
+}
+
+export function restoreOpenSections(snap) {
+    if (!snap) return;
+    (snap.openSections || []).forEach(openSectionQuiet);
+    if (snap.dailyUser) {
+        try { sessionStorage.setItem('selectedDailyUser', snap.dailyUser); } catch (e) {}
+    }
+}
+
+function taskLabelNamesLocal(t) {
+    var raw = (t && t.fields && t.fields.labels) ? t.fields.labels : [];
+    return raw.map(function(lbl) {
+        if (lbl && typeof lbl === 'object') return String(lbl.name || lbl.value || '').trim();
+        return String(lbl || '').trim();
+    }).filter(Boolean);
+}
+
+function replayListViewAction(action) {
+    if (!action || !action.kind) return false;
+    var prev = state._replayingList;
+    state._replayingList = true;
+    try {
+        if (action.kind === 'filter') { filterTasks(action.type); return true; }
+        if (action.kind === 'default') {
+            renderTaskList(state.filteredTasks, 'Tapşırıqların Siyahısı');
+            openTaskListSection();
+            return true;
+        }
+        if (action.kind === 'dueWeek') {
+            if (action.mode === 'done') showDueThisWeekDoneTasks();
+            else if (action.mode === 'open') showDueThisWeekOpenTasks();
+            else showDueThisWeekTasks();
+            return true;
+        }
+        if (action.kind === 'qurumStatus') { filterQurumByStatus(action.qName, action.statusType); return true; }
+        if (action.kind === 'dateStatus') { filterTasksByDateStatus(action.type); return true; }
+        if (action.kind === 'sprintCompare') { filterSprintComparison(action.sprintName, action.type); return true; }
+        if (action.kind === 'difficulties') { showDifficulties(); return true; }
+        if (action.kind === 'dailyUser') { selectDailyUser(action.userName); return true; }
+        if (action.kind === 'chartStatus') {
+            var k = action.group;
+            if (k === 'blocked') { showDifficulties(); return true; }
+            var list = k === 'other'
+                ? collectOtherDashboardUnits()
+                : countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
+            renderTaskList(list, (CHART_STATUS_NAMES[k] || k) + ' - Tapşırıqları', { keepNested: true });
+            openTaskListSection();
+            return true;
+        }
+        if (action.kind === 'label') {
+            var dirObj = (state.allDirections || []).find(function(d) {
+                return d && (d.key === action.dirKey || (d.fields && d.fields.summary === action.dirName));
+            });
+            if (!dirObj) return false;
+            var fTasks = countableWorkUnits(state.filteredTasks).filter(function(t) {
+                var dir = resolveDirection(t);
+                if (!dir || dir.key !== dirObj.key) return false;
+                var labels = taskLabelNamesLocal(t);
+                if (action.label === 'Etiketsiz') return labels.length === 0;
+                return labels.indexOf(action.label) !== -1;
+            });
+            renderTaskList(fTasks, (action.dirName || '') + ' - Etiket: ' + action.label, { keepNested: true });
+            openTaskListSection();
+            return true;
+        }
+        if (action.kind === 'keys') {
+            var keySet = {};
+            (action.keys || []).forEach(function(key) { keySet[key] = true; });
+            var byKey = {};
+            (state.allTasks || []).forEach(function(t) { if (t && keySet[t.key]) byKey[t.key] = t; });
+            var tasks = (action.keys || []).map(function(key) { return byKey[key]; }).filter(Boolean);
+            renderTaskList(tasks, action.title || 'Tapşırıqların Siyahısı', { keepNested: !!action.keepNested });
+            openTaskListSection();
+            return true;
+        }
+    } finally {
+        state._replayingList = prev;
+    }
+    return false;
+}
+
+export function restoreViewChrome(snap) {
+    if (!snap) return;
+    if (snap.taskListView) state.taskListView = snap.taskListView;
+    if (typeof snap.taskListSearch === 'string') state.taskListSearch = snap.taskListSearch;
+    if (snap.currentPage) state.currentPage = snap.currentPage;
+    if (isSectionOpen('taskListContent') && state.taskListSource && state.taskListSource.length) {
+        renderTaskList(state.taskListSource, state.taskListTitle, { keepView: true });
+    }
+    restoreNestedPanels(snap.nestedOpen);
+    if (typeof snap.qurumSearch === 'string') {
+        var q = document.getElementById('qurumSearch');
+        if (q) q.value = snap.qurumSearch;
+        filterQurumList();
+    }
+    var y = snap.scrollY || 0;
+    window.scrollTo(0, y);
+}
+
+export function afterFilterPaint(fn) {
+    if (typeof fn === 'function') paintWaiters.push(fn);
+}
+
+function flushPaintWaiters() {
+    var waiters = paintWaiters.splice(0);
+    waiters.forEach(function(fn) {
+        try { fn(); } catch (err) { console.error(err); }
+    });
+}
+
 function scheduleFilterPaint() {
     if (filterPaintRaf) cancelAnimationFrame(filterPaintRaf);
     filterPaintRaf = requestAnimationFrame(function() {
@@ -540,10 +749,13 @@ function scheduleFilterPaint() {
         renderStatusChart(state.filteredTasks);
         renderAssigneeChart(state.filteredTasks);
         renderEpicChart(state.epicChartTasks);
-        var runLazy = function() { renderVisibleLazySections(); };
+        var runLazy = function() {
+            renderVisibleLazySections();
+            flushPaintWaiters();
+            state.deferredDirty = false;
+        };
         if (typeof requestIdleCallback === 'function') requestIdleCallback(runLazy, { timeout: 180 });
         else requestAnimationFrame(runLazy);
-        state.deferredDirty = false;
     });
 }
 
@@ -618,6 +830,10 @@ export function renderLazySection(id, force) {
         return;
     }
     if (id === 'taskListContent') {
+        if (state.listViewAction && state.listViewAction.kind !== 'difficulties' && !state._replayingList) {
+            replayListViewAction(state.listViewAction);
+            return;
+        }
         renderTaskList(state.filteredTasks);
     }
 }
@@ -683,20 +899,17 @@ export function filterQurumByStatus(qName, statusType) {
     else if (statusType === 'progress') title += 'İcradakı';
     else title += 'Ümumi';
     title += ' Tapşırıqlar';
+    rememberListAction({ kind: 'qurumStatus', qName: qName, statusType: statusType });
     renderTaskList(fTasks, title);
-    var listEl = document.getElementById('taskListContent');
-    listEl.classList.remove('hidden'); listEl.classList.add('slide-down');
-    listEl.scrollIntoView({ behavior: 'smooth' });
+    openTaskListSection();
 }
 
 export function filterTasksByDateStatus(type) {
     var f = countableWorkUnits(state.filteredTasks).filter(function(t) { return getDateStatus(t) === type; });
     var title = type === 'early' ? 'Vaxtından Öncə Bitən Tapşırıqlar' : type === 'ontime' ? 'Zamanında Bitən Tapşırıqlar' : 'Gecikən / Vaxtı Keçmiş Tapşırıqlar';
+    rememberListAction({ kind: 'dateStatus', type: type });
     renderTaskList(f, title);
-    var listEl = document.getElementById('taskListContent');
-    listEl.classList.remove('hidden');
-    listEl.classList.add('slide-down');
-    listEl.scrollIntoView({ behavior: 'smooth' });
+    openTaskListSection();
 }
 
 export function filterQurumList() {
@@ -786,6 +999,7 @@ export function filterSprintComparison(sprintName, type) {
     }
     else { f = validSTasks; }
 
+    rememberListAction({ kind: 'sprintCompare', sprintName: sprintName, type: type });
     renderTaskList(f, title, { keepNested: true });
     openTaskListSection();
 
@@ -832,6 +1046,7 @@ export function selectDailyUser(userName) {
     });
 
     showUserActivity(userName, userTasks);
+    rememberListAction({ kind: 'dailyUser', userName: userName });
 }
 
 export function showDifficulties() {
@@ -842,7 +1057,8 @@ export function showDifficulties() {
     var icon = document.getElementById('icon-cetinliklerContent');
     if (icon) icon.style.transform = 'rotate(180deg)';
     renderLazySection('cetinliklerContent');
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    rememberListAction({ kind: 'difficulties' });
+    if (!state.restoreQuiet) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 export function showDueThisWeekDoneTasks() {
@@ -851,7 +1067,19 @@ export function showDueThisWeekDoneTasks() {
     if (dueTasks.length === 0) {
         showToast(label + ' olan tamamlanan tapşırıq tapılmadı.', 'info');
     }
+    rememberListAction({ kind: 'dueWeek', mode: 'done' });
     renderTaskList(dueTasks, label + ' — tamamlananlar (' + dueTasks.length + ')', { keepNested: true });
+    openTaskListSection();
+}
+
+export function showDueThisWeekOpenTasks() {
+    var dueTasks = collectDueThisWeekOpenTasks();
+    var label = duePeriodLabel();
+    if (dueTasks.length === 0) {
+        showToast(label + ' olan tamamlanmayan tapşırıq tapılmadı.', 'info');
+    }
+    rememberListAction({ kind: 'dueWeek', mode: 'open' });
+    renderTaskList(dueTasks, label + ' — tamamlanmayanlar (' + dueTasks.length + ')', { keepNested: true });
     openTaskListSection();
 }
 
@@ -861,12 +1089,19 @@ export function showDueThisWeekTasks() {
     if (dueTasks.length === 0) {
         showToast(label + ' olan tapşırıq tapılmadı! (Tarix fields-i yoxlayın)', 'info');
     }
+    rememberListAction({ kind: 'dueWeek', mode: 'all' });
     renderTaskList(dueTasks, label + ' — bütün tapşırıqlar (' + dueTasks.length + ')', { keepNested: true });
     openTaskListSection();
 }
 
 export function filterTasks(type) {
-    state.currentPage = 1;
+    if (!state.restoreQuiet) state.currentPage = 1;
+    if (type === 'blocked') {
+        rememberListAction({ kind: 'difficulties' });
+        showDifficulties();
+        return;
+    }
+    rememberListAction({ kind: 'filter', type: type });
     var units = countableWorkUnits(state.filteredTasks);
     var f = units, title = 'Ümumi Tapşırıqların Siyahısı';
     
@@ -875,10 +1110,7 @@ export function filterTasks(type) {
         title = 'Ümumi Tapşırıqların Siyahısı';
         renderTaskList(f, title, { keepNested: true });
         if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
-        var allListEl = document.getElementById('taskListContent');
-        allListEl.classList.remove('hidden');
-        allListEl.classList.add('slide-down');
-        allListEl.scrollIntoView({ behavior: 'smooth' });
+        openTaskListSection();
         return;
     }
     if (type === 'planned') {
@@ -892,10 +1124,6 @@ export function filterTasks(type) {
     else if(type==='done') { 
         f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
         title = 'Tamamlanmış (İcra edilib) Tapşırıqlar'; 
-    }
-    else if (type === 'blocked') {
-        showDifficulties();
-        return;
     }
     else if (type === 'rejected') { f = (state.filteredTasks || []).filter(function(t) { return isTaskType(t) && getStatusGroup(t.fields.status.name) === 'rejected'; }); title = 'İmtina Edilmiş Tapşırıqlar'; }
     else if (type === 'other') {
@@ -915,14 +1143,19 @@ export function filterTasks(type) {
         title = 'Başlama tarixi boş olan tapşırıqlar';
         if (f.length === 0) showToast('Başlama tarixi boş olan tapşırıq tapılmadı.', 'info');
     }
+    else if (type === 'noDue') {
+        f = tasksWithoutDueDate();
+        title = 'Bitmə tarixi boş olan tapşırıqlar';
+        if (f.length === 0) showToast('Bitmə tarixi boş olan tapşırıq tapılmadı.', 'info');
+        renderTaskList(f, title, { keepNested: true });
+        if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
+        openTaskListSection();
+        return;
+    }
     
     renderTaskList(f, title);
     if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
-    
-    var listEl = document.getElementById('taskListContent');
-    listEl.classList.remove('hidden');
-    listEl.classList.add('slide-down');
-    listEl.scrollIntoView({ behavior: 'smooth' });
+    openTaskListSection();
 }
 
 document.addEventListener('keydown', function(e) {
