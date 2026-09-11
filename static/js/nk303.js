@@ -932,15 +932,17 @@ function applyHubYear(year) {
     ui.year = y;
     ui.hubPage = 1;
     var hub = ui.hub;
-    var body = document.querySelector('#nk303HubRoot .nk303-hub-body');
-    if (body) body.innerHTML = '<div class="nk303-hub-loading">Səhifə hazırlanır…</div>';
     Promise.resolve(setAssessmentYearForActiveTab(y)).then(function() {
         if (ui.hub !== hub) return;
-        renderHub();
         render();
     }).catch(function() {
-        if (ui.hub === hub) renderHub();
+        if (ui.hub === hub) render();
     });
+}
+
+function hubSectionOn(id) {
+    if (ui.hub) return ui.hub === id;
+    return id === 'diag';
 }
 
 function hubNavHtml() {
@@ -951,7 +953,7 @@ function hubNavHtml() {
     } catch (e) {}
     return '<nav class="nk303-sec-nav" aria-label="Qiymətləndirmə bölmələri">'
         + items.map(function(it) {
-            return '<button type="button" class="nk303-sec' + (ui.hub === it.id ? ' is-on' : '') + '" data-sec="'
+            return '<button type="button" class="nk303-sec' + (hubSectionOn(it.id) ? ' is-on' : '') + '" data-sec="'
                 + esc(it.id) + '" onclick="nk303Call(\'hub\',\'' + esc(it.id) + '\')">'
                 + '<i style="background:' + esc(it.color || '#64748b') + '"></i>'
                 + '<span>' + esc(it.label) + '</span>'
@@ -971,14 +973,60 @@ function excelFilesHtml() {
     }).join('') + '</div>';
 }
 
-function backToCountryHtml() {
+function backToCountryHtml(compact) {
+    if (compact) {
+        return '<button type="button" class="nk303-back" onclick="nk303Call(\'mode\',\'country\')">'
+            + iconSvg('chevron') + ' Ölkə üzrə nəticələr</button>';
+    }
     return '<button type="button" class="nk303-home nk303-home--back" onclick="nk303Call(\'mode\',\'country\')">'
         + '<span class="nk303-home-ic">' + iconSvg('chevron') + '</span>'
         + '<span class="nk303-home-txt"><span class="nk303-home-kicker">Geri qayıt</span>'
         + '<span class="nk303-home-name">Ölkə üzrə nəticələr</span></span></button>';
 }
 
+function currentHubView() {
+    try {
+        return getAssessmentHubView(ui.hub);
+    } catch (e) {
+        var tab = HUB_TABS.filter(function(it) { return it.id === ui.hub; })[0];
+        return { section: ui.hub, label: (tab && tab.label) || ui.hub, stats: {}, rows: [], period: '' };
+    }
+}
+
+function trendChartHtml(model) {
+    var pts = (model && model.trend) || [];
+    var has = pts.some(function(t) { return t && t.avg != null; });
+    var hint = 'İllər üzrə ölkə üzrə ortalama bal (0–100).';
+    if (model && model.spanFrom != null && model.spanTo != null && model.spanDelta != null) {
+        var sign = model.spanDelta < 0 ? '' : '+';
+        hint += ' ' + model.spanFrom + '–' + model.spanTo + ': ' + sign + fmt1(model.spanDelta) + ' bal.';
+    }
+    return '<section class="nk303-card nk303-card--index">'
+        + '<p class="nk303-kicker">Diaqnostika və qiymətləndirmə</p>'
+        + '<h3>Rəqəmsallaşma indeksinin dinamikası</h3>'
+        + '<p class="nk303-hint">' + esc(hint) + '</p>'
+        + (has
+            ? '<div class="nk303-chart nk303-chart--index"><canvas id="nkTrendChart" aria-label="Rəqəmsallaşma indeksinin dinamikası"></canvas></div>'
+            : '<p class="nk303-empty">' + esc(NA) + '</p>')
+        + '</section>';
+}
+
+function hubPageHtml(view) {
+    var period = view.period || getAssessmentPeriodLabel() || 'Bütün illər';
+    return '<div class="nk303-hub-toolbar">'
+        + '<div class="nk303-hub-toolbar-main">'
+        + backToCountryHtml(true)
+        + '<div class="nk303-hub-toolbar-title">'
+        + '<h3 id="nk303HubTitle">' + esc(view.label) + ' nəticələri</h3>'
+        + '<p class="nk303-hint">Dövr: ' + esc(period) + '</p>'
+        + '</div></div>'
+        + hubYearFilterHtml(view.section)
+        + '</div>'
+        + '<div class="nk303-hub-page">' + hubBodyHtml(view) + '</div>';
+}
+
 function toggleCountryNav(nav) {
+    resetHubState();
     ui.mode = 'country';
     ui.orgKey = '';
     ui.expandDir = '';
@@ -1277,6 +1325,22 @@ function donutPickOptions(onPick) {
     };
 }
 
+function visStatusPick() {
+    return isVisNav(ui.status) ? ui.status : '';
+}
+
+function pickDonutSlice(items, selectedFilter) {
+    items = items || [];
+    var sliced = !!(selectedFilter && items.some(function(x) { return x.filter === selectedFilter; }));
+    if (sliced) items = items.filter(function(x) { return x.filter === selectedFilter; });
+    var hasAny = items.some(function(x) { return x.n > 0; });
+    return {
+        donutItems: hasAny ? items.filter(function(x) { return x.n > 0; }) : [{ label: NA, n: 1, color: '#e2e8f0' }],
+        centerN: hasAny ? items.reduce(function(s, x) { return s + (x.n || 0); }, 0) : 0,
+        filtered: sliced
+    };
+}
+
 function countryOrgListBody(model, kind) {
     var all = model.rankedOrgs || [];
     var meta = {
@@ -1531,11 +1595,11 @@ function countryBody(model) {
     var done = model.byVis.done || 0;
     var total = model.orgs.length;
     var donePct = pct(done, total);
-    var trendPts = (model.trend || []).filter(function(t) { return t.avg != null; });
+    var visPick = visStatusPick();
     var legend = '<ul class="nk303-status-legend">'
-        + VIS_STATUS.map(function(s) {
+        + VIS_STATUS.filter(function(s) { return !visPick || s.id === visPick; }).map(function(s) {
             var n = model.byVis[s.id] || 0;
-            var on = ui.nav === s.id;
+            var on = visPick === s.id;
             return '<li class="is-click' + (on ? ' is-on' : '') + '" onclick="nk303Call(\'statusList\',\'' + s.id + '\')">'
                 + '<i style="background:' + VIS_COLORS[s.id] + '"></i>'
                 + '<span>' + esc(s.label) + '</span>'
@@ -1545,12 +1609,6 @@ function countryBody(model) {
         }).join('')
         + '</ul>';
     var highRows = highPriorityGaps(model.gaps);
-    var deltaCard = model.spanDelta == null
-        ? '<div class="nk303-delta-card is-empty"><span>Dövr</span><b>—</b><em>' + esc(NA) + '</em></div>'
-        : '<div class="nk303-delta-card' + (model.spanDelta < 0 ? ' is-down' : '') + '">'
-            + '<span>' + esc(String(model.spanFrom) + '–' + String(model.spanTo)) + '</span>'
-            + '<b>' + (model.spanDelta > 0 ? '+' : '') + esc(fmt1(model.spanDelta)) + ' bal</b>'
-            + '<em>' + (model.spanDelta < 0 ? 'azalma' : 'artım') + '</em></div>';
     return countryKpis(model)
         + '<div class="nk303-mid nk303-mid--hero">'
         + '<section class="nk303-card nk303-card--gauge"><h3>Ölkənin rəqəmsal yetkinlik səviyyəsi</h3>'
@@ -1567,16 +1625,12 @@ function countryBody(model) {
         + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div>'
         + '</div></section>'
         + '<section class="nk303-result"><b>Əsas nəticə</b><p>' + esc(summaryText(model)) + '</p></section>'
-        + '<section class="nk303-card nk303-card--trend"><h3>Rəqəmsallaşma indeksinin dinamikası</h3>'
-        + '<div class="nk303-trend">'
-        + (trendPts.length
-            ? '<div class="nk303-chart nk303-chart--trend"><canvas id="nkTrendChart"></canvas></div>'
-            : '<p class="nk303-empty">' + esc(NA) + '</p>')
-        + deltaCard
-        + '</div></section>'
         + '</div>'
+        + trendChartHtml(model)
         + '<section class="nk303-card nk303-card--orgs"><h3>Qurumlar üzrə rəqəmsal yetkinlik</h3>'
-        + orgTableHtml(model, model.rankedOrgs)
+        + orgTableHtml(model, visStatusPick()
+            ? (model.rankedOrgs || []).filter(function(o) { return o.visId === visStatusPick(); })
+            : model.rankedOrgs)
         + '</section>'
         + '<section class="nk303-card nk303-card--gaps"><h3>Əsas rəqəmsallaşma boşluqları</h3>'
         + (highRows.length
@@ -2035,7 +2089,8 @@ function reportsBody(model) {
 
 function bodyHtml(model) {
     var inner;
-    if (ui.mode === 'institution' || ui.orgKey) inner = institutionBody(model);
+    if (ui.hub) inner = hubPageHtml(currentHubView());
+    else if (ui.mode === 'institution' || ui.orgKey) inner = institutionBody(model);
     else if (ui.nav === 'gaps') inner = highGapsBody(model);
     else if (ui.nav === 'orgs') inner = countryOrgListBody(model, 'all');
     else if (isVisNav(ui.nav)) inner = countryOrgListBody(model, ui.nav);
@@ -2192,8 +2247,9 @@ function drawCharts(model) {
         var items = VIS_STATUS.map(function(s) {
             return { label: s.label, n: model.byVis[s.id] || 0, color: VIS_COLORS[s.id], filter: s.id };
         });
-        var hasAny = items.some(function(x) { return x.n > 0; });
-        var donutItems = hasAny ? items.filter(function(x) { return x.n > 0; }) : [{ label: NA, n: 1, color: '#e2e8f0' }];
+        var sliced = pickDonutSlice(items, visStatusPick());
+        var donutItems = sliced.donutItems;
+        var donutCenter = sliced.filtered ? sliced.centerN : total;
         var donutPick = donutPickOptions(function(filter) {
             nk303Call('statusList', filter);
         });
@@ -2218,37 +2274,58 @@ function drawCharts(model) {
                 onHover: donutPick.onHover
             },
             plugins: [centerTextPlugin('nkDonutCenter', [
-                { text: String(total), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
+                { text: String(donutCenter), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
                 { text: 'Qurum', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
             ])],
             _donutItems: donutItems
         });
     }
     if (document.getElementById('nkTrendChart')) {
-        var pts = (model.trend || []).filter(function(t) { return t.avg != null; });
-        if (pts.length) {
+        var pts = model.trend || [];
+        var hasPts = pts.some(function(t) { return t && t.avg != null; });
+        if (hasPts) {
             makeChart('nkTrendChart', {
                 type: 'line',
                 data: {
                     labels: pts.map(function(t) { return String(t.y); }),
                     datasets: [{
+                        label: 'Ölkə indeksi',
                         data: pts.map(function(t) { return t.avg; }),
-                        borderColor: '#2563eb',
-                        backgroundColor: 'rgba(37,99,235,0.12)',
+                        borderColor: '#7c3aed',
+                        backgroundColor: 'rgba(124,58,237,0.12)',
                         fill: true,
+                        spanGaps: true,
                         tension: 0.35,
                         pointRadius: 5,
-                        pointHoverRadius: 6,
-                        pointBackgroundColor: '#2563eb',
+                        pointHoverRadius: 7,
+                        pointBackgroundColor: '#7c3aed',
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
-                        borderWidth: 2.5
+                        borderWidth: 2.6
                     }]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title: function(items) {
+                                    var i = items && items[0] && items[0].dataIndex;
+                                    var row = pts[i];
+                                    return row ? String(row.y) : '';
+                                },
+                                label: function(ctx) {
+                                    var row = pts[ctx.dataIndex] || {};
+                                    if (row.avg == null) return 'Bal yoxdur';
+                                    var n = row.n || 0;
+                                    return 'Ortalama: ' + fmt1(row.avg) + ' · ' + n + ' qurum';
+                                }
+                            }
+                        }
+                    },
                     scales: {
                         y: {
                             min: 0,
@@ -2312,18 +2389,11 @@ function makeHubChart(id, cfg) {
 
 function syncHubNav() {
     document.querySelectorAll('.nk303-sec').forEach(function(btn) {
-        btn.classList.toggle('is-on', btn.getAttribute('data-sec') === ui.hub);
+        btn.classList.toggle('is-on', hubSectionOn(btn.getAttribute('data-sec')));
     });
 }
 
-function closeHub() {
-    ui.hub = '';
-    ui.hubSearch = '';
-    ui.hubPage = 1;
-    ui.hubFilter = '';
-    ui.hubSort = 'desc';
-    destroyHubCharts();
-    destroyMeqsedOverviewCharts();
+function hideHubOverlay() {
     var overlay = document.getElementById('nk303HubOverlay');
     if (overlay) {
         overlay.classList.add('hidden');
@@ -2331,64 +2401,47 @@ function closeHub() {
         overlay.setAttribute('aria-hidden', 'true');
     }
     document.body.classList.remove('nk303-hub-open');
-    syncHubNav();
 }
 
-function hubSkeletonHtml(section) {
-    var tab = HUB_TABS.filter(function(it) { return it.id === section; })[0];
-    var label = (tab && tab.label) || section;
-    return '<div class="nk303-hub-sheet">'
-        + '<div class="nk303-hub-head">'
-        + '<div>'
-        + '<p class="nk303-kicker">Diaqnostika və qiymətləndirmə</p>'
-        + '<h2 id="nk303HubTitle">' + esc(label) + ' nəticələri</h2>'
-        + '<p class="sub">Yüklənir…</p>'
-        + '</div>'
-        + '<button type="button" class="nk303-hub-close" onclick="nk303Call(\'closeHub\')" aria-label="Bağla">'
-        + iconSvg('close') + '</button>'
-        + '</div>'
-        + '<div class="nk303-hub-navwrap"><div class="nk303-hub-navrow">' + hubNavHtml() + hubYearFilterHtml(section) + '</div></div>'
-        + '<div class="nk303-hub-body"><div class="nk303-hub-loading">Səhifə hazırlanır…</div></div>'
-        + '</div>';
+function resetHubState() {
+    ui.hub = '';
+    ui.hubSearch = '';
+    ui.hubPage = 1;
+    ui.hubFilter = '';
+    ui.hubSort = 'desc';
+    destroyHubCharts();
+    destroyMeqsedOverviewCharts();
+    hideHubOverlay();
 }
 
-function showHubOverlay() {
-    var overlay = document.getElementById('nk303HubOverlay');
-    if (overlay) {
-        overlay.classList.remove('hidden');
-        overlay.removeAttribute('hidden');
-        overlay.setAttribute('aria-hidden', 'false');
-    }
-    document.body.classList.add('nk303-hub-open');
+function closeHub() {
+    resetHubState();
 }
 
 function openHub(section) {
-    if (ui.hub === section) {
+    if (!section || section === 'diag') {
         closeHub();
+        window.scrollTo(0, 0);
+        render();
         return;
     }
-    var alreadyOpen = !!ui.hub;
+    if (ui.hub === section) {
+        closeHub();
+        window.scrollTo(0, 0);
+        render();
+        return;
+    }
     ui.hub = section;
     ui.hubSearch = '';
     ui.hubPage = 1;
     ui.hubFilter = '';
     ui.hubSort = section === 'meqsed' ? 'date' : 'desc';
-    showHubOverlay();
-    syncHubNav();
-    var root = document.getElementById('nk303HubRoot');
-    if (!alreadyOpen && root) {
-        root.innerHTML = hubSkeletonHtml(section);
-    } else if (alreadyOpen) {
-        var body = document.querySelector('#nk303HubRoot .nk303-hub-body');
-        var title = document.getElementById('nk303HubTitle');
-        var tab = HUB_TABS.filter(function(it) { return it.id === section; })[0];
-        if (title && tab) title.textContent = tab.label + ' nəticələri';
-        if (body) body.innerHTML = '<div class="nk303-hub-loading">Səhifə hazırlanır…</div>';
-    }
-    requestAnimationFrame(function() {
-        if (ui.hub !== section) return;
-        renderHub();
-    });
+    ui.mode = 'country';
+    ui.orgKey = '';
+    ui.nav = 'overview';
+    hideHubOverlay();
+    window.scrollTo(0, 0);
+    render();
 }
 
 function hubKpiHit(key) {
@@ -2427,30 +2480,22 @@ function hubKpisHtml(view) {
         });
     } else if (view.section === 'exq') {
         var avg = st.weightedAvg != null ? st.weightedAvg : st.avg;
+        kpiCls = ' nk303-kpis--4';
         cards = kpiCardHtml({
             ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə ortalama bal',
             valueHtml: avg == null ? '—' : esc(fmt1(avg)) + ' <small>/ 100</small>'
         })
         + kpiCardHtml({
-            ic: 'is-blue', icon: 'building', label: 'Qiymətləndirilən qurumlar',
-            valueHtml: esc(String(st.qurumWithSvc || st.qurum || 0)), subHtml: '<div class="sub">cəmi qurum</div>',
-            onclick: hubKpiHit('all'), on: !f
-        })
-        + kpiCardHtml({
-            ic: 'is-green', icon: 'check', label: 'Nəticəsi olan',
-            valueHtml: esc(String(st.hasResult || 0)), subHtml: '<div class="sub">qeyd</div>',
-            onclick: hubKpiHit('has_result'), on: f === 'has_result'
+            ic: 'is-blue', icon: 'building', label: 'Əhatə olunan qurumlar',
+            valueHtml: esc(String(st.qurum || 0)),
+            subHtml: '<div class="sub">' + esc(view.period || getAssessmentPeriodLabel() || 'Bütün illər') + '</div>',
+            onclick: hubKpiHit('orgs'), on: f === 'orgs'
         })
         + kpiCardHtml({
             ic: 'is-green', icon: 'star', label: 'Tamamlanmış',
             valueHtml: esc(String(vis.done)) + ' <small>/ ' + esc(String(total)) + '</small>',
             subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
             onclick: hubKpiHit('done'), on: f === 'done'
-        })
-        + kpiCardHtml({
-            ic: 'is-red', icon: 'down', label: 'Nəticəsiz',
-            valueHtml: esc(String(st.noResult || 0)),
-            onclick: hubKpiHit('no_result'), on: f === 'no_result'
         })
         + kpiCardHtml({
             ic: 'is-amber', icon: 'flag', label: 'İcradadır',
@@ -2464,6 +2509,7 @@ function hubKpisHtml(view) {
         var ranked = (st.dirRadar || []).filter(function(d) { return d.avg != null; })
             .slice().sort(function(a, b) { return a.avg - b.avg; });
         var weak = ranked[0];
+        kpiCls = isRadar ? ' nk303-kpis--5' : ' nk303-kpis--4';
         cards = kpiCardHtml({
             ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə ortalama bal',
             valueHtml: st.avg == null ? '—' : esc(fmt1(st.avg)) + ' <small>/ 100</small>'
@@ -2472,11 +2518,6 @@ function hubKpisHtml(view) {
             ic: 'is-blue', icon: 'building', label: 'Qiymətləndirilən qurumlar',
             valueHtml: esc(String(st.qurum || 0)), subHtml: '<div class="sub">cəmi qurum</div>',
             onclick: hubKpiHit('all'), on: !f
-        })
-        + kpiCardHtml({
-            ic: 'is-green', icon: 'check', label: 'Nəticəsi olan',
-            valueHtml: esc(String(st.hasResult || 0)) + ' <small>/ ' + esc(String(st.total || 0)) + '</small>',
-            onclick: hubKpiHit('has_result'), on: f === 'has_result'
         })
         + kpiCardHtml(isRadar ? {
             ic: 'is-green', icon: 'star', label: 'Ən güclü istiqamət',
@@ -2499,16 +2540,19 @@ function hubKpisHtml(view) {
                 ? '<div class="sub is-down">' + esc(fmt1(weak.avg)) + ' bal</div>'
                 : ''
         } : {
-            ic: 'is-red', icon: 'down', label: 'Nəticəsiz',
-            valueHtml: esc(String(st.noResult || 0)),
-            onclick: hubKpiHit('no_result'), on: f === 'no_result'
-        })
-        + kpiCardHtml({
             ic: 'is-amber', icon: 'flag', label: 'İcradadır',
             valueHtml: esc(String(vis.in_progress || 0)),
             subHtml: '<div class="sub">qurum</div>',
             onclick: hubKpiHit('in_progress'), on: f === 'in_progress'
         });
+        if (isRadar) {
+            cards += kpiCardHtml({
+                ic: 'is-amber', icon: 'flag', label: 'İcradadır',
+                valueHtml: esc(String(vis.in_progress || 0)),
+                subHtml: '<div class="sub">qurum</div>',
+                onclick: hubKpiHit('in_progress'), on: f === 'in_progress'
+            });
+        }
     }
     return '<div class="nk303-kpis' + kpiCls + '">' + cards + '</div>';
 }
@@ -2708,7 +2752,7 @@ function sortHubRows(list, section, mode) {
 
 function hubFilterLabel(key) {
     if (!key || key === 'all') return '';
-    if (key === 'orgs') return 'Müraciət edən qurumlar';
+    if (key === 'orgs') return ui.hub === 'exq' ? 'Əhatə olunan qurumlar' : 'Müraciət edən qurumlar';
     if (key === 'has_result') return 'Nəticəsi olan';
     if (key === 'no_result') return 'Nəticəsiz';
     if (key === 'done') return 'Tamamlanmış';
@@ -2738,7 +2782,8 @@ function hubTableHtml(view) {
             || fold(r.status || '').indexOf(q) !== -1;
     });
     if (view.section === 'exq') {
-        var keepAll = !!(ui.hubFilter && ui.hubFilter !== 'all' && ui.hubFilter !== 'svc_sum');
+        var keepAll = ui.hubFilter === 'orgs'
+            || !!(ui.hubFilter && ui.hubFilter !== 'all' && ui.hubFilter !== 'svc_sum');
         list = collapseExqHubRows(list, keepAll);
     }
     else if (ui.hubFilter === 'orgs') list = uniqueHubOrgs(list);
@@ -2923,6 +2968,10 @@ function hubBodyHtml(view) {
         : VIS_STATUS.map(function(s) {
             return { id: s.id, label: s.label, n: vis[s.id] || 0, color: VIS_COLORS[s.id], filter: s.id };
         });
+    if (ui.hubFilter) {
+        var onlyLeg = legendItems.filter(function(s) { return s.filter === ui.hubFilter; });
+        if (onlyLeg.length) legendItems = onlyLeg;
+    }
     var legend = '<ul class="nk303-status-legend">'
         + legendItems.map(function(s) {
             var n = s.n || 0;
@@ -3123,8 +3172,9 @@ function drawHubCharts(view) {
             centerN = st.qurum || 0;
             centerLb = 'Qurum';
         }
-        var hasAny = items.some(function(x) { return x.n > 0; });
-        var donutItems = hasAny ? items.filter(function(x) { return x.n > 0; }) : [{ label: NA, n: 1, color: '#e2e8f0' }];
+        var sliced = pickDonutSlice(items, ui.hubFilter);
+        var donutItems = sliced.donutItems;
+        if (sliced.filtered) centerN = sliced.centerN;
         var hubDonutPick = donutPickOptions(function(filter) {
             nk303Call('hubFilter', filter);
         });
@@ -3257,38 +3307,23 @@ function drawHubCharts(view) {
 
 function renderHub(opts) {
     opts = opts || {};
-    var root = document.getElementById('nk303HubRoot');
-    if (!root || !ui.hub) return;
-    var view;
-    try {
-        view = getAssessmentHubView(ui.hub);
-    } catch (e) {
-        view = { section: ui.hub, label: ui.hub, stats: {}, rows: [], period: '' };
-    }
-    var bodyEl = root.querySelector('.nk303-hub-body');
-    var keepY = !opts.scrollToList && bodyEl ? bodyEl.scrollTop : 0;
-    destroyHubCharts();
-    destroyMeqsedOverviewCharts();
-    root.innerHTML = hubSheetHtml(view);
+    if (!ui.hub) return;
+    var keepSearch = document.activeElement
+        && document.activeElement.getAttribute
+        && document.activeElement.getAttribute('placeholder') === 'Qurum adı ilə axtar...';
+    render();
     requestAnimationFrame(function() {
-        drawHubCharts(view);
-        if (view.section === 'meqsed') drawMeqsedOverviewCharts(view.stats);
-        var nextBody = root.querySelector('.nk303-hub-body');
-        if (opts.scrollToList && nextBody) {
+        if (opts.scrollToList) {
             var list = document.getElementById('nk303HubList');
-            if (list) {
-                var br = nextBody.getBoundingClientRect();
-                var lr = list.getBoundingClientRect();
-                nextBody.scrollTop += lr.top - br.top - 10;
-            }
-        } else if (nextBody && keepY) nextBody.scrollTop = keepY;
+            if (list && list.scrollIntoView) list.scrollIntoView({ block: 'start' });
+        }
+        var inp = document.querySelector('.nk303-hub-page input[type="search"]');
+        if (keepSearch && inp) {
+            inp.focus();
+            var len = inp.value.length;
+            try { inp.setSelectionRange(len, len); } catch (e2) {}
+        }
     });
-    var inp = root.querySelector('input[type="search"]');
-    if (inp && document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute('placeholder') === 'Qurum adı ilə axtar...') {
-        inp.focus();
-        var len = inp.value.length;
-        try { inp.setSelectionRange(len, len); } catch (e2) {}
-    }
 }
 
 function scheduleHubPrefetch() {
@@ -3305,9 +3340,17 @@ function render() {
     var y = window.scrollY || 0;
     var model = buildModel();
     destroyNkCharts();
+    destroyHubCharts();
+    destroyMeqsedOverviewCharts();
     root.innerHTML = pageHeadHtml(model) + bodyHtml(model);
     requestAnimationFrame(function() {
-        drawCharts(model);
+        if (ui.hub) {
+            var view = currentHubView();
+            drawHubCharts(view);
+            if (view.section === 'meqsed') drawMeqsedOverviewCharts(view.stats);
+        } else {
+            drawCharts(model);
+        }
         window.scrollTo(0, y);
         scheduleHubPrefetch();
     });
@@ -3401,6 +3444,7 @@ function resetFilters() {
     ui.expandCrit = '';
     ui.mode = 'country';
     ui.nav = 'overview';
+    resetHubState();
 }
 
 export function openNk303() {
@@ -3411,6 +3455,7 @@ export function openNk303() {
     ui.mode = 'country';
     ui.nav = 'overview';
     ui.page = 1;
+    resetHubState();
     if (!isNk303Path()) {
         history.pushState({ nk303: true }, '', '/diaqnostika');
     }
@@ -3600,6 +3645,7 @@ export function nk303Call(action, payload) {
             ui.expandDir = '';
             ui.expandCrit = '';
             ui.nav = 'overview';
+            resetHubState();
         } else if (!ui.orgKey) {
             ui.nav = 'orgs';
         }
@@ -3611,10 +3657,13 @@ export function nk303Call(action, payload) {
     } else if (action === 'year') {
         ui.year = payload || 'all';
         ui.page = 1;
+        applyHubYear(ui.year);
+        return;
     } else if (action === 'org') {
         ui.orgKey = payload || '';
         ui.page = 1;
         if (ui.orgKey) {
+            resetHubState();
             ui.mode = 'institution';
             ui.nav = 'overview';
         } else {
@@ -3689,7 +3738,10 @@ export function nk303Call(action, payload) {
         toggleCountryNav('done');
     } else if (action === 'statusList') {
         var sid = String(payload || '');
-        if (isVisNav(sid)) toggleCountryNav(sid);
+        if (!isVisNav(sid)) return;
+        ui.status = ui.status === sid ? '' : sid;
+        ui.page = 1;
+        if (isVisNav(ui.nav)) ui.nav = 'overview';
     } else if (action === 'openGap') {
         var bits = darg(payload || '').split('\t');
         ui.orgKey = bits[0] || '';
@@ -3707,6 +3759,8 @@ export function nk303Call(action, payload) {
         return;
     } else if (action === 'closeHub') {
         closeHub();
+        window.scrollTo(0, 0);
+        render();
         return;
     } else if (action === 'hubSearch') {
         ui.hubSearch = darg(payload || '');

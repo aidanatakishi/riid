@@ -20,6 +20,26 @@ def auth_headers(pat):
     }
 
 
+def http_error_payload(res):
+    try:
+        error_data = res.json()
+        if isinstance(error_data, dict) and (error_data.get('error') or error_data.get('errorMessages')):
+            return error_data
+    except Exception:
+        pass
+    if res.status_code == 503:
+        return {
+            "error": "Jira müvəqqəti əlçatan deyil (503). Brauzerdə jira.idda.az açın — "
+                     "«Jira access problem» görünsə, server bərpa olunana qədər gözləyin."
+        }
+    if res.status_code == 502:
+        return {"error": "Jira şlüzü cavab vermir (502). Bir az sonra yenidən yoxlayın."}
+    body = (res.text or '').strip()
+    if not body:
+        return {"error": f"Jira HTTP {res.status_code} qaytardı."}
+    return {"error": f"HTTP {res.status_code}: {body[:300]}"}
+
+
 def fetch_jira_data(base_url, pat, jql, fields, expand=None):
     url = f"{base_url}/rest/api/2/search"
     all_issues = []
@@ -56,11 +76,7 @@ def fetch_jira_data(base_url, pat, jql, fields, expand=None):
             return None, {"error": f"Sorğu xətası: {str(e)}"}, 500
 
         if res.status_code != 200:
-            try:
-                error_data = res.json()
-            except Exception:
-                error_data = {"error": f"HTTP {res.status_code}: {res.text[:300]}"}
-            return None, error_data, res.status_code
+            return None, http_error_payload(res), res.status_code
 
         try:
             data = res.json()
@@ -96,11 +112,7 @@ def fetch_jira_fields(base_url, pat):
         return None, {"error": f"Sorğu xətası: {str(e)}"}, 500
 
     if res.status_code != 200:
-        try:
-            error_data = res.json()
-        except Exception:
-            error_data = {"error": f"HTTP {res.status_code}: {res.text[:300]}"}
-        return None, error_data, res.status_code
+        return None, http_error_payload(res), res.status_code
 
     try:
         fields = res.json()

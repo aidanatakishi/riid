@@ -3852,12 +3852,13 @@ button.meqsed-ov-kpi:hover { border-color: #cbd5e1; }
     font-size: 0.72rem;
     color: #94a3b8;
 }
-.meqsed-ov-orgs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+.meqsed-ov-orgs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 .meqsed-ov-org {
     display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(4rem, 1fr) 1.6rem;
+    grid-template-columns: minmax(0, 1fr) 1.6rem;
+    grid-template-rows: auto auto;
     align-items: center;
-    gap: 0.65rem;
+    gap: 0.28rem 0.65rem;
     width: 100%;
     margin: 0;
     padding: 0;
@@ -3868,18 +3869,23 @@ button.meqsed-ov-kpi:hover { border-color: #cbd5e1; }
     text-align: left;
 }
 .meqsed-ov-org span {
+    grid-column: 1 / -1;
     font-size: 0.8rem;
     color: #334155;
     font-weight: 500;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.35;
+    white-space: normal;
+    overflow: visible;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 .meqsed-ov-org-track {
+    grid-column: 1;
     height: 0.42rem;
     border-radius: 999px;
     background: #e2e8f0;
     overflow: hidden;
+    min-width: 0;
 }
 .meqsed-ov-org-track i {
     display: block;
@@ -3888,6 +3894,7 @@ button.meqsed-ov-kpi:hover { border-color: #cbd5e1; }
     border-radius: 999px;
 }
 .meqsed-ov-org b {
+    grid-column: 2;
     font-size: 0.82rem;
     font-weight: 700;
     color: #0f172a;

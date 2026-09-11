@@ -690,8 +690,6 @@ function listFilterGroups(section) {
         groups.push({
             title: 'Nəticə',
             items: [
-                { key: 'has_result', label: 'Nəticəsi olan' },
-                { key: 'no_result', label: 'Nəticəsiz' },
                 { key: 'score_high', label: 'Bal ≥ 70' },
                 { key: 'score_mid', label: 'Bal 40–69' },
                 { key: 'score_low', label: 'Bal < 40' }

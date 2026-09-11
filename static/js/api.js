@@ -81,12 +81,26 @@ async function describeDirectFailure() {
     return NETWORK_BLOCK_MSG;
 }
 
+function formatJiraFail(res, data) {
+    var msg = '';
+    if (data && data.errorMessages && data.errorMessages[0]) msg = data.errorMessages[0];
+    else if (data && data.error) msg = data.error;
+    if (msg) return msg;
+    if (res && res.status === 503) {
+        return 'Jira müvəqqəti əlçatan deyil (503). Brauzerdə jira.idda.az açın və bir az sonra yenidən yoxlayın.';
+    }
+    return 'Jira API xətası: ' + ((res && res.status) || 'naməlum');
+}
+
 async function parseJiraError(res, text) {
     try {
         var data = JSON.parse(text);
-        throw new Error('Jira API xətası: ' + (data.errorMessages ? data.errorMessages[0] : (data.error || res.status)));
+        throw new Error(formatJiraFail(res, data));
     } catch (e) {
-        if (e.message && e.message.indexOf('Jira API xətası') === 0) throw e;
+        if (e && e.message && (e.message.indexOf('Jira') === 0 || e.message.indexOf('HTTP') === 0)) throw e;
+        if (res && res.status === 503) {
+            throw new Error('Jira müvəqqəti əlçatan deyil (503). Brauzerdə jira.idda.az açın və bir az sonra yenidən yoxlayın.');
+        }
         throw new Error('Jira cavabı JSON deyil: ' + String(text).substring(0, 150));
     }
 }
@@ -215,7 +229,7 @@ async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
     var text = await res.text();
     try {
         var data = JSON.parse(text);
-        if (!res.ok) throw new Error('Jira API xətası: ' + (data.errorMessages ? data.errorMessages[0] : (data.error || res.status)));
+        if (!res.ok) throw new Error(formatJiraFail(res, data));
         return data;
     } catch (e) {
         if (e.message && e.message.indexOf('Jira API xətası') === 0) throw e;
