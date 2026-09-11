@@ -991,7 +991,62 @@ function formatAbout() {
         + pRead('«Bütün sprintlər» ümumi fondur. Seçilmiş sprint həftəlik icradır. Kartdakı tamamlanma faizi əsasən bu həftə bitməli işlər üzrədir, bütün lövhənin yekun payı deyil. Hesabat düyməsi eyni filteri Word-ə çıxarır.');
 }
 
-function formatKpi(kpis, focus) {
+function formatOverview(kpis, ev) {
+    ev = ev || collectEvidence();
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(kpis.sprint || 'Cari kəsik') + '</h4>'
+        + pLead(overviewLead(kpis, ev))
+        + pRead(overviewBody(kpis, ev));
+    if (ev.dueOpen.length) {
+        html += '<p class="dash-chat-sub">Həftə ərzində açıq qalanlar</p>' + itemList(ev.dueOpen.slice(0, 5));
+    } else if (ev.late.length) {
+        html += '<p class="dash-chat-sub">Gecikən işlər</p>' + itemList(ev.late.slice(0, 5));
+    }
+    html += pAttn(overviewAttn(kpis, ev));
+    return html;
+}
+
+function overviewLead(kpis, ev) {
+    if (!kpis.total) return 'Bu filterdə lövhə tapşırığı yoxdur. Sprint və ya tarixi dəyişəndə rəqəmlər çıxacaq.';
+    var boardRate = pct(kpis.done, kpis.total);
+    if (kpis.due && kpis.rate < 40) {
+        return scopeNote(kpis) + '. Həftə öhdəliyi zəifdir: ' + kpis.dueDone + '/' + kpis.due + ' iş bitib (' + kpis.rate + '%). Lövhənin ümumi yekunlaşması ' + boardRate + '%-dir.';
+    }
+    if (kpis.due && kpis.rate >= 70 && kpis.late < 3) {
+        return scopeNote(kpis) + '. Həftə öhdəliyi əsasən yerinə yetirilib (' + kpis.dueDone + '/' + kpis.due + '). Lövhədə ' + kpis.total + ' işdən ' + kpis.done + '-i yekunlaşıb.';
+    }
+    return scopeNote(kpis) + '. Lövhədə ' + kpis.total + ' iş var, ' + kpis.done + '-i yekunlaşıb (' + boardRate + '%). Həftə öhdəliyi ' + (kpis.due ? (kpis.dueDone + '/' + kpis.due + ', ' + kpis.rate + '%') : 'bu kəsikdə düşmür') + '.';
+}
+
+function overviewBody(kpis, ev) {
+    if (!kpis.total) return '';
+    var parts = [];
+    if (ev.dirs[0]) {
+        parts.push('Həcm ' + ev.dirs[0].name + ' üzrə cəmlənib: ' + ev.dirs[0].total + ' iş, yekunlaşma ' + ev.dirs[0].rate + '%.');
+        if (ev.dirs[1]) parts.push('Ardınca ' + ev.dirs[1].name + ' (' + ev.dirs[1].total + ').');
+    }
+    if (ev.people[0]) {
+        var p0 = ev.people[0];
+        var risk = [p0.late ? p0.late + ' gecikən' : '', p0.blocked ? p0.blocked + ' blok' : ''].filter(Boolean).join(', ');
+        parts.push('Ən yüklü icraçı ' + p0.name + 'dir — ' + p0.total + ' iş' + (risk ? ' (' + risk + ')' : '') + '.');
+        if (ev.people[1]) parts.push('İkinci ' + ev.people[1].name + ' (' + ev.people[1].total + ').');
+    }
+    if (kpis.progress) parts.push('Aktiv icrada ' + kpis.progress + ' iş qalır.');
+    if (!kpis.due) parts.push('Bu kəsikdə həftə ərzində bitmə tarixi düşən iş yoxdur, ona görə kartın tamamlanma faizi 0 görünə bilər.');
+    return parts.join(' ');
+}
+
+function overviewAttn(kpis, ev) {
+    var notes = [];
+    if (kpis.late) notes.push(kpis.late + ' iş gecikir' + (ev && ev.late[0] ? ' (məs. ' + ev.late[0].key + ')' : ''));
+    if (kpis.blocked) notes.push(kpis.blocked + ' iş blokdadır' + (ev && ev.blocked[0] ? ' (məs. ' + ev.blocked[0].key + ')' : ''));
+    if (kpis.due && kpis.rate < 50) notes.push('həftə öhdəliyinin yarısından azı bitib');
+    if (kpis.backlog && kpis.backlog > kpis.progress) notes.push('backlog aktiv icradan böyükdür');
+    if (!notes.length) return '';
+    return 'Diqqət: ' + notes.join('; ') + '.';
+}
+
+function formatKpi(kpis, focus, ev) {
+    ev = ev || collectEvidence();
     var map = {
         blocked: kpis.blocked,
         late: kpis.late,
@@ -1006,41 +1061,48 @@ function formatKpi(kpis, focus) {
     };
     var n = map[focus.id];
     if (n == null) n = 0;
-    var html = '<p class="dash-chat-kicker">Təhlil</p><h4>' + esc(focus.label) + ': ' + n + '</h4>'
-        + pLead(scopeNote(kpis) + '. Sualınız bu göstərici üzrədir; aşağıda həm rəqəm, həm də ümumi kontekst var.');
-    html += '<div class="dash-chat-kpis">'
-        + kpi(focus.label, n)
-        + kpi('Ümumi', kpis.total)
-        + kpi('Tamamlanan', kpis.done + ' · ' + pct(kpis.done, kpis.total) + '%')
-        + kpi('İcradakı', kpis.progress)
-        + kpi('Bloklanan', kpis.blocked)
-        + kpi('Gecikən', kpis.late)
-        + '</div>';
-    html += pRead(writeKpiRead(kpis, focus, n));
-    html += pAttn(writeKpiAttn(kpis, focus, n));
+    var samples = kpiSamples(focus.id, ev);
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(focus.label) + ': ' + n + '</h4>'
+        + pLead(writeKpiRead(kpis, focus, n, ev));
+    if (samples.length) {
+        html += '<p class="dash-chat-sub">Hansı işlər</p>' + itemList(samples.slice(0, 6));
+    }
+    html += pAttn(writeKpiAttn(kpis, focus, n, ev));
     return html;
 }
 
-function writeKpiRead(kpis, focus, n) {
+function kpiSamples(id, ev) {
+    if (id === 'blocked') return ev.blocked || [];
+    if (id === 'late') return ev.late || [];
+    if (id === 'due' || id === 'open') return ev.dueOpen || [];
+    if (id === 'done') return ev.dueDone || [];
+    return [];
+}
+
+function writeKpiRead(kpis, focus, n, ev) {
     var share = kpis.total ? pct(n, kpis.total) : 0;
-    if (focus.id === 'blocked') {
+    var who = '';
+    if (focus.id === 'blocked' && ev.blocked[0]) {
+        who = ownersFromItems(ev.blocked);
         return n
-            ? ('Bloklanan və ya çətinlik qeydli iş sayı ' + n + '-dir — lövhənin ' + share + '%-i. Bu işlər icra tempini saxlayır; status və məsul şəxs üzrə ayrıca açılmalıdır.')
-            : 'Bu görünüşdə bloklanan iş yoxdur. Lövhənin əsas riski hazırda gecikmə və ya həftə öhdəliyindən gələ bilər.';
+            ? ('Bloklanan və ya çətinlik qeydli iş ' + n + ' ədəddir — lövhənin ' + share + '%-i.' + (who ? ' Əsasən: ' + who + '.' : '') + (ev.blocked[0] ? ' Birinci nümunə ' + ev.blocked[0].key + ' — ' + ev.blocked[0].title + '.' : ''))
+            : 'Bu görünüşdə bloklanan iş yoxdur. İndi risk daha çox gecikmə (' + kpis.late + ') və ya həftə öhdəliyindən (' + kpis.rate + '%) gəlir.';
     }
     if (focus.id === 'late') {
+        who = ownersFromItems(ev.late);
         return n
-            ? ('Gecikən iş sayı ' + n + '-dir (' + share + '%). Bitmə tarixi keçib, amma status hələ yekun deyil — həftə hesabatında bu qrup ayrıca göstərilməlidir.')
-            : 'Gecikən tapşırıq görünmür. Tarix filteri və sprint seçimi dəyişəndə bu rəqəm dəyişə bilər.';
+            ? ('Gecikən iş ' + n + '-dir (' + share + '%). Bitmə tarixi keçib, status hələ yekun deyil.' + (who ? ' İcraçılar: ' + who + '.' : '') + (ev.late[0] ? ' Məsələn ' + ev.late[0].key + ' — ' + ev.late[0].title + '.' : ''))
+            : 'Gecikən tapşırıq görünmür. Filter dəyişəndə bu rəqəm dəyişə bilər.';
     }
     if (focus.id === 'due') {
-        return 'Həftə ərzində bitməli ' + kpis.due + ' iş var; ' + kpis.dueDone + '-i yekunlaşıb (' + kpis.rate + '%). Qalan ' + Math.max(0, kpis.due - kpis.dueDone) + ' iş həftə sonuna qədər izlənməlidir.';
+        return 'Həftə ərzində bitməli ' + kpis.due + ' iş var; ' + kpis.dueDone + '-i yekunlaşıb (' + kpis.rate + '%). Açıq qalan ' + Math.max(0, kpis.due - kpis.dueDone) + ' iş həftəni bağlamaq üçün qalıb.'
+            + (ev.dueOpen[0] ? ' Açıqlardan biri: ' + ev.dueOpen[0].key + ' — ' + ev.dueOpen[0].title + '.' : '');
     }
     if (focus.id === 'done') {
-        return 'Tamamlanan iş ' + n + '-dir, ümumi lövhənin ' + pct(n, kpis.total) + '%-i. Tamamlanma faizi kartda əsasən həftə ərzində bitməli işlər üzrə ' + kpis.rate + '% göstərilir.';
+        return 'Tamamlanan iş ' + n + '-dir, lövhənin ' + pct(n, kpis.total) + '%-i. Kartdakı tamamlanma faizi isə həftə ərzində bitməli işlər üzrə ' + kpis.rate + '% göstərilir — bu iki rəqəm eyni şey deyil.';
     }
     if (focus.id === 'progress') {
-        return 'Aktiv icrada (ESD və rəy daxil) ' + n + ' iş var. Bu, açıq işlərin ' + (kpis.open ? pct(n, kpis.open) : 0) + '%-idir.';
+        return 'Aktiv icrada (ESD və rəy daxil) ' + n + ' iş var. Açıq işlərin ' + (kpis.open ? pct(n, kpis.open) : 0) + '%-i hərəkətdədir, ' + kpis.blocked + '-i isə blokdadır.';
     }
     if (focus.id === 'backlog') {
         return n
@@ -1048,83 +1110,91 @@ function writeKpiRead(kpis, focus, n) {
             : 'Backlog boşdur; yeni işlər birbaşa sprintə düşür və ya hələ yüklənməyib.';
     }
     if (focus.id === 'planned') {
-        return 'Növbəti həftəyə planlaşdırılan iş sayı ' + n + '-dir. Bu, cari həftə öhdəliyindən (' + kpis.due + ') ' + (n > kpis.due ? 'böyükdür' : 'kiçik və ya bərabərdir') + '.';
+        return 'Növbəti həftəyə planlaşdırılan iş ' + n + '-dir. Cari həftə öhdəliyi ' + kpis.due + ' işdir — növbəti həftə ' + (n > kpis.due ? 'daha sıx görünür' : 'daha yüngül və ya bərabərdir') + '.';
     }
     if (focus.id === 'rejected') {
         return n ? ('İmtina edilən tapşırıq: ' + n + '. Bu qrup ümumi lövhə sayına daxil edilmir.') : 'İmtina edilən tapşırıq yoxdur.';
     }
     if (focus.id === 'open') {
-        return 'Açıq iş ' + n + '-dir (ümumidən ' + kpis.done + ' tamamlanan çıxılmaqla). Bunların ' + kpis.progress + '-i aktiv icradadır, ' + kpis.blocked + '-i blokdadır.';
+        return 'Açıq iş ' + n + '-dir. Bunun ' + kpis.progress + '-i aktiv icradadır, ' + kpis.blocked + '-i blokdadır, ' + kpis.late + '-i gecikir.';
     }
     return 'Ümumi lövhə işi ' + n + '-dir. Tamamlanan ' + kpis.done + ', açıq ' + kpis.open + '.';
 }
 
-function writeKpiAttn(kpis, focus, n) {
-    if (focus.id === 'late' && n) return 'Gecikənləri siyahıda açın: kartın «Gecikən» sətrinə klikləmək kifayətdir.';
-    if (focus.id === 'blocked' && n) return 'Bloklanan işlər çətinlik qeydi olanlarla birlikdə sayılır.';
+function ownersFromItems(items) {
+    var map = {};
+    (items || []).forEach(function(it) {
+        if (it.who && it.who !== 'Təyinatsız') map[it.who] = (map[it.who] || 0) + 1;
+    });
+    return Object.keys(map).sort(function(a, b) { return map[b] - map[a]; }).slice(0, 3).map(function(n) {
+        return n + ' (' + map[n] + ')';
+    }).join(', ');
+}
+
+function writeKpiAttn(kpis, focus, n, ev) {
+    if (focus.id === 'late' && n) return 'Gecikənləri kartın «Gecikən» sətrindən aça bilərsiniz.';
+    if (focus.id === 'blocked' && n) return 'Blok sayına çətinlik qeydi olan açıq işlər də daxildir.';
     if (focus.id === 'due' && kpis.due && kpis.rate < 50) return 'Həftə öhdəliyi 50%-dən aşağıdır.';
-    if (focus.id === 'backlog' && n > 20) return 'Backlog böyükdür; növbəti sprintə keçiriləcək işlər prioritetlənməlidir.';
+    if (focus.id === 'backlog' && n > 20) return 'Backlog böyükdür; növbəti sprintə keçəcək işlər prioritetlənməlidir.';
     return '';
 }
 
-function formatPeople(kpis, person) {
+function formatPeople(kpis, person, ev) {
+    ev = ev || collectEvidence();
     if (person) {
         var d = (kpis.view.people || {})[person] || { total: 0, done: 0, blocked: 0, late: 0, progress: 0 };
-        var html = '<p class="dash-chat-kicker">Təhlil</p><h4>' + esc(person) + '</h4>'
-            + pLead(scopeNote(kpis) + '. İcraçı üzrə tapşırıq və alt-tapşırıqlar sayılır.');
-        html += '<div class="dash-chat-kpis">'
-            + kpi('Ümumi', d.total)
-            + kpi('Yekunlaşıb', d.done + ' · ' + pct(d.done, d.total) + '%')
-            + kpi('İcradadır', d.progress)
-            + kpi('Bloklanan', d.blocked)
-            + kpi('Gecikən', d.late)
-            + kpi('Pay', pct(d.total, kpis.view.total) + '%')
-            + '</div>';
-        html += pRead(d.total
-            ? (person + ' cari görünüşdə ' + d.total + ' iş daşıyır — ümumi həcmin ' + pct(d.total, kpis.view.total) + '%-i. Yekunlaşma ' + pct(d.done, d.total) + '%-dir' + (d.late || d.blocked ? '; ' + (d.late ? d.late + ' gecikir' : '') + (d.late && d.blocked ? ', ' : '') + (d.blocked ? d.blocked + ' blokdadır' : '') : '') + '.')
-            : (person + ' bu filterdə tapşırıqda görünmür. Sprint və ya istiqamət filterini yoxlayın.'));
-        html += pAttn(d.late || d.blocked ? 'Bu icraçı üzrə açıq risk var; siyahını icraçı filteri ilə açmaq olar.' : '');
+        var mine = [].concat(ev.late, ev.blocked, ev.dueOpen).filter(function(it) { return it.who === person; });
+        var seen = {};
+        mine = mine.filter(function(it) {
+            if (seen[it.key]) return false;
+            seen[it.key] = true;
+            return true;
+        });
+        var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(person) + '</h4>'
+            + pLead(d.total
+                ? (person + ' bu kəsikdə ' + d.total + ' iş daşıyır — ümumi həcmin ' + pct(d.total, kpis.view.total) + '%-i. Yekunlaşma ' + pct(d.done, d.total) + '%-dir, aktiv icrada ' + d.progress + ' iş var.'
+                    + (d.late || d.blocked ? ' Risk: ' + (d.late ? d.late + ' gecikir' : '') + (d.late && d.blocked ? ', ' : '') + (d.blocked ? d.blocked + ' blokdadır' : '') + '.' : ''))
+                : (person + ' bu filterdə tapşırıqda görünmür. Sprint və ya istiqamət filterini yoxlayın.'));
+        if (mine.length) html += '<p class="dash-chat-sub">Onun açıq/riskli işləri</p>' + itemList(mine.slice(0, 6));
+        html += pAttn(d.late || d.blocked ? 'Bu icraçı üzrə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.' : '');
         return html;
     }
-    var people = topEntries(kpis.view.assignees, 8);
+    var people = ev.people.length ? ev.people : peopleRank(kpis.view.people, 8);
     if (!people.length) return '<p>Bu görünüşdə icraçı adı tapılmadı.</p>';
-    var topShare = pct(people[0].n, kpis.view.total);
-    var top2 = people[1] ? people[0].n + people[1].n : people[0].n;
-    var html2 = '<p class="dash-chat-kicker">Təhlil</p><h4>İş yükü bölgüsü</h4>'
-        + pLead(scopeNote(kpis) + '.')
-        + '<ul class="dash-chat-dirs">' + people.map(function(p) {
-            return '<li><span>' + esc(p.name) + '</span><strong>' + p.n + ' · ' + pct(p.n, kpis.view.total) + '%</strong></li>';
-        }).join('') + '</ul>'
-        + pRead('Ən yüklü icraçı ' + people[0].name + 'dir (' + people[0].n + ' iş, ' + topShare + '%).'
-            + (people[1] ? ' İlk iki nəfər birlikdə ' + pct(top2, kpis.view.total) + '% daşıyır.' : '')
-            + ' Cəmi ' + people.length + ' nəfər bu kəsikdə adı çıxan icraçıdır.');
-    html2 += pAttn(topShare >= 40 ? 'İş yükü bir nəfərdə cəmlənib; paylama və ya prioritetləmə nəzərdən keçirilə bilər.' : '');
+    var topShare = pct(people[0].total, kpis.view.total);
+    var lateWho = ownersFromItems(ev.late);
+    var html2 = '<p class="dash-chat-kicker">Cavab</p><h4>Kimdə iş çoxdur</h4>'
+        + pLead(people[0].name + ' ən yüklüdür: ' + people[0].total + ' iş (' + topShare + '%), yekunlaşma ' + people[0].rate + '%.'
+            + (people[1] ? ' İkinci ' + people[1].name + ' — ' + people[1].total + ' iş.' : '')
+            + (lateWho ? ' Gecikənlər əsasən ' + lateWho + ' üzərindədir.' : ''));
+    html2 += '<ul class="dash-chat-dirs">' + people.slice(0, 8).map(function(p) {
+        var extra = [p.late ? p.late + ' gecikir' : '', p.blocked ? p.blocked + ' blok' : ''].filter(Boolean).join(', ');
+        return '<li><span>' + esc(p.name) + '</span><strong>' + p.total + ' · ' + p.rate + '%' + (extra ? ' · ' + extra : '') + '</strong></li>';
+    }).join('') + '</ul>';
+    html2 += pAttn(topShare >= 40 ? 'İş yükü bir nəfərdə cəmlənib.' : '');
     return html2;
 }
 
-function formatQurum(kpis, name) {
+function formatQurum(kpis, name, ev) {
+    ev = ev || collectEvidence();
     if (name) {
         var d = (kpis.view.qurumDetail || {})[name] || { total: 0, done: 0, blocked: 0, late: 0, progress: 0 };
-        return '<p class="dash-chat-kicker">Təhlil</p><h4>' + esc(name) + '</h4>'
-            + pLead(scopeNote(kpis) + '.')
-            + '<div class="dash-chat-kpis">'
-            + kpi('Ümumi', d.total)
-            + kpi('Yekunlaşıb', d.done + ' · ' + pct(d.done, d.total) + '%')
-            + kpi('İcradadır', d.progress)
-            + kpi('Gecikən', d.late)
-            + '</div>'
-            + pRead(d.total
-                ? (name + ' üzrə ' + d.total + ' iş var; yekunlaşma ' + pct(d.done, d.total) + '%.' + (d.late ? ' ' + d.late + ' iş gecikir.' : ''))
+        var mine = [].concat(ev.late, ev.blocked, ev.dueOpen).filter(function(it) { return it.qurum === name; });
+        var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(name) + '</h4>'
+            + pLead(d.total
+                ? (name + ' üzrə ' + d.total + ' iş var; yekunlaşma ' + pct(d.done, d.total) + '%, aktiv icrada ' + d.progress + '.'
+                    + (d.late ? ' ' + d.late + ' iş gecikir.' : ''))
                 : 'Bu qurum cari filterdə görünmür.');
+        if (mine.length) html += itemList(mine.slice(0, 5));
+        return html;
     }
-    var rows = topEntries(kpis.view.qurum, 8);
+    var rows = ev.qurums.length ? ev.qurums : topEntries(kpis.view.qurum, 8);
     if (!rows.length) return '<p>Qurum kəsiyi yoxdur.</p>';
-    return '<p class="dash-chat-kicker">Təhlil</p><h4>Qurumlar üzrə həcm</h4>'
-        + pLead(scopeNote(kpis) + '.')
+    return '<p class="dash-chat-kicker">Cavab</p><h4>Qurumlar</h4>'
+        + pLead('Ən çox iş ' + rows[0].name + ' üzrədir (' + rows[0].n + ', ' + pct(rows[0].n, kpis.view.total) + '%). ' + scopeNote(kpis) + '.')
         + '<ul class="dash-chat-dirs">' + rows.map(function(p) {
-            return '<li><span>' + esc(p.name) + '</span><strong>' + p.n + ' · ' + pct(p.n, kpis.view.total) + '%</strong></li>';
-        }).join('') + '</ul>'
-        + pRead('Ən çox iş ' + rows[0].name + ' üzrədir (' + rows[0].n + ', ' + pct(rows[0].n, kpis.view.total) + '%). Siyahıda ilk ' + rows.length + ' qurum göstərilir.');
+            return '<li><span>' + esc(p.name) + '</span><strong>' + p.n + '</strong></li>';
+        }).join('') + '</ul>';
 }
 
 function formatAssess(kpis) {
@@ -1136,27 +1206,31 @@ function formatAssess(kpis) {
         total += kpis.assess[id] || 0;
         if ((kpis.assess[id] || 0) > (kpis.assess[maxId] || 0)) maxId = id;
     });
-    var html = '<p class="dash-chat-kicker">Təhlil</p><h4>Qiymətləndirmə bölmələri</h4>'
-        + pLead('Yüklənmiş panel məlumatından, tapşırıq və alt-tapşırıqlar üzrə sayılır.')
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>Qiymətləndirmə bölmələri</h4>'
+        + pLead(total
+            ? ('Qiymətləndirmə tapşırıqlarının cəmi ' + total + '-dir. Ən böyük bölmə ' + labels[maxId] + ' (' + (kpis.assess[maxId] || 0) + ' iş).')
+            : 'Qiymətləndirmə kateqoriyasına düşən tapşırıq tapılmadı.')
         + '<ul class="dash-chat-dirs">';
     ids.forEach(function(id) {
         html += '<li><span>' + labels[id] + '</span><strong>' + (kpis.assess[id] || 0) + (total ? ' · ' + pct(kpis.assess[id] || 0, total) + '%' : '') + '</strong></li>';
     });
     html += '</ul>';
-    html += pRead(total
-        ? ('Qiymətləndirmə tapşırıqlarının cəmi ' + total + '-dir. Ən böyük bölmə ' + labels[maxId] + ' (' + (kpis.assess[maxId] || 0) + ' iş). Boş və ya kiçik bölmə o demək deyil ki, iş yoxdur — filter və il seçimi də təsir edir.')
-        : 'Qiymətləndirmə kateqoriyasına düşən tapşırıq tapılmadı.');
+    html += pRead('Boş və ya kiçik bölmə o demək deyil ki, iş yoxdur — filter və il seçimi də təsir edir.');
     return html;
 }
 
-function formatDirections(kpis) {
-    var dirs = dirLines(kpis.view);
-    if (!dirs) return '<p>Bu görünüşdə istiqamət tapılmadı.</p>';
-    var top = topDirName(kpis.view);
-    return '<p class="dash-chat-kicker">Təhlil</p><h4>İstiqamətlər</h4>'
-        + pLead(scopeNote(kpis) + '. Yekunlaşıb / ümumi və yekunlaşma payı göstərilir.')
-        + dirs
-        + pRead(top ? ('Ən yüklü istiqamət ' + top.name + 'dir (' + top.total + ' iş). Digər istiqamətlərin payı aşağıdakı siyahıda müqayisə oluna bilər.') : '');
+function formatDirections(kpis, ev) {
+    ev = ev || collectEvidence();
+    if (!ev.dirs.length) return '<p>Bu görünüşdə istiqamət tapılmadı.</p>';
+    var top = ev.dirs[0];
+    var weak = ev.dirs.filter(function(d) { return d.total >= 3 && d.rate < 40; })[0];
+    return '<p class="dash-chat-kicker">Cavab</p><h4>İstiqamətlər</h4>'
+        + pLead('Ən yüklü istiqamət ' + top.name + 'dir: ' + top.total + ' iş, yekunlaşma ' + top.rate + '%.'
+            + (ev.dirs[1] ? ' Ardınca ' + ev.dirs[1].name + ' (' + ev.dirs[1].total + ', ' + ev.dirs[1].rate + '%).' : '')
+            + (weak && weak.name !== top.name ? ' Yekunlaşma ' + weak.name + ' üzrə zəifdir (' + weak.rate + '%).' : ''))
+        + '<ul class="dash-chat-dirs">' + ev.dirs.map(function(d) {
+            return '<li><span>' + esc(d.name) + '</span><strong>' + d.done + '/' + d.total + ' · ' + d.rate + '%</strong></li>';
+        }).join('') + '</ul>';
 }
 
 function helpHtml(parsed) {
