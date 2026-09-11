@@ -9,7 +9,9 @@ from flask import Blueprint, request, jsonify, session
 from werkzeug.utils import secure_filename
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
+from chat_llm import answer_chat, chat_llm_ready
 from diag_excel import parse_diag_excel
+from report_pptx import parse_report_pptx
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql
 from jql import build_date_filter_jql, generate_recommendations
 
@@ -104,8 +106,31 @@ def get_client_config():
     return jsonify({
         'baseUrl': (JIRA_BASE_URL or '').rstrip('/'),
         'projectKey': JIRA_PROJECT_KEY or '',
-        'hasToken': bool(JIRA_PAT)
+        'hasToken': bool(JIRA_PAT),
+        'hasChatLlm': chat_llm_ready()
     })
+
+
+@api.route('/api/chat', methods=['POST', 'OPTIONS'])
+def api_chat():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    question = str(data.get('question') or '').strip()
+    draft = str(data.get('draft') or '')
+    facts = data.get('facts') if isinstance(data.get('facts'), dict) else {}
+    history = data.get('history') if isinstance(data.get('history'), list) else []
+    llm_key = str(data.get('llmKey') or '').strip()
+    if not question:
+        return jsonify({'error': 'Sual boşdur'}), 400
+    if not chat_llm_ready(llm_key):
+        return jsonify({'answer': draft, 'source': 'local'})
+    text = answer_chat(question, facts, draft, history, llm_key)
+    if text:
+        return jsonify({'answer': text, 'source': 'llm'})
+    return jsonify({'answer': draft, 'source': 'local'})
 
 
 def build_hierarchy(base_url, pat, parent_key, date_filter, exclude_done=True):
@@ -579,4 +604,186 @@ def delete_diag_upload(file_id):
         except OSError:
             pass
     return jsonify({'ok': True, 'orgs': flatten_diag_orgs(index)}), 200
+
+
+REPORT_UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads', 'hesabat')
+REPORT_INDEX_PATH = os.path.join(BASE_DIR, 'data', 'report_uploads.json')
+REPORT_ALLOWED_EXT = {'.pptx', '.pptm'}
+
+
+def report_index():
+    if not os.path.isfile(REPORT_INDEX_PATH):
+        return {'files': []}
+    try:
+        with open(REPORT_INDEX_PATH, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if isinstance(data, dict) and isinstance(data.get('files'), list):
+            return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {'files': []}
+
+
+def save_report_index(data):
+    os.makedirs(os.path.dirname(REPORT_INDEX_PATH), exist_ok=True)
+    with open(REPORT_INDEX_PATH, 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def live_report(item):
+    stored = item.get('stored')
+    path = os.path.join(REPORT_UPLOAD_DIR, stored) if stored else ''
+    if path and os.path.isfile(path):
+        try:
+            parsed = parse_report_pptx(path, item.get('name'))
+            report = parsed.get('report')
+            if report:
+                return report
+        except Exception:
+            pass
+    return item.get('report') or None
+
+
+def public_report_row(item):
+    report = live_report(item) or {}
+    return {
+        'id': item.get('id'),
+        'name': item.get('name'),
+        'uploadedAt': item.get('uploadedAt'),
+        'org': report.get('org') or '',
+        'year': report.get('year'),
+        'slideCount': report.get('slideCount'),
+        'overall': report.get('overall'),
+        'inferred': bool(report.get('inferred')),
+        'maturity': report.get('maturity'),
+        'dirs': report.get('dirs') or {},
+        'targets': report.get('targets') or {},
+        'summary': report.get('summary') or '',
+        'findings': report.get('findings') or [],
+        'strengths': report.get('strengths') or [],
+        'actions': report.get('actions') or [],
+        'themes': report.get('themes') or [],
+        'slides': report.get('slides') or [],
+    }
+
+
+def flatten_reports(index):
+    return [public_report_row(item) for item in (index.get('files') or [])]
+
+
+@api.route('/api/hesabat/uploads', methods=['GET', 'OPTIONS'])
+def list_report_uploads():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    index = report_index()
+    reports = flatten_reports(index)
+    if not is_admin_session():
+        return jsonify({'admin': False, 'files': [], 'reports': reports}), 200
+    return jsonify({
+        'admin': True,
+        'files': [{
+            'id': f.get('id'),
+            'name': f.get('name'),
+            'uploadedAt': f.get('uploadedAt'),
+            'org': (f.get('report') or {}).get('org') or '',
+        } for f in index.get('files') or []],
+        'reports': reports
+    }), 200
+
+
+@api.route('/api/hesabat/upload', methods=['POST', 'OPTIONS'])
+@admin_required
+def upload_report_pptx():
+    incoming = request.files.getlist('file') or []
+    if not incoming:
+        one = request.files.get('file')
+        if one:
+            incoming = [one]
+    incoming = [f for f in incoming if f and f.filename]
+    if not incoming:
+        return jsonify({'error': 'PPTX faylı seçin'}), 400
+
+    os.makedirs(REPORT_UPLOAD_DIR, exist_ok=True)
+    index = report_index()
+    saved = []
+    errors = []
+
+    for fh in incoming:
+        ext = os.path.splitext(fh.filename or '')[1].lower()
+        if ext not in REPORT_ALLOWED_EXT:
+            errors.append((fh.filename or 'fayl') + ': yalnız .pptx / .pptm qəbul olunur')
+            continue
+        file_id = uuid.uuid4().hex
+        safe = secure_filename(fh.filename) or ('hesabat' + ext)
+        stored = file_id + '_' + safe
+        path = os.path.join(REPORT_UPLOAD_DIR, stored)
+        fh.save(path)
+        try:
+            parsed = parse_report_pptx(path, fh.filename)
+        except Exception as e:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            errors.append((fh.filename or 'fayl') + ': ' + str(e))
+            continue
+        report = parsed.get('report')
+        if not report:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            msg = (parsed.get('warnings') or ['Təqdimatda təhlil olunacaq mətn tapılmadı.'])[0]
+            errors.append((fh.filename or 'fayl') + ': ' + msg)
+            continue
+        rec = {
+            'id': file_id,
+            'name': fh.filename,
+            'stored': stored,
+            'uploadedAt': datetime.now(timezone.utc).isoformat(),
+            'report': report,
+            'warnings': parsed.get('warnings') or []
+        }
+        index['files'].insert(0, rec)
+        saved.append({
+            'id': file_id,
+            'name': fh.filename,
+            'org': report.get('org') or '',
+            'report': report,
+            'warnings': rec['warnings']
+        })
+
+    save_report_index(index)
+    if not saved:
+        return jsonify({'error': errors[0] if errors else 'Fayl oxunmadı', 'errors': errors}), 400
+    return jsonify({
+        'files': saved,
+        'reports': flatten_reports(index),
+        'errors': errors
+    }), 200
+
+
+@api.route('/api/hesabat/uploads/<file_id>', methods=['DELETE', 'OPTIONS'])
+@admin_required
+def delete_report_upload(file_id):
+    index = report_index()
+    keep = []
+    removed = None
+    for item in index.get('files') or []:
+        if item.get('id') == file_id:
+            removed = item
+        else:
+            keep.append(item)
+    if not removed:
+        return jsonify({'error': 'Fayl tapılmadı'}), 404
+    index['files'] = keep
+    save_report_index(index)
+    stored = removed.get('stored')
+    if stored:
+        path = os.path.join(REPORT_UPLOAD_DIR, stored)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return jsonify({'ok': True, 'reports': flatten_reports(index)}), 200
 

@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 
-REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl')
+REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl', 'pptx')
 
 
 def _can_import(name):
