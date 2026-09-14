@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4c1d95">
+    <title>Giriş — Rəqəmsal İdarəetmə Paneli</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda64">
+</head>
+<body class="auth-page">
+    <div class="auth-wrap">
+        <header class="auth-head">
+            <div>
+                <p class="auth-kicker">Rəqəmsal İdarəetmə Departamenti</p>
+                <h1>Rəqəmsal İdarəetmə Paneli</h1>
+                <p class="auth-sub">Şöbə hesabı ilə daxil olun</p>
+            </div>
+        </header>
+
+        <div class="auth-card" id="loginCard">
+            <h2 id="formTitle">Daxil ol</h2>
+            <p class="auth-error" id="authError"></p>
+
+            <form id="loginForm">
+                <div class="auth-field">
+                    <span>İstifadəçi adı</span>
+                    <input id="username" name="username" autocomplete="username" required minlength="3">
+                </div>
+                <div class="auth-field">
+                    <span>Parol</span>
+                    <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6">
+                </div>
+                <label class="auth-check" for="rememberMe">
+                    <input id="rememberMe" name="remember" type="checkbox" checked>
+                    <span>Məni xatırla</span>
+                </label>
+                <div class="auth-actions">
+                    <button type="submit" class="auth-btn auth-btn--primary" id="loginBtn">Daxil ol</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="auth-card hidden" id="setupCard">
+            <h2>İlk quraşdırma</h2>
+            <p class="auth-hint" style="margin-top:0;margin-bottom:0.9rem;">İlk admin hesabını və istəsəniz şöbə istifadəçisini yaradın. Sonra admin paneldən də istifadəçi əlavə etmək olar.</p>
+            <p class="auth-error" id="setupError"></p>
+            <form id="setupForm">
+                <div class="auth-grid">
+                    <div class="auth-field">
+                        <span>Admin istifadəçi adı</span>
+                        <input id="setupUsername" required minlength="3" value="admin" autocomplete="username">
+                    </div>
+                    <div class="auth-field">
+                        <span>Admin parolu</span>
+                        <input id="setupPassword" type="password" required minlength="6" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <span>Admin göstərilən ad</span>
+                    <input id="setupDisplayName" value="Admin">
+                </div>
+                <h2 style="margin-top:0.6rem;">Şöbə istifadəçisi</h2>
+                <div class="auth-grid">
+                    <div class="auth-field">
+                        <span>İstifadəçi adı</span>
+                        <input id="deptUsername" placeholder="məs. qks" autocomplete="off">
+                    </div>
+                    <div class="auth-field">
+                        <span>Parol</span>
+                        <input id="deptPassword" type="password" minlength="6" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="auth-field">
+                    <span>Göstərilən ad</span>
+                    <input id="deptDisplayName" value="Qiymətləndirmə və komplayens şöbəsi">
+                </div>
+                <div class="auth-actions">
+                    <button type="submit" class="auth-btn auth-btn--primary" id="setupBtn">Hesabları yarat və daxil ol</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+    function showError(id, msg) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('is-on', !!msg);
+    }
+    function goHome() { window.location.href = '/'; }
+    var rememberedName = '';
+    try { rememberedName = localStorage.getItem('jiraAuthRememberUser') || ''; } catch (e) {}
+    if (rememberedName) {
+        document.getElementById('username').value = rememberedName;
+        document.getElementById('rememberMe').checked = true;
+        document.getElementById('password').focus();
+    }
+    fetch('/api/auth/status', { credentials: 'same-origin' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data && data.authenticated) { goHome(); return; }
+            if (data && data.needsSetup) {
+                document.getElementById('loginCard').classList.add('hidden');
+                document.getElementById('setupCard').classList.remove('hidden');
+            }
+        })
+        .catch(function() {});
+    document.getElementById('loginForm').addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        var btn = document.getElementById('loginBtn');
+        btn.disabled = true;
+        showError('authError', '');
+        fetch('/api/auth/login', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                remember: document.getElementById('rememberMe').checked
+            })
+        }).then(function(r) {
+            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+        }).then(function(res) {
+            btn.disabled = false;
+            if (!res.ok) {
+                showError('authError', (res.data && res.data.error) || 'Daxil olmaq mümkün olmadı');
+                return;
+            }
+            try {
+                if (document.getElementById('rememberMe').checked) {
+                    localStorage.setItem('jiraAuthRememberUser', document.getElementById('username').value.trim());
+                } else {
+                    localStorage.removeItem('jiraAuthRememberUser');
+                }
+            } catch (e) {}
+            goHome();
+        }).catch(function() {
+            btn.disabled = false;
+            showError('authError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    });
+    document.getElementById('setupForm').addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        var btn = document.getElementById('setupBtn');
+        btn.disabled = true;
+        showError('setupError', '');
+        var body = {
+            username: document.getElementById('setupUsername').value,
+            password: document.getElementById('setupPassword').value,
+            displayName: document.getElementById('setupDisplayName').value
+        };
+        var deptUser = document.getElementById('deptUsername').value.trim();
+        var deptPass = document.getElementById('deptPassword').value;
+        if (deptUser || deptPass) {
+            if (!deptUser || deptPass.length < 6) {
+                btn.disabled = false;
+                showError('setupError', 'Şöbə istifadəçisi üçün ad və ən azı 6 simvollu parol yazın, ya da hər ikisini boş saxlayın.');
+                return;
+            }
+            body.deptUsername = deptUser;
+            body.deptPassword = deptPass;
+            body.deptDisplayName = document.getElementById('deptDisplayName').value;
+        }
+        fetch('/api/auth/setup', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function(r) {
+            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+        }).then(function(res) {
+            btn.disabled = false;
+            if (!res.ok) {
+                showError('setupError', (res.data && res.data.error) || 'Quraşdırma alınmadı');
+                return;
+            }
+            goHome();
+        }).catch(function() {
+            btn.disabled = false;
+            showError('setupError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    });
+    </script>
+</body>
+</html>

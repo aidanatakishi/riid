@@ -19,6 +19,7 @@ env/
 
 # Jira dump-ları git-ə düşməsin
 data/*.json
+data/secret.key
 
 # Yüklənmiş diaqnostika Excel-ləri
 uploads/

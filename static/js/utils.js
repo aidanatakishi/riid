@@ -54,10 +54,89 @@ export function normalizeStr(str) {
     return str.trim().toLocaleLowerCase('az').replace(/i̇/g, 'i');
 }
 
-export function toggleSettings() {
+function syncSettingsButton(open) {
+    var btn = document.getElementById('settingsBtn');
+    if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function isSettingsOpen() {
     var panel = document.getElementById('settingsPanel');
-    panel.classList.toggle('hidden');
-    if (!panel.classList.contains('hidden')) panel.classList.add('slide-down');
+    return !!(panel && !panel.classList.contains('hidden') && !panel.hasAttribute('hidden'));
+}
+
+function bindSettingsEsc() {
+    if (bindSettingsEsc.done) return;
+    bindSettingsEsc.done = true;
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && isSettingsOpen()) {
+            e.preventDefault();
+            hideSettings();
+        }
+    });
+}
+
+function positionSettingsPopup() {
+    var overlay = document.getElementById('settingsPanel');
+    var card = overlay && overlay.querySelector('.app-settings');
+    var btn = document.getElementById('settingsBtn');
+    if (!card || !btn) return;
+    var rect = btn.getBoundingClientRect();
+    var gap = 10;
+    var width = Math.min(360, window.innerWidth - 24);
+    card.style.width = width + 'px';
+    var left = rect.right - width;
+    if (left < 12) left = 12;
+    if (left + width > window.innerWidth - 12) left = Math.max(12, window.innerWidth - width - 12);
+    var top = rect.bottom + gap;
+    var maxH = window.innerHeight - top - 12;
+    if (maxH < 220) {
+        top = 12;
+        maxH = window.innerHeight - 24;
+    }
+    card.style.top = top + 'px';
+    card.style.left = left + 'px';
+    card.style.right = 'auto';
+    card.style.maxHeight = maxH + 'px';
+}
+
+function bindSettingsPlace() {
+    if (bindSettingsPlace.done) return;
+    bindSettingsPlace.done = true;
+    window.addEventListener('resize', function() {
+        if (isSettingsOpen()) positionSettingsPopup();
+    });
+}
+
+export function showSettings() {
+    var panel = document.getElementById('settingsPanel');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    panel.removeAttribute('hidden');
+    panel.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('settings-open');
+    syncSettingsButton(true);
+    bindSettingsEsc();
+    bindSettingsPlace();
+    requestAnimationFrame(positionSettingsPopup);
+}
+
+export function hideSettings() {
+    var panel = document.getElementById('settingsPanel');
+    if (!panel) return;
+    panel.classList.add('hidden');
+    panel.setAttribute('hidden', '');
+    panel.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('settings-open');
+    syncSettingsButton(false);
+}
+
+export function toggleSettings() {
+    if (isSettingsOpen()) hideSettings();
+    else showSettings();
+}
+
+export function onSettingsOverlayClick(ev) {
+    if (!ev || ev.target === ev.currentTarget) hideSettings();
 }
 
 export function getInitials(name) {

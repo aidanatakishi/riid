@@ -861,20 +861,6 @@ function fillYearSelect(years, selected) {
         el.value = allOn || customOn ? 'all' : String(selected);
         if (customOn) el.value = 'all';
     }
-
-    var pills = document.getElementById('assessmentYearPills');
-    if (pills) {
-        var hamisi = '<button type="button" class="assess-year-pill' + (allOn ? ' is-active' : '') + '"'
-            + ' aria-pressed="' + (allOn ? 'true' : 'false') + '"'
-            + ' onclick="event.stopPropagation(); setAssessmentYearForActiveTab(\'all\')">Hamısı</button>';
-        pills.innerHTML = hamisi + opts.map(function(y) {
-            var on = !allOn && !customOn && y === Number(selected);
-            return '<button type="button" class="assess-year-pill' + (on ? ' is-active' : '') + '"'
-                + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
-                + ' onclick="event.stopPropagation(); setAssessmentYearForActiveTab(' + y + ')">'
-                + y + '</button>';
-        }).join('');
-    }
 }
 
 function updateHubMeta(count, searchActive, year) {

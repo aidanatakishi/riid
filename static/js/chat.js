@@ -31,6 +31,7 @@ import {
     getBlockReason,
     getTaskDueDate
 } from './model.js';
+import { exportTasksToWord } from './report.js';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {
@@ -52,11 +53,15 @@ var ASSESS_DEFS = [
     { id: 'meqsed', label: 'Məqsədəuyğunluq rəyi', aliases: ['meqseduygun', 'meqsed'] }
 ];
 var SUGGESTIONS = [
-    'Bu həftəni nə saxlayır?',
-    'Kimdə iş çoxdur və kim gecikir?',
-    'Bloklanan işlər hansılardır?',
-    'Bu sprint əvvəlki ilə necə müqayisə olunur?'
+    'Cari həftə üzrə icra riskləri',
+    'İcraçılar üzrə iş yükü və gecikmə',
+    'Bloklanan tapşırıqların siyahısı',
+    'Hesabatı göstərin və yükləyin'
 ];
+var BOT_NAME = 'AI Done';
+var greetTick = 0;
+var lastReportPreview = '';
+var lastReportTitle = 'Hesabat';
 var KPI_FOCUS = [
     { id: 'blocked', label: 'Bloklanan', re: /blok|cetinlik/ },
     { id: 'late', label: 'Gecikən', re: /gecik/ },
@@ -416,9 +421,22 @@ function parseQuestion(raw) {
     var qurum = findQurum(qFold);
     var focus = findKpiFocus(qFold);
     var issueKey = findIssueKey(raw);
+    var greet = hasGreeting(qFold);
 
+    if (isGreetingOnly(qFold)) {
+        return { kind: 'greet', names: names, current: current, greeting: true };
+    }
+    if (isThanks(qFold)) {
+        return { kind: 'thanks', names: names, current: current };
+    }
+    if (isIdentity(qFold)) {
+        return { kind: 'identity', names: names, current: current };
+    }
+    if (wantsReport(qFold)) {
+        return { kind: 'report', names: names, current: current, greeting: greet };
+    }
     if (wantsHelp(qFold)) {
-        return { kind: 'help', names: names, current: current };
+        return { kind: 'help', names: names, current: current, greeting: greet };
     }
     if (issueKey) {
         return { kind: 'issue', key: issueKey, names: names, current: current };
@@ -447,7 +465,7 @@ function parseQuestion(raw) {
     if (who) {
         return { kind: 'person', person: who, sprint: allScope ? '' : current, names: names };
     }
-    if (/kimde|icraci|is yuku|en cox tapsiriq|kim daha/.test(qFold)) {
+    if (/kimde|icraci|is yuku|en cox tapsiriq|kim daha|yuk ve gecik/.test(qFold)) {
         return { kind: 'people', sprint: allScope ? '' : current, names: names };
     }
     if (qurum) {
@@ -489,11 +507,64 @@ function isOverview(qFold) {
 }
 
 function looksLikeDashQuestion(qFold) {
-    return /panel|dashboard|tapsiriq|sprint|status|istiqamet|qurum|qiymet|blok|gecik|backlog|icra|filter|hesabat|gecik/.test(qFold);
+    return /panel|dashboard|tapsiriq|sprint|status|istiqamet|qurum|qiymet|blok|gecik|backlog|icra|filter|gecik/.test(qFold);
+}
+
+function hasGreeting(qFold) {
+    return /^(salam aleykum|salamun aleykum|salam|hello|hey|hi|necesiz|necesen|sabahiniz xeyir|axsaminiz xeyir|gunortaniz xeyir)\b/.test(qFold);
+}
+
+function stripGreeting(qFold) {
+    return qFold
+        .replace(/^(salam aleykum|salamun aleykum|salam|hello|hey|hi|sabahiniz xeyir|axsaminiz xeyir|gunortaniz xeyir)\s*/g, '')
+        .replace(/\b(necesiz|necesen|ne var|ne xeber)\b/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function isGreetingOnly(qFold) {
+    var rest = stripGreeting(qFold);
+    return hasGreeting(qFold) && (!rest || /^(necesiz|necesen|ne var|ne xeber|yaxsi|sagol)$/.test(rest));
+}
+
+function isThanks(qFold) {
+    return /tesekkur|sagolun|sag olun|tesekkurler|sagol$/.test(qFold) && qFold.split(' ').length <= 8 && !looksLikeDashQuestion(qFold);
+}
+
+function isIdentity(qFold) {
+    if (/sen kimsen|adin nedir|ozunu tanit|ozun haqda|sen nesen/.test(qFold)) return true;
+    return /^(ai done|kimsen)$/.test(qFold);
+}
+
+function wantsReport(qFold) {
+    return /hesabat|word hesab|docx|\breport\b|yukle.*hesabat|hesabat.*yukle|hesabat hazirla|hesabat goster|hesabat gonder/.test(qFold);
+}
+
+function dayWish() {
+    var h = new Date().getHours();
+    if (h < 12) return 'sabahınız xeyir';
+    if (h < 18) return 'gününüz xoş keçsin';
+    return 'axşamınız xeyir';
+}
+
+function greetingLine() {
+    var wish = dayWish();
+    var opts = [
+        'Salam, ' + wish + ', sizə necə kömək edə bilərəm?',
+        'Salam. ' + wish.charAt(0).toUpperCase() + wish.slice(1) + '. Sizə necə kömək edə bilərəm?',
+        'Salam, ' + wish + '. Panel üzrə nəyə baxaq?'
+    ];
+    greetTick += 1;
+    return opts[(greetTick + wish.length) % opts.length];
+}
+
+function withGreeting(html, raw) {
+    if (!hasGreeting(fold(raw))) return html;
+    return pLead(greetingLine()) + html;
 }
 
 function isRiskQuestion(qFold) {
-    return /niye|sebeb|problem|risk|engel|saxlayir|zeif|asagi qal|pisdir|diqqet|kritik|nesaxla|ne saxla/.test(qFold);
+    return /niye|sebeb|problem|risk|engel|saxlayir|zeif|asagi qal|pisdir|diqqet|kritik|nesaxla|ne saxla|lengid|amill/.test(qFold);
 }
 
 function findIssueKey(raw) {
@@ -642,13 +713,13 @@ function collectEvidence() {
     try { dueDone = collectDueThisWeekDoneTasks().map(taskBrief); } catch (e) { dueDone = []; }
     return {
         kpis: kpis,
-        people: peopleRank(kpis.view.people, 8),
-        dirs: dirRank(kpis.view.dirs, 8),
+        people: peopleRank(kpis.view.people, 10),
+        dirs: dirRank(kpis.view.dirs, 10),
         qurums: topEntries(kpis.view.qurum, 8),
-        late: late.slice(0, 8),
-        blocked: blocked.slice(0, 8),
-        dueOpen: dueOpen.slice(0, 8),
-        dueDone: dueDone.slice(0, 6)
+        late: late.slice(0, 12),
+        blocked: blocked.slice(0, 12),
+        dueOpen: dueOpen.slice(0, 10),
+        dueDone: dueDone.slice(0, 8)
     };
 }
 
@@ -984,10 +1055,79 @@ function scopeNote(kpis) {
 }
 
 function formatAbout() {
-    return '<p class="dash-chat-kicker">Cavab</p>'
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
         + '<h4>Bu panel nə göstərir</h4>'
-        + pLead('Rəqəmsal İdarəetmə Paneli DGD-nin Jira tapşırıqlarını, sprintini və qiymətləndirmələrini eyni kəsikdə toplayır. Yuxarıdakı sprint, tarix, istiqamət və ya qurum dəyişəndə kartlar, qrafiklər və bu köməkçi eyni rəqəmlərə keçir.')
-        + pRead('«Bütün sprintlər» ümumi fondur. Seçilmiş sprint həftəlik icradır. Kartdakı tamamlanma faizi əsasən bu həftə bitməli işlər üzrədir, bütün lövhənin yekun payı deyil. Hesabat düyməsi eyni filteri Word-ə çıxarır.');
+        + pLead('Rəqəmsal İdarəetmə Paneli DGD-nin Jira tapşırıqlarını, sprintini və qiymətləndirmələrini eyni kəsikdə toplayır. Yuxarıdakı sprint, tarix, istiqamət və ya qurum dəyişəndə kartlar, qrafiklər və mən eyni rəqəmlərə baxıram.')
+        + pRead('«Bütün sprintlər» ümumi fondur. Seçilmiş sprint həftəlik icradır. Kartdakı tamamlanma faizi əsasən bu həftə bitməli işlər üzrədir. Hesabat istəsəniz, göstərə və Word kimi yükləyə bilərəm.');
+}
+
+function formatGreeting() {
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
+        + pLead(greetingLine());
+}
+
+function formatThanks() {
+    var opts = [
+        'Zəhmət olmasa. Başqa nəyə baxım?',
+        'Rica edirəm. Başqa sualınız olsa, buradayam.',
+        'Xoş oldu. Panel üzrə daha nəyi açım?'
+    ];
+    greetTick += 1;
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>' + pLead(opts[greetTick % opts.length]);
+}
+
+function formatIdentity() {
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
+        + pLead('Gününüz xoş keçsin! Mən süni intellekt köməkçiniz AI Done-am. Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.');
+}
+
+function formatReport(kpis, ev) {
+    ev = ev || (hasData() ? collectEvidence() : null);
+    lastReportTitle = (kpis && kpis.sprint) ? ('Hesabat — ' + kpis.sprint) : 'Hesabat';
+    lastReportPreview = ev ? buildReportPreviewHtml(kpis, ev) : '<p>Panel məlumatı yüklənməyib. Tokeni yazıb Yenilə düyməsinə basın, sonra yenidən soruşun.</p>';
+    var lead = ev
+        ? ('Hesabatı cari kəsik üzrə hazırladım. Əvvəl göstərə, sonra Word kimi yükləyə bilərsiniz. ' + scopeNote(kpis) + '.')
+        : 'Hələ panel məlumatı yoxdur. Yenilə-dən sonra hesabatı göstərib yükləyə bilərəm.';
+    var html = '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p><h4>' + esc(lastReportTitle) + '</h4>'
+        + pLead(lead);
+    if (ev && kpis) {
+        html += '<p class="dash-chat-report-sum">'
+            + esc('Lövhə: ' + kpis.total + ' iş, yekun ' + kpis.done + ' · həftə ' + kpis.dueDone + '/' + kpis.due
+                + ' · gecikən ' + kpis.late + ' · blok ' + kpis.blocked + '.')
+            + '</p>';
+    }
+    html += '<div class="dash-chat-report-actions">'
+        + '<button type="button" class="dash-chat-report-btn" data-chat-report="show">Göstər</button>'
+        + '<button type="button" class="dash-chat-report-btn is-primary" data-chat-report="download"' + (ev ? '' : ' disabled') + '>Yüklə</button>'
+        + '</div>';
+    return html;
+}
+
+function buildReportPreviewHtml(kpis, ev) {
+    var html = '<h4>' + esc(lastReportTitle) + '</h4>'
+        + pLead(scopeNote(kpis) + '.')
+        + pRead(overviewLead(kpis, ev) + ' ' + overviewBody(kpis, ev));
+    if (ev.dueOpen.length) {
+        html += '<p class="dash-chat-sub">Həftə ərzində açıq</p>' + itemList(ev.dueOpen.slice(0, 8));
+    }
+    if (ev.late.length) {
+        html += '<p class="dash-chat-sub">Gecikənlər</p>' + itemList(ev.late.slice(0, 8));
+    }
+    if (ev.blocked.length) {
+        html += '<p class="dash-chat-sub">Bloklananlar</p>' + itemList(ev.blocked.slice(0, 8));
+    }
+    if (ev.people.length) {
+        html += '<p class="dash-chat-sub">İş yükü</p><ul class="dash-chat-dirs">' + ev.people.slice(0, 6).map(function(p) {
+            return '<li><span>' + esc(p.name) + '</span><strong>' + p.total + ' · ' + p.rate + '%</strong></li>';
+        }).join('') + '</ul>';
+    }
+    if (ev.dirs.length) {
+        html += '<p class="dash-chat-sub">İstiqamət</p><ul class="dash-chat-dirs">' + ev.dirs.slice(0, 6).map(function(d) {
+            return '<li><span>' + esc(d.name) + '</span><strong>' + d.done + '/' + d.total + '</strong></li>';
+        }).join('') + '</ul>';
+    }
+    if (overviewAttn(kpis, ev)) html += pAttn(overviewAttn(kpis, ev));
+    return html;
 }
 
 function formatOverview(kpis, ev) {
@@ -1162,7 +1302,7 @@ function formatPeople(kpis, person, ev) {
     if (!people.length) return '<p>Bu görünüşdə icraçı adı tapılmadı.</p>';
     var topShare = pct(people[0].total, kpis.view.total);
     var lateWho = ownersFromItems(ev.late);
-    var html2 = '<p class="dash-chat-kicker">Cavab</p><h4>Kimdə iş çoxdur</h4>'
+    var html2 = '<p class="dash-chat-kicker">Cavab</p><h4>İcraçılar üzrə iş yükü</h4>'
         + pLead(people[0].name + ' ən yüklüdür: ' + people[0].total + ' iş (' + topShare + '%), yekunlaşma ' + people[0].rate + '%.'
             + (people[1] ? ' İkinci ' + people[1].name + ' — ' + people[1].total + ' iş.' : '')
             + (lateWho ? ' Gecikənlər əsasən ' + lateWho + ' üzərindədir.' : ''));
@@ -1233,15 +1373,15 @@ function formatDirections(kpis, ev) {
 }
 
 function helpHtml(parsed) {
-    return '<p class="dash-chat-kicker">Kömək</p>'
-        + '<h4>Nəyi təhlil edə bilərəm</h4>'
-        + pLead('Sualı paneldəki kəsiyə bağlayıram, rəqəmləri izah edirəm və riski qeyd edirəm. Uydurma rəqəm yazmıram.')
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
+        + '<h4>Necə kömək edə bilərəm</h4>'
+        + pLead('Mən AI Done-am. Sualı oxuyuram, idarəetmə panelindəki rəqəmlərlə düşünürəm və aydın cavab verirəm. Uydurma rəqəm yazmıram.')
         + '<ul class="dash-chat-help">'
-        + '<li>Paneldə indi vəziyyət necədir?</li>'
-        + '<li>Neçə tapşırıq bloklanıb və gecikib?</li>'
-        + '<li>Kimdə daha çox tapşırıq var?</li>'
-        + '<li>Bu səhifə nə göstərir?</li>'
-        + '<li>EXQ necədir? / inteqrasiya ilə EXQ-ni müqayisə et</li>'
+        + '<li>Cari həftə üzrə icra vəziyyəti necədir?</li>'
+        + '<li>Bloklanan və gecikən tapşırıqların sayı nə qədərdir?</li>'
+        + '<li>İcraçılar üzrə iş yükü necə bölünüb?</li>'
+        + '<li>Hesabatı göstərin və yükləyin</li>'
+        + '<li>EXQ necədir? / İnteqrasiya ilə EXQ-ni müqayisə edin</li>'
         + '</ul>'
         + (parsed.current ? '<p class="dash-chat-note">Cari sprint: <strong>' + esc(parsed.current) + '</strong></p>' : '');
 }
@@ -1284,7 +1424,7 @@ function formatRisk(kpis, ev) {
         parts.push(ev.dirs[0].name + ' həm böyükdür, həm də yekunlaşma ' + ev.dirs[0].rate + '%-dir.');
     }
     var samples = (ev.late || []).concat(ev.blocked || []).slice(0, 6);
-    var html = '<p class="dash-chat-kicker">Cavab</p><h4>Nə saxlayır</h4>'
+    var html = '<p class="dash-chat-kicker">Cavab</p><h4>Cari həftənin icra riskləri</h4>'
         + pLead(parts.join(' ') || 'Açıq kritik risk görünmür.')
         + (samples.length ? '<p class="dash-chat-sub">Əvvəl bunlara baxın</p>' + itemList(samples) : '')
         + pAttn(kpis.due && kpis.rate < 50 ? 'Həftəni bağlamaq üçün əvvəl gecikən və bloklanan işlər açılmalıdır.' : '');
@@ -1365,23 +1505,49 @@ function answerQuestion(raw) {
     var html;
     var text;
     var facts;
+    if (parsed.kind === 'greet') {
+        html = formatGreeting();
+        text = stripHtml(html);
+        facts = { kind: 'greet' };
+        return { html: html, text: text, facts: facts, question: raw };
+    }
+    if (parsed.kind === 'thanks') {
+        html = formatThanks();
+        text = stripHtml(html);
+        facts = { kind: 'thanks' };
+        return { html: html, text: text, facts: facts, question: raw };
+    }
+    if (parsed.kind === 'identity') {
+        html = formatIdentity();
+        text = stripHtml(html);
+        facts = { kind: 'identity' };
+        return { html: html, text: text, facts: facts, question: raw, keepHtml: true };
+    }
+    if (parsed.kind === 'report') {
+        var reportEv = hasData() ? collectEvidence() : null;
+        html = withGreeting(formatReport(reportEv ? reportEv.kpis : null, reportEv), raw);
+        text = stripHtml(html);
+        facts = { kind: 'report', kpis: reportEv ? compactKpis(reportEv.kpis) : {} };
+        return { html: html, text: text, facts: facts, evidence: reportEv, question: raw, keepHtml: true };
+    }
     if (parsed.kind === 'about') {
-        html = formatAbout();
+        html = withGreeting(formatAbout(), raw);
         text = stripHtml(html);
         facts = { kind: 'about' };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, question: raw };
     }
     if (parsed.kind === 'help') {
-        html = helpHtml(parsed);
+        html = withGreeting(helpHtml(parsed), raw);
         text = stripHtml(html);
         facts = { kind: 'help', current: parsed.current };
-        return { html: html, text: text, facts: facts };
+        return { html: html, text: text, facts: facts, question: raw };
     }
     if (!hasData()) {
         return {
-            html: '<p>Panel məlumatı hələ yüklənməyib. Tokeni yazıb <strong>Yenilə</strong> düyməsinə basın, sonra soruşun.</p>',
+            html: withGreeting('<p>Panel məlumatı hələ yüklənməyib. Tokeni yazıb <strong>Yenilə</strong> düyməsinə basın, sonra mən dəqiq rəqəmlərlə danışaram.</p>', raw),
             text: 'Panel məlumatı yüklənməyib.',
-            facts: { kind: 'empty' }
+            facts: { kind: 'empty' },
+            question: raw
         };
     }
     var ev = collectEvidence();
@@ -1390,49 +1556,57 @@ function answerQuestion(raw) {
         html = formatIssue(parsed.key, ev);
         text = stripHtml(html);
         facts = { kind: 'issue', key: parsed.key, kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'risk') {
         html = formatRisk(kpis, ev);
         text = stripHtml(html);
         facts = { kind: 'risk', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'overview') {
         html = formatOverview(kpis, ev);
         text = stripHtml(html);
         facts = { kind: 'overview', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'kpi') {
         html = formatKpi(kpis, parsed.focus, ev);
         text = stripHtml(html);
         facts = { kind: 'kpi', focus: parsed.focus.id, kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'people' || parsed.kind === 'person') {
         html = formatPeople(kpis, parsed.person, ev);
         text = stripHtml(html);
         facts = { kind: parsed.kind, person: parsed.person || '', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'qurum') {
         html = formatQurum(kpis, parsed.qurum, ev);
         text = stripHtml(html);
         facts = { kind: 'qurum', qurum: parsed.qurum, kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'assess') {
         html = formatAssess(kpis);
         text = stripHtml(html);
         facts = { kind: 'assess', assess: kpis.assess };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'directions') {
         html = formatDirections(kpis, ev);
         text = stripHtml(html);
         facts = { kind: 'directions', kpis: compactKpis(kpis) };
-        return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+        html = withGreeting(html, raw);
+        return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'sprintCompare') {
         var names = parsed.names;
@@ -1489,11 +1663,15 @@ function answerQuestion(raw) {
         text = stripHtml(html);
         facts = { kind: 'open', question: raw, kpis: compactKpis(kpis) };
     }
-    return { html: html, text: text, facts: facts, evidence: ev, question: raw };
+    html = withGreeting(html, raw);
+    return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
 }
 
 function packChatFacts(local) {
     var ev = local.evidence;
+    if (!ev) {
+        try { if (hasData()) ev = collectEvidence(); } catch (e) { ev = null; }
+    }
     var names = [];
     try { names = sprintList().slice(0, 12); } catch (e) { names = []; }
     return {
@@ -1507,6 +1685,7 @@ function packChatFacts(local) {
         late: ev ? ev.late : [],
         blocked: ev ? ev.blocked : [],
         dueOpen: ev ? ev.dueOpen : [],
+        dueDone: ev ? ev.dueDone : [],
         compare: local.facts && local.facts.a ? { a: local.facts.a, b: local.facts.b, meta: local.facts.meta || {} } : null,
         sprints: names,
         localKind: (local.facts && local.facts.kind) || 'open'
@@ -1595,29 +1774,53 @@ function ensureUi() {
     if (document.getElementById('dashChatRoot')) return;
     var root = el(
         '<div id="dashChatRoot" class="dash-chat">'
-        + '<button type="button" id="dashChatFab" class="dash-chat-fab" aria-controls="dashChatPanel" aria-expanded="false" title="Panel köməkçisi">'
-        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></svg>'
-        + '<span>Soruş</span></button>'
+        + '<button type="button" id="dashChatFab" class="dash-chat-fab" aria-controls="dashChatPanel" aria-expanded="false" aria-label="Süni intellekt köməkçiniz" title="Süni intellekt köməkçiniz">'
+        + '<svg class="dash-chat-fab-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
+        + '<path d="M4.7 6.3A3.3 3.3 0 0 1 8 3h6.8A3.3 3.3 0 0 1 18.1 6.3v5.8A3.3 3.3 0 0 1 14.8 15.4H9.6L5.8 19v-3.6H8A3.3 3.3 0 0 1 4.7 12.1V6.3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>'
+        + '<path d="M18.2 2.4 19.1 5.1 21.8 6 19.1 6.9 18.2 9.6 17.3 6.9 14.6 6 17.3 5.1 18.2 2.4Z" fill="currentColor"/>'
+        + '<path d="M21.4 8.7 21.8 10 23.1 10.4 21.8 10.8 21.4 12.1 21 10.8 19.7 10.4 21 10 21.4 8.7Z" fill="currentColor"/>'
+        + '</svg>'
+        + '</button>'
         + '<section id="dashChatPanel" class="dash-chat-panel hidden" hidden role="dialog" aria-labelledby="dashChatTitle">'
         + '<header class="dash-chat-head">'
-        + '<div><p class="dash-chat-brand">Panel köməkçisi</p><h2 id="dashChatTitle">Dashboard haqqında soruşun</h2></div>'
+        + '<div class="dash-chat-head-id">'
+        + '<span class="dash-chat-mark" aria-hidden="true">AI</span>'
+        + '<div><p class="dash-chat-brand">Süni intellekt köməkçiniz</p><h2 id="dashChatTitle">AI Done xidmətinizdədir!</h2></div>'
+        + '</div>'
         + '<div class="dash-chat-head-actions">'
-        + '<button type="button" id="dashChatClear" class="dash-chat-iconbtn" title="Söhbəti təmizlə" aria-label="Söhbəti təmizlə">↻</button>'
-        + '<button type="button" id="dashChatClose" class="dash-chat-iconbtn" title="Bağla" aria-label="Bağla">✕</button>'
+        + '<button type="button" id="dashChatClear" class="dash-chat-iconbtn" title="Söhbəti təmizlə" aria-label="Söhbəti təmizlə">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>'
+        + '<button type="button" id="dashChatClose" class="dash-chat-iconbtn" title="Bağla" aria-label="Bağla">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
         + '</div></header>'
+        + '<div class="dash-chat-body">'
         + '<div id="dashChatLog" class="dash-chat-log" role="log" aria-live="polite"></div>'
+        + '<div id="dashChatShow" class="dash-chat-show hidden" hidden>'
+        + '<div class="dash-chat-show-bar">'
+        + '<strong>Hesabat</strong>'
+        + '<div class="dash-chat-show-bar-actions">'
+        + '<button type="button" id="dashChatShowDl" class="dash-chat-report-btn is-primary">Yüklə</button>'
+        + '<button type="button" id="dashChatShowClose" class="dash-chat-iconbtn is-light" title="Bağla" aria-label="Önizləməni bağla">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
+        + '</div></div>'
+        + '<div id="dashChatShowBody" class="dash-chat-show-body"></div>'
+        + '</div></div>'
         + '<div id="dashChatHints" class="dash-chat-hints"></div>'
         + '<form id="dashChatForm" class="dash-chat-form">'
         + '<label class="sr-only" for="dashChatInput">Sual</label>'
         + '<textarea id="dashChatInput" rows="2" placeholder="Sualınızı yazın"></textarea>'
-        + '<button type="submit" id="dashChatSend" class="dash-chat-send">Göndər</button>'
-        + '</form></section></div>'
+        + '<button type="submit" id="dashChatSend" class="dash-chat-send" title="Göndər" aria-label="Göndər">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9 22 2z"/></svg>'
+        + '</button></form></section></div>'
     );
     document.body.appendChild(root);
     document.getElementById('dashChatFab').addEventListener('click', toggleChat);
     document.getElementById('dashChatClose').addEventListener('click', closeChat);
     document.getElementById('dashChatClear').addEventListener('click', resetChat);
     document.getElementById('dashChatForm').addEventListener('submit', onSubmit);
+    document.getElementById('dashChatLog').addEventListener('click', onChatAction);
+    document.getElementById('dashChatShowClose').addEventListener('click', closeReportPreview);
+    document.getElementById('dashChatShowDl').addEventListener('click', downloadChatReport);
     document.getElementById('dashChatInput').addEventListener('keydown', function(e) {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
@@ -1632,15 +1835,56 @@ function ensureUi() {
 }
 
 function welcomeHtml() {
-    return '<p>Sualınızı oxuyub paneldəki rəqəmlərlə təhlil edirəm. İstədiyiniz kimi yazın.</p>';
+    return '<p>Gününüz xoş keçsin! Mən süni intellekt köməkçiniz <strong>AI Done</strong>-am. Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.</p>';
+}
+
+function onChatAction(e) {
+    var showBtn = e.target.closest('[data-chat-report="show"]');
+    var dlBtn = e.target.closest('[data-chat-report="download"]');
+    if (showBtn) {
+        e.preventDefault();
+        openReportPreview();
+    }
+    if (dlBtn && !dlBtn.disabled) {
+        e.preventDefault();
+        downloadChatReport();
+    }
+}
+
+function openReportPreview() {
+    var box = document.getElementById('dashChatShow');
+    var body = document.getElementById('dashChatShowBody');
+    if (!box || !body) return;
+    body.innerHTML = lastReportPreview || '<p>Hələ göstəriləcək hesabat yoxdur. «Hesabatı göstərin və yükləyin» yazın.</p>';
+    box.classList.remove('hidden');
+    box.hidden = false;
+}
+
+function closeReportPreview() {
+    var box = document.getElementById('dashChatShow');
+    if (!box) return;
+    box.classList.add('hidden');
+    box.hidden = true;
+}
+
+async function downloadChatReport() {
+    try {
+        await exportTasksToWord(lastReportTitle || 'Hesabat');
+    } catch (err) {
+        var body = document.getElementById('dashChatShowBody');
+        if (body && !lastReportPreview) body.innerHTML = '<p>Hesabat yüklənmədi. Məlumatı yeniləyib yenidən cəhd edin.</p>';
+    }
 }
 
 function renderHints() {
     var box = document.getElementById('dashChatHints');
     if (!box) return;
-    box.innerHTML = SUGGESTIONS.map(function(s) {
-        return '<button type="button" class="dash-chat-hint" data-q="' + esc(s) + '">' + esc(s) + '</button>';
-    }).join('');
+    box.innerHTML = '<p class="dash-chat-hints-label">Sürətli sorğular</p>'
+        + '<div class="dash-chat-hints-grid">'
+        + SUGGESTIONS.map(function(s) {
+            return '<button type="button" class="dash-chat-hint" data-q="' + esc(s) + '">' + esc(s) + '</button>';
+        }).join('')
+        + '</div>';
     box.onclick = function(e) {
         var btn = e.target.closest('[data-q]');
         if (!btn) return;
@@ -1680,6 +1924,8 @@ function closeChat() {
 
 function resetChat() {
     chatHistory = [];
+    lastReportPreview = '';
+    closeReportPreview();
     var log = document.getElementById('dashChatLog');
     if (log) log.innerHTML = '';
     addBot(welcomeHtml(), false);
@@ -1708,7 +1954,7 @@ function addBot(html, pending) {
     var log = document.getElementById('dashChatLog');
     var row = document.createElement('div');
     row.className = 'dash-chat-msg is-bot' + (pending ? ' is-pending' : '');
-    row.innerHTML = '<div class="dash-chat-bubble">' + html + '</div>';
+    row.innerHTML = '<div class="dash-chat-who">' + esc(BOT_NAME) + '</div><div class="dash-chat-bubble">' + html + '</div>';
     log.appendChild(row);
     log.scrollTop = log.scrollHeight;
     return row;
@@ -1728,17 +1974,20 @@ function onSubmit(e) {
 async function reply(question) {
     chatBusy = true;
     chatHistory.push({ role: 'user', content: question });
-    var pending = addBot('<p class="dash-chat-wait">Təhlil edirəm…</p>', true);
+    var pending = addBot('<p class="dash-chat-wait">Düşünürəm…</p>', true);
     var local = answerQuestion(question);
     var html = local.html;
     var used = local.text || '';
-    if (llmEnabled() && local.facts && local.facts.kind !== 'empty') {
+    var skipLlm = local.keepHtml || (local.facts && local.facts.kind === 'report');
+    if (llmEnabled() && local.facts && local.facts.kind !== 'empty' && !skipLlm) {
         try {
             var res = await fetch('/api/chat', {
+                credentials: 'same-origin',
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     question: question,
+                    draft: used,
                     facts: packChatFacts(local),
                     history: chatHistory.slice(0, -1).slice(-8),
                     llmKey: readChatKey()

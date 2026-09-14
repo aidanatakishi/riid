@@ -8,8 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda49">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda52">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda75">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda68">
 </head>
 <body class="app-page">
 
@@ -25,7 +25,6 @@
     <div id="appMain" class="app-wrap">
     <header class="app-head">
         <div class="app-head-left">
-            <p class="app-kicker">Rəqəmsal İdarəetmə Departamenti</p>
             <div class="app-head-title-row">
                 <span class="app-logo" aria-hidden="true">
                     <img src="https://mincom.gov.az/storage/pages/249/innovasiya-ve-reqemsal-inkisaf-agentliyi-0.png" alt="" onerror="this.style.display='none'; document.getElementById('logoFallback').classList.remove('hidden');">
@@ -33,37 +32,25 @@
                 </span>
                 <div class="min-w-0">
                     <h1>Rəqəmsal İdarəetmə Paneli</h1>
-                    <p class="app-sub">DGD — tapşırıq, sprint və qiymətləndirmə icmalı</p>
+                    <p class="app-kicker">Rəqəmsal İdarəetmə Departamenti - Komplayens və Qiymətləndirmə şöbəsi</p>
                 </div>
             </div>
         </div>
-        <div class="app-head-tools">
-            <button id="tokenBtn" type="button" onclick="toggleSettings()" class="app-btn app-btn--ghost">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-6 6m-2-4a4 4 0 110-8 4 4 0 014 4z" /></svg>
-                Token
+        <div class="app-head-tools" role="toolbar" aria-label="Panel əməliyyatları">
+            <button type="button" id="reportDownloadBtn" class="app-head-tool" onclick="exportTasksToWord('Hesabat')" title="Hesabat">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                <span id="reportDownloadLabel">Hesabat</span>
             </button>
-            <button type="button" onclick="fetchDashboardData()" class="app-btn app-btn--primary">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+            <button type="button" class="app-head-tool is-accent" onclick="fetchDashboardData()">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 Yenilə
             </button>
-            <button type="button" onclick="exportTasksToWord('Hesabat')" class="app-btn app-btn--light">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                <span id="reportDownloadLabel">Hesabatı yüklə</span>
+            <button id="settingsBtn" type="button" class="app-head-tool" onclick="toggleSettings()" aria-expanded="false" aria-controls="settingsPanel" aria-haspopup="dialog">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Ayarlar
             </button>
         </div>
     </header>
-
-    <div id="settingsPanel" class="app-card app-settings hidden slide-down">
-        <div class="app-settings-grid">
-            <input id="baseUrl" type="text" value="https://jira.idda.az" placeholder="Jira URL">
-            <input id="pat" type="password" placeholder="Öz PAT tokeninizi yazın">
-            <input id="projectKey" type="text" value="DGD" placeholder="Layihə (DGD)" class="uppercase">
-            <input id="proxyUrl" type="text" placeholder="Tunnel proxy (istəyə bağlı): https://….trycloudflare.com">
-            <input id="chatApiKey" type="password" placeholder="Chatbot AI açarı (Gemini və ya OpenAI, istəyə bağlı)">
-            <button type="button" onclick="fetchDashboardData()" class="app-btn app-btn--primary">Məlumatları Yüklə</button>
-            <p class="app-settings-note">Chatbotun ağıllı təhlili üçün Gemini və ya OpenAI açarını bura və ya <span>.env</span>-ə yazın. Netlify linki daxili Jira-ya çıxa bilməz. Lokal panel: <span>python app.py</span> → http://127.0.0.1:5000. İctimai canlı link: Flask + <span>cloudflared tunnel --url http://127.0.0.1:5000</span> — ya tunnel linkini açın, ya da buradakı Proxy sahəsinə yazın.</p>
-        </div>
-    </div>
 
     <div class="app-toolbar">
         <div class="app-toolbar-left">
@@ -140,13 +127,11 @@
                     <div class="date-popover-foot">
                         <div class="date-popover-actions">
                             <button type="button" class="date-popover-muted" onclick="clearDatePopover()">Təmizlə</button>
-                            <button type="button" class="date-popover-primary" onclick="applyDatePopover()">Tətbiq et</button>
+                            <button type="button" class="date-popover-primary" onclick="applyDatePopover()">Filtrlə</button>
                         </div>
                     </div>
                 </div>
             </div>
-            <button type="button" onclick="applyFilters()" class="app-btn app-btn--primary">Filtrlə</button>
-            <button type="button" onclick="filterTasks('rejected')" class="app-btn app-btn--soft">İmtina edilənlər</button>
             <button type="button" onclick="resetAllFilters()" class="app-btn app-btn--ghost">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 Sıfırla
@@ -342,18 +327,13 @@
                 </div>
             </div>
             <div class="assess-year-filter">
-                <div class="assess-period-bar">
-                    <span class="assess-year-filter-label">Dövr</span>
-                    <div id="assessmentYearPills" class="assess-year-pills" role="group" aria-label="İl"></div>
-                    <select id="assessmentYearSelect" class="assess-year-fallback" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
-                </div>
-                <div class="assess-period-bar assess-period-bar--tools">
-                    <div class="assess-period-range" role="group" aria-label="Tarix aralığı">
-                        <input type="date" id="assessStartDate" min="2023-01-01" aria-label="Başlanğıc" title="Başlanğıc" onchange="onAssessDatesChange()">
-                        <span class="assess-period-sep" aria-hidden="true">–</span>
-                        <input type="date" id="assessEndDate" min="2023-01-01" aria-label="Son" title="Son" onchange="onAssessDatesChange()">
-                        <button type="button" class="assess-period-load" onclick="applyAssessmentPeriod()">Filtrlə</button>
-                    </div>
+                <span class="assess-year-filter-label">Dövr</span>
+                <select id="assessmentYearSelect" class="assess-year" aria-label="İl" onchange="setAssessmentYearForActiveTab(this.value)"></select>
+                <div class="assess-period-range" role="group" aria-label="Tarix aralığı">
+                    <input type="date" id="assessStartDate" min="2023-01-01" aria-label="Başlanğıc" title="Başlanğıc" onchange="onAssessDatesChange()">
+                    <span class="assess-period-sep" aria-hidden="true">–</span>
+                    <input type="date" id="assessEndDate" min="2023-01-01" aria-label="Son" title="Son" onchange="onAssessDatesChange()">
+                    <button type="button" class="assess-period-load" onclick="applyAssessmentPeriod()">Filtrlə</button>
                 </div>
             </div>
             <div id="assessDashKpis" class="assess-dash-kpis hidden" hidden></div>
@@ -637,7 +617,7 @@
                     </svg>
                 </span>
                 <h2 id="nk303AdminTitle">Admin girişi</h2>
-                <p class="nk303-admin-hint">Excel və PPTX yükləmək üçün parolu yazın.</p>
+                <p class="nk303-admin-hint">PPTX yükləmək üçün parolu yazın.</p>
                 <form id="nk303AdminForm" action="#" method="post">
                     <label class="nk303-field nk303-admin-field">
                         <span>Parol</span>
@@ -671,7 +651,72 @@
         </div>
     </div>
     <div id="datePopoverOverlay" class="date-popover-overlay hidden" onclick="onDateOverlayClick()"></div>
-    <script type="module" src="/static/js/main.js?v=idda53"></script>
+    <div id="settingsPanel" class="app-settings-overlay hidden" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle" aria-hidden="true" onclick="onSettingsOverlayClick(event)">
+        <div class="app-settings" onclick="event.stopPropagation()">
+            <button type="button" class="assess-modal-close" onclick="hideSettings()" aria-label="Bağla">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+            <div class="app-settings-head">
+                <div>
+                    <p class="app-settings-kicker">Panel</p>
+                    <h2 id="settingsTitle">Ayarlar</h2>
+                </div>
+            </div>
+
+            <section class="app-settings-block" aria-labelledby="settingsAccountTitle">
+                <h3 id="settingsAccountTitle">Hesab</h3>
+                <div class="app-settings-account">
+                    <div class="app-userbox" id="appUserBox">
+                        <strong id="appUserName">—</strong>
+                        <span id="appUserRole">İstifadəçi</span>
+                    </div>
+                    <div class="app-settings-account-actions">
+                        <a id="adminUsersLink" href="/admin" class="app-btn app-btn--ghost hidden">İstifadəçilər</a>
+                        <button type="button" onclick="logoutApp()" class="app-btn app-btn--soft">Çıxış</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="app-settings-block" aria-labelledby="settingsScopeTitle">
+                <h3 id="settingsScopeTitle">Layihə və komanda</h3>
+                <div class="app-settings-grid">
+                    <label class="app-field">
+                        <span>Layihə açarı</span>
+                        <input id="projectKey" type="text" value="DGD" placeholder="KEY" class="uppercase" autocomplete="off" spellcheck="false" title="Jira layihə açarı">
+                    </label>
+                    <label class="app-field">
+                        <span>Komanda</span>
+                        <select id="teamFilter" onchange="onTeamChange()" title="Jira Component/s: Komplayns, Koordinasiya, Servis dizayn">
+                            <option value="komplayns">Komplayns</option>
+                            <option value="koordinasiya">Koordinasiya</option>
+                            <option value="servis-dizayn">Servis dizayn</option>
+                        </select>
+                    </label>
+                </div>
+                <p class="app-settings-note">Layihə Jira KEY-dir. Komanda Jira <span>Component/s</span> sahəsidir. Komanda dərhal tətbiq olunur; başqa KEY üçün <span>Məlumatları yüklə</span> və ya <span>Yenilə</span> basın.</p>
+            </section>
+
+            <section class="app-settings-block" aria-labelledby="settingsJiraTitle">
+                <h3 id="settingsJiraTitle">Jira bağlantısı</h3>
+                <div class="app-settings-grid">
+                    <label class="app-field">
+                        <span>Jira URL</span>
+                        <input id="baseUrl" type="text" value="https://jira.idda.az" placeholder="https://jira.idda.az">
+                    </label>
+                    <label class="app-field">
+                        <span>PAT token</span>
+                        <input id="pat" type="password" placeholder="Öz PAT tokeninizi yazın">
+                    </label>
+                    <label class="app-field">
+                        <span>Chatbot AI açarı</span>
+                        <input id="chatApiKey" type="password" placeholder="Gemini və ya OpenAI (istəyə bağlı)">
+                    </label>
+                    <button type="button" onclick="fetchDashboardData()" class="app-btn app-btn--primary">Məlumatları yüklə</button>
+                </div>
+            </section>
+        </div>
+    </div>
+    <script type="module" src="/static/js/main.js?v=idda78"></script>
 
 </body>
 </html>

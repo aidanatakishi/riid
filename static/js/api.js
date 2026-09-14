@@ -1,6 +1,7 @@
 import { state } from './state.js';
-import { normalizeStr, showToast, toggleSettings } from './utils.js';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, hasKomplaynsComponent } from './model.js';
+import { apiFetch, rememberCurrentProject } from './session.js';
+import { normalizeStr, showToast, showSettings, hideSettings } from './utils.js';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, hasTeamComponent } from './model.js';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
@@ -26,7 +27,12 @@ var CORS_BLOCK_MSG = 'riid.netlify.app internetdədir, Jira isə ofis daxilində
 var NETWORK_BLOCK_MSG = 'Jira-ya qoşulmaq mümkün olmadı. Ofis şəbəkəsi və ya VPN açıq olmalıdır.';
 
 function useFlaskProxy() {
-    return location.port === '5000';
+    if (/netlify\.app$/i.test(location.hostname)) return false;
+    return true;
+}
+
+function hasJiraAuth(pat) {
+    return !!(pat || state.hasServerToken);
 }
 
 function readProxyInput() {
@@ -51,13 +57,22 @@ export async function loadServerConfig() {
     var cfg = { baseUrl: DEFAULT_BASE_URL, projectKey: DEFAULT_PROJECT_KEY, hasToken: false, hasChatLlm: false };
     if (useFlaskProxy()) {
         try {
-            var res = await fetch('/api/config');
+            var res = await apiFetch('/api/config');
             if (res.ok) {
                 var remote = await res.json();
                 if (remote.baseUrl) cfg.baseUrl = remote.baseUrl;
                 if (remote.projectKey) cfg.projectKey = remote.projectKey;
+                if (remote.currentProjectKey) cfg.currentProjectKey = remote.currentProjectKey;
+                if (remote.currentTeam) cfg.currentTeam = remote.currentTeam;
+                if (remote.homeProjectKey) cfg.homeProjectKey = remote.homeProjectKey;
                 if (remote.hasToken) cfg.hasToken = true;
                 if (remote.hasChatLlm) cfg.hasChatLlm = true;
+                if (remote.user) cfg.user = remote.user;
+                if (typeof remote.canSeeDiagnostics === 'boolean') cfg.canSeeDiagnostics = remote.canSeeDiagnostics;
+                state.hasServerToken = !!remote.hasToken;
+                if (remote.homeProjectKey) state.homeProjectKey = String(remote.homeProjectKey).toUpperCase();
+                if (remote.projectKey) state.currentProjectKey = String(remote.projectKey).toUpperCase();
+                if (remote.user) state.currentUser = remote.user;
             }
         } catch (e) {
             console.error('Server konfiqi yüklənmədi:', e);
@@ -68,7 +83,7 @@ export async function loadServerConfig() {
     var proxyEl = document.getElementById('proxyUrl');
     var savedProxy = localStorage.getItem('jiraProxyUrl');
     if (cfg.baseUrl && baseEl && !baseEl.value) baseEl.value = cfg.baseUrl;
-    if (cfg.projectKey && projectEl && !projectEl.value) projectEl.value = cfg.projectKey;
+    if (cfg.projectKey && projectEl) projectEl.value = cfg.projectKey;
     if (proxyEl && savedProxy && !proxyEl.value) proxyEl.value = savedProxy;
     return cfg;
 }
@@ -139,7 +154,7 @@ async function fetchJiraFieldCatalog(baseUrl, pat) {
     try {
         var data;
         if (transport.type === 'proxy') {
-            var res = await fetch((transport.root || '') + '/api/jira/fields', {
+            var res = await apiFetch((transport.root || '') + '/api/jira/fields', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ baseUrl: baseUrl, pat: pat })
@@ -219,12 +234,19 @@ async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
 }
 
 async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
-    var body = { baseUrl: baseUrl, jql: jql, pat: pat, fields: searchFieldsList() };
+    var projectEl = document.getElementById('projectKey');
+    var body = {
+        baseUrl: baseUrl,
+        jql: jql,
+        pat: pat,
+        fields: searchFieldsList(),
+        projectKey: projectEl ? String(projectEl.value || '').trim().toUpperCase() : ''
+    };
     if (expandChangelog) body.expandChangelog = true;
     var url = (proxyRoot || '') + '/api/jira';
     var res;
     try {
-        res = await fetch(url, {
+        res = await apiFetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
@@ -247,7 +269,7 @@ var jqlInflight = {};
 var lastJqlCache = { key: '', data: null };
 
 export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
-    if (!pat) throw new Error('Yuxarıdakı Token düyməsindən PAT daxil edin.');
+    if (!hasJiraAuth(pat)) throw new Error('Ayarlardan PAT daxil edin.');
     var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + searchFieldsList();
     if (jqlInflight[cacheKey]) return jqlInflight[cacheKey];
     if (!expandChangelog && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
@@ -448,7 +470,7 @@ export async function fetchTodayChanges() {
     var baseUrl = document.getElementById('baseUrl').value;
     var pat = document.getElementById('pat').value;
     var projectKey = document.getElementById('projectKey').value.toUpperCase();
-    if (!baseUrl || !projectKey || !pat) return;
+    if (!baseUrl || !projectKey || !hasJiraAuth(pat)) return;
     state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
     var today = new Date();
     var todayStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
@@ -511,7 +533,7 @@ function rebuildDashboardListsFromIndex() {
         var t = state.issueIndex[keys[i]];
         if (!t || !t.fields) continue;
         var typeName = t.fields.issuetype ? normalizeStr(t.fields.issuetype.name) : '';
-        if (isDashboardDirectionType(typeName) && hasKomplaynsComponent(t)) {
+        if (isDashboardDirectionType(typeName) && hasTeamComponent(t)) {
             state.allDirections.push(t);
         }
     }
@@ -552,14 +574,25 @@ function applyDashboardPayload(data, opts) {
     rebuildDashboardListsFromIndex();
     bumpDataEpoch();
     if (!opts.silent) {
-        var settings = document.getElementById('settingsPanel');
-        if (settings) settings.classList.add('hidden');
+        hideSettings();
     }
     populateSprintFilter();
     loadFiltersFromStorage();
     applyFilters();
     refreshTodayTasks();
     state.hasLoadedDashboard = true;
+}
+
+export function applyTeamScope() {
+    if (!state.hasLoadedDashboard) return;
+    rebuildDashboardListsFromIndex();
+    bumpDataEpoch();
+    populateSprintFilter();
+    applyFilters();
+    refreshTodayTasks();
+    if (typeof window.renderAssessmentSections === 'function') {
+        try { window.renderAssessmentSections(); } catch (e) {}
+    }
 }
 
 function mergeFetchedIssues(data, opts) {
@@ -588,13 +621,13 @@ function readDashboardCredentials() {
 export async function loadAssessmentCreatedRange(startIso, endIso) {
     var creds = readDashboardCredentials();
     if (!creds.baseUrl || !creds.projectKey) {
-        toggleSettings();
+        showSettings();
         showToast('Zəhmət olmasa Jira URL və layihə kodunu daxil edin!', 'error');
         return false;
     }
-    if (!creds.pat) {
-        toggleSettings();
-        showToast('Yuxarıdakı Token düyməsindən PAT daxil edin.', 'error');
+    if (!hasJiraAuth(creds.pat)) {
+        showSettings();
+        showToast('Ayarlardan PAT daxil edin.', 'error');
         return false;
     }
     saveClientCredentials(creds.baseUrl, creds.pat, creds.projectKey);
@@ -628,9 +661,10 @@ export async function fetchDashboardData(opts) {
      var baseUrl = document.getElementById('baseUrl').value;
      var pat = document.getElementById('pat').value;
      var projectKey = document.getElementById('projectKey').value.toUpperCase();
-     if (!baseUrl || !projectKey) { toggleSettings(); showToast('Zəhmət olmasa Jira URL və layihə kodunu daxil edin!', 'error'); return; }
-     if (!pat) { toggleSettings(); showToast('Yuxarıdakı Token düyməsindən PAT daxil edin.', 'error'); return; }
+     if (!baseUrl || !projectKey) { showSettings(); showToast('Zəhmət olmasa Jira URL və layihə kodunu daxil edin!', 'error'); return; }
+     if (!hasJiraAuth(pat)) { showSettings(); showToast('Ayarlardan PAT daxil edin.', 'error'); return; }
      saveClientCredentials(baseUrl, pat, projectKey);
+     await rememberCurrentProject();
      state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
      state.dashboardFetchBusy = true;
      var firstLoad = !state.hasLoadedDashboard;

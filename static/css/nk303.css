@@ -23,6 +23,7 @@
 .nk303-launch svg { width: 1.125rem; height: 1.125rem; stroke-width: 2; }
 .nk303-launch:hover { background: #6d28d9; color: #fff; }
 .nk303-launch:active { transform: scale(0.98); }
+body.hide-diag-analytics .nk303-launch { display: none !important; }
 @media (max-width: 639px) {
     .assess-hub-card .nk303-launch { width: 100%; }
 }
@@ -761,6 +762,97 @@ body.nk303-admin-locked #nk303Root {
     opacity: 0.65;
     cursor: wait;
 }
+.nk303-rep-files {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.65rem;
+    margin: 0 0 1rem;
+}
+.nk303-rep-file {
+    display: flex;
+    align-items: stretch;
+    max-width: 34rem;
+    width: min(34rem, 100%);
+    border: 1px solid #d9e4e2;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.nk303-rep-file.is-on {
+    border-color: #5eead4;
+    background: #f0fdfa;
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.1);
+}
+.nk303-rep-file-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    color: inherit;
+}
+.nk303-rep-file-ic {
+    flex-shrink: 0;
+    width: 2.35rem;
+    height: 2.35rem;
+    border-radius: 10px;
+    background: #ccfbf1;
+    color: #0f766e;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.nk303-rep-file-ic svg { width: 1.15rem; height: 1.15rem; }
+.nk303-rep-file-txt {
+    display: flex;
+    flex-direction: column;
+    gap: 0.14rem;
+    min-width: 0;
+    flex: 1;
+}
+.nk303-rep-file-txt strong {
+    display: block;
+    font-size: 0.86rem;
+    font-weight: 700;
+    color: #0f2744;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.nk303-rep-file-txt em {
+    display: block;
+    font-style: normal;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #64748b;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.nk303-rep-file.is-on .nk303-rep-file-txt strong { color: #115e59; }
+.nk303-rep-file-ext {
+    flex-shrink: 0;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: #0f766e;
+    background: #ccfbf1;
+    border-radius: 6px;
+    padding: 0.2rem 0.42rem;
+}
+.nk303-rep-file .nk303-xl-del {
+    align-self: center;
+    margin: 0 0.55rem 0 0;
+}
 .nk303-xl-files {
     display: flex;
     flex-wrap: wrap;
@@ -1419,19 +1511,10 @@ button.nk303-kpi {
     grid-template-columns: 11.2rem minmax(0, 1fr);
 }
 .nk303-mid--insight {
-    grid-template-columns: minmax(14.5rem, 0.92fr) minmax(12.5rem, 0.78fr) minmax(16rem, 1.3fr);
+    grid-template-columns: minmax(16rem, 0.95fr) minmax(18rem, 1.25fr);
     align-items: stretch;
 }
 .nk303-mid--insight > .nk303-card { min-height: 16.5rem; }
-.nk303-mid--insight > .nk303-result {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    min-height: 16.5rem;
-    margin: 0;
-    padding: 1.35rem 1.4rem;
-    border-radius: 22px;
-}
 .nk303-mid--insight .nk303-chart--trend { height: 10.2rem; }
 .nk303-mid--insight > .nk303-card--index {
     margin-bottom: 0;
@@ -2498,8 +2581,7 @@ button.nk303-dir { cursor: pointer; }
     .nk303-mid--hero {
         grid-template-columns: minmax(14rem, 0.82fr) minmax(0, 1.4fr);
     }
-    .nk303-mid--insight { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-    .nk303-mid--insight > .nk303-card--index { grid-column: 1 / -1; }
+    .nk303-mid--insight { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
     .nk303-dir-tiles { grid-template-columns: 1fr 1fr; }
     .nk303-chart--compare { height: 18rem; }
     .nk303-dirs { grid-template-columns: 1fr 1fr; }
@@ -2607,5 +2689,5 @@ button.nk303-dir { cursor: pointer; }
         -webkit-backdrop-filter: none;
         box-shadow: none;
     }
-    .nk303-back, .nk303-home, .nk303-sec-nav, .nk303-hub-overlay, .nk303-export, .nk303-upload, .nk303-link, .nk303-btn, .nk303-launch, .nk303-xl-files, .nk303-admin-gate, .nk303-admin-row { display: none !important; }
+    .nk303-back, .nk303-home, .nk303-sec-nav, .nk303-hub-overlay, .nk303-export, .nk303-upload, .nk303-link, .nk303-btn, .nk303-launch, .nk303-xl-files, .nk303-rep-files, .nk303-admin-gate, .nk303-admin-row { display: none !important; }
 }

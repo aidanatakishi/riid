@@ -10,10 +10,23 @@ from werkzeug.utils import secure_filename
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
 from chat_llm import answer_chat, chat_llm_ready
+import chat_llm
 from diag_excel import parse_diag_excel
 from report_pptx import parse_report_pptx
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql
 from jql import build_date_filter_jql, generate_recommendations
+from users import (
+    admin_count,
+    create_user,
+    delete_user,
+    find_user_by_id,
+    has_users,
+    list_users,
+    normalize_team,
+    public_user,
+    update_user,
+    verify_login,
+)
 
 api = Blueprint('api', __name__)
 
@@ -29,8 +42,125 @@ def request_json():
     return request.json or {}
 
 
+def home_project_key():
+    return (JIRA_PROJECT_KEY or 'DGD').strip().upper()
+
+
+def session_user_id():
+    return session.get('user_id')
+
+
+def is_logged_in():
+    return bool(session_user_id())
+
+
+def is_app_admin():
+    return session.get('role') == 'admin'
+
+
+def current_project_key():
+    return (
+        session.get('current_project_key')
+        or session.get('project_key')
+        or home_project_key()
+    ).strip().upper()
+
+
+def current_team():
+    return normalize_team(session.get('current_team') or session.get('team') or 'komplayns')
+
+
+def can_see_diagnostics():
+    return is_logged_in() and current_project_key() == home_project_key() and current_team() == 'komplayns'
+
+
+def remember_project_key(data):
+    if not isinstance(data, dict):
+        return
+    raw = data.get('projectKey') or data.get('project')
+    key = str(raw or '').strip().upper()
+    if key:
+        session['current_project_key'] = key
+    if data.get('team') is not None or data.get('component') is not None:
+        session['current_team'] = normalize_team(data.get('team') or data.get('component'))
+
+
+def login_payload(user):
+    pub = public_user(user)
+    return {
+        'user': pub,
+        'homeProjectKey': home_project_key(),
+        'currentProjectKey': current_project_key(),
+        'currentTeam': current_team(),
+        'canSeeDiagnostics': can_see_diagnostics(),
+        'hasToken': bool(JIRA_PAT)
+    }
+
+
+def diagnostics_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return options_ok()
+        if not is_logged_in():
+            return jsonify({'error': 'Giriş lazımdır'}), 401
+        if not can_see_diagnostics():
+            return jsonify({'error': 'Diaqnostika analitikası yalnız Komplayns üçün əlçatandır'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def wants_remember(data):
+    if not isinstance(data, dict):
+        return False
+    raw = data.get('remember')
+    if isinstance(raw, bool):
+        return raw
+    return str(raw or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def bind_session(user, remember=False):
+    session.clear()
+    session.permanent = bool(remember)
+    session['user_id'] = user.get('id')
+    session['username'] = user.get('username')
+    session['role'] = user.get('role') or 'user'
+    session['display_name'] = user.get('display_name') or user.get('username')
+    session['project_key'] = (user.get('project_key') or home_project_key()).upper()
+    session['current_project_key'] = session['project_key']
+    session['team'] = normalize_team(user.get('team'))
+    session['current_team'] = session['team']
+    session['remember'] = bool(remember)
+    if session['role'] == 'admin':
+        session['diag_admin'] = True
+
+
 def is_admin_session():
-    return bool(session.get('diag_admin'))
+    return bool(session.get('diag_admin') or is_app_admin())
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return options_ok()
+        if not is_logged_in():
+            return jsonify({'error': 'Giriş lazımdır'}), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def app_admin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return options_ok()
+        if not is_logged_in():
+            return jsonify({'error': 'Giriş lazımdır'}), 401
+        if not is_app_admin():
+            return jsonify({'error': 'Yalnız admin istifadəçiləri idarə edə bilər'}), 403
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 def admin_required(fn):
@@ -81,7 +211,8 @@ def admin_login():
     given = '' if not isinstance(data, dict) else data.get('password')
     if not password_ok(given, ADMIN_PASSWORD):
         return jsonify({'error': 'Parol səhvdir'}), 401
-    session.clear()
+    if not is_logged_in():
+        session.clear()
     session['diag_admin'] = True
     session.permanent = True
     return jsonify({'admin': True}), 200
@@ -91,8 +222,157 @@ def admin_login():
 def admin_logout():
     if request.method == 'OPTIONS':
         return options_ok()
-    session.clear()
+    session.pop('diag_admin', None)
+    if not is_logged_in():
+        session.clear()
     return jsonify({'admin': False}), 200
+
+
+@api.route('/api/auth/status', methods=['GET', 'OPTIONS'])
+def auth_status():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    return jsonify({
+        'authenticated': is_logged_in(),
+        'needsSetup': not has_users()
+    })
+
+
+@api.route('/api/auth/setup', methods=['POST', 'OPTIONS'])
+def auth_setup():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    if has_users():
+        return jsonify({'error': 'Sistem artıq qurulub. Daxil olun.'}), 409
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    user, err = create_user(
+        data.get('username'),
+        data.get('password'),
+        data.get('displayName') or 'Admin',
+        'admin',
+        home_project_key()
+    )
+    if err:
+        return jsonify({'error': err}), 400
+    bind_session(user, wants_remember(data))
+    payload = login_payload(user)
+    dept_name = data.get('deptUsername')
+    dept_pass = data.get('deptPassword')
+    if dept_name and dept_pass:
+        create_user(
+            dept_name,
+            dept_pass,
+            data.get('deptDisplayName') or 'Qiymətləndirmə və komplayens şöbəsi',
+            'user',
+            home_project_key()
+        )
+    return jsonify(payload), 201
+
+
+@api.route('/api/auth/login', methods=['POST', 'OPTIONS'])
+def auth_login():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    user = verify_login(data.get('username'), data.get('password'))
+    if not user:
+        return jsonify({'error': 'İstifadəçi adı və ya parol səhvdir'}), 401
+    bind_session(user, wants_remember(data))
+    return jsonify(login_payload(user)), 200
+
+
+@api.route('/api/auth/logout', methods=['POST', 'OPTIONS'])
+def auth_logout():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    session.clear()
+    return jsonify({'ok': True}), 200
+
+
+@api.route('/api/auth/me', methods=['GET', 'OPTIONS'])
+def auth_me():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    if not is_logged_in():
+        return jsonify({'authenticated': False, 'needsSetup': not has_users()}), 200
+    user = find_user_by_id(session_user_id())
+    if not user:
+        session.clear()
+        return jsonify({'authenticated': False, 'needsSetup': not has_users()}), 200
+    pub = public_user(user)
+    return jsonify({
+        'authenticated': True,
+        'user': pub,
+        'homeProjectKey': home_project_key(),
+        'currentProjectKey': current_project_key(),
+        'currentTeam': current_team(),
+        'canSeeDiagnostics': can_see_diagnostics(),
+        'hasToken': bool(JIRA_PAT)
+    }), 200
+
+
+@api.route('/api/auth/project', methods=['POST', 'OPTIONS'])
+@login_required
+def auth_set_project():
+    data = request_json()
+    remember_project_key(data if isinstance(data, dict) else {})
+    return jsonify({
+        'currentProjectKey': current_project_key(),
+        'currentTeam': current_team(),
+        'homeProjectKey': home_project_key(),
+        'canSeeDiagnostics': can_see_diagnostics()
+    }), 200
+
+
+@api.route('/api/users', methods=['GET', 'POST', 'OPTIONS'])
+@app_admin_required
+def api_users():
+    if request.method == 'GET':
+        rows = [public_user(u) for u in list_users()]
+        return jsonify({'users': rows, 'homeProjectKey': home_project_key()}), 200
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    user, err = create_user(
+        data.get('username'),
+        data.get('password'),
+        data.get('displayName') or '',
+        data.get('role') or 'user',
+        data.get('projectKey') or home_project_key(),
+        data.get('team') or 'komplayns'
+    )
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({'user': public_user(user)}), 201
+
+
+@api.route('/api/users/<user_id>', methods=['PATCH', 'DELETE', 'OPTIONS'])
+@app_admin_required
+def api_user_item(user_id):
+    if request.method == 'DELETE':
+        ok, err = delete_user(user_id, session_user_id())
+        if not ok:
+            return jsonify({'error': err}), 400
+        return jsonify({'ok': True}), 200
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    user, err = update_user(
+        user_id,
+        username=data.get('username'),
+        display_name=data.get('displayName'),
+        role=data.get('role'),
+        project_key=data.get('projectKey'),
+        team=data.get('team'),
+        password=data.get('password')
+    )
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({'user': public_user(user)}), 200
 
 
 def resolve_credentials(data):
@@ -102,16 +382,24 @@ def resolve_credentials(data):
 
 
 @api.route('/api/config', methods=['GET'])
+@login_required
 def get_client_config():
+    user = find_user_by_id(session_user_id())
+    pub = public_user(user) if user else None
     return jsonify({
         'baseUrl': (JIRA_BASE_URL or '').rstrip('/'),
-        'projectKey': JIRA_PROJECT_KEY or '',
+        'projectKey': current_project_key(),
+        'currentTeam': current_team(),
+        'homeProjectKey': home_project_key(),
         'hasToken': bool(JIRA_PAT),
-        'hasChatLlm': chat_llm_ready()
+        'hasChatLlm': chat_llm_ready(),
+        'user': pub,
+        'canSeeDiagnostics': can_see_diagnostics()
     })
 
 
 @api.route('/api/chat', methods=['POST', 'OPTIONS'])
+@login_required
 def api_chat():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -129,8 +417,8 @@ def api_chat():
         return jsonify({'answer': draft, 'source': 'local'})
     text = answer_chat(question, facts, draft, history, llm_key)
     if text:
-        return jsonify({'answer': text, 'source': 'llm'})
-    return jsonify({'answer': draft, 'source': 'local'})
+        return jsonify({'answer': text, 'source': 'llm', 'model': chat_llm.LAST_MODEL})
+    return jsonify({'answer': draft, 'source': 'local', 'error': chat_llm.LAST_ERROR})
 
 
 def build_hierarchy(base_url, pat, parent_key, date_filter, exclude_done=True):
@@ -222,11 +510,13 @@ def compute_hierarchy_stats(istiqametler):
 
 
 @api.route('/api/jira', methods=['POST', 'OPTIONS'])
+@login_required
 def proxy_jira():
     if request.method == 'OPTIONS':
         return options_ok()
 
     data = request_json()
+    remember_project_key(data)
     base_url, pat = resolve_credentials(data)
     jql = data.get('jql')
     date_filter = data.get('dateFilter')
@@ -247,6 +537,7 @@ def proxy_jira():
 
 
 @api.route('/api/jira/fields', methods=['POST', 'OPTIONS'])
+@login_required
 def proxy_jira_fields():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -263,6 +554,7 @@ def proxy_jira_fields():
 
 
 @api.route('/api/jira/plan', methods=['POST', 'OPTIONS'])
+@login_required
 def get_plan_issues():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -294,6 +586,7 @@ def get_plan_issues():
 
 
 @api.route('/api/jira/hierarchy', methods=['POST', 'OPTIONS'])
+@login_required
 def get_hierarchy():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -313,11 +606,13 @@ def get_hierarchy():
 
 
 @api.route('/api/dashboard', methods=['POST', 'OPTIONS'])
+@login_required
 def get_dashboard_data():
     if request.method == 'OPTIONS':
         return options_ok()
 
     data = request_json()
+    remember_project_key(data)
     base_url, pat = resolve_credentials(data)
     parent_key = data.get('parentKey')
     date_filter = data.get('dateFilter')
@@ -349,6 +644,7 @@ def get_dashboard_data():
 
 
 @api.route('/api/jira/plan/hierarchy', methods=['POST', 'OPTIONS'])
+@login_required
 def get_plan_hierarchy():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -404,6 +700,7 @@ def get_plan_hierarchy():
 
 
 @api.route('/api/validate/date-filter', methods=['POST', 'OPTIONS'])
+@login_required
 def validate_date_filter():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -486,6 +783,7 @@ def flatten_diag_orgs(index):
 
 
 @api.route('/api/diaqnostika/uploads', methods=['GET', 'OPTIONS'])
+@diagnostics_required
 def list_diag_uploads():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -509,6 +807,7 @@ def list_diag_uploads():
 
 
 @api.route('/api/diaqnostika/upload', methods=['POST', 'OPTIONS'])
+@diagnostics_required
 @admin_required
 def upload_diag_excel():
 
@@ -582,6 +881,7 @@ def upload_diag_excel():
 
 
 @api.route('/api/diaqnostika/uploads/<file_id>', methods=['DELETE', 'OPTIONS'])
+@diagnostics_required
 @admin_required
 def delete_diag_upload(file_id):
     index = diag_index()
@@ -672,6 +972,7 @@ def flatten_reports(index):
 
 
 @api.route('/api/hesabat/uploads', methods=['GET', 'OPTIONS'])
+@diagnostics_required
 def list_report_uploads():
     if request.method == 'OPTIONS':
         return options_ok()
@@ -692,6 +993,7 @@ def list_report_uploads():
 
 
 @api.route('/api/hesabat/upload', methods=['POST', 'OPTIONS'])
+@diagnostics_required
 @admin_required
 def upload_report_pptx():
     incoming = request.files.getlist('file') or []
@@ -764,6 +1066,7 @@ def upload_report_pptx():
 
 
 @api.route('/api/hesabat/uploads/<file_id>', methods=['DELETE', 'OPTIONS'])
+@diagnostics_required
 @admin_required
 def delete_report_upload(file_id):
     index = report_index()

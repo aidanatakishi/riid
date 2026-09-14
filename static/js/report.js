@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js';
 
 let _docxLibPromise = null;
 
@@ -281,26 +281,16 @@ function monthlyPeriodPhrase(info) {
 
 export function updateReportButtonLabel() {
     var el = document.getElementById('reportDownloadLabel');
-    if (!el) return;
+    var btn = document.getElementById('reportDownloadBtn');
     var startEl = document.getElementById('startDate');
     var endEl = document.getElementById('endDate');
     var startIso = startEl && startEl.value;
     var endIso = endEl && endEl.value;
-    var month = getMonthRangeInfo(startIso, endIso);
-    if (month) {
-        el.textContent = month.monthCount > 1 ? 'Aylıq hesabatları yüklə' : 'Aylıq hesabatı yüklə';
-        return;
-    }
-    if (isSprintWeekMode()) {
-        el.textContent = 'Həftəlik hesabatı yüklə';
-        return;
-    }
-    var week = getWeekRangeInfo(startIso, endIso);
-    if (week) {
-        el.textContent = week.weekCount > 1 ? 'Həftəlik hesabatları yüklə' : 'Həftəlik hesabatı yüklə';
-        return;
-    }
-    el.textContent = 'Hesabatı yüklə';
+    var label = 'Hesabat';
+    if (getMonthRangeInfo(startIso, endIso)) label = 'Aylıq hesabat';
+    else if (isSprintWeekMode() || getWeekRangeInfo(startIso, endIso)) label = 'Həftəlik hesabat';
+    if (el) el.textContent = label;
+    if (btn) btn.title = label;
 }
 
 export function isSelectedMonthRange() {
@@ -355,15 +345,6 @@ function monthlyIntroForCanon(id, period) {
     return '';
 }
 
-function isReyestrDirection(dirName) {
-    return normalizeStr(dirName || '').indexOf('reyestr') !== -1;
-}
-
-function isMaqsadDirection(dirName) {
-    var n = normalizeStr(dirName || '');
-    return n.indexOf('məqsədəuyğun') !== -1 || n.indexOf('meqseduygun') !== -1;
-}
-
 export async function exportTasksToWord(title) {
     var docxLib;
     try {
@@ -396,9 +377,9 @@ export async function exportTasksToWord(title) {
 
     var dateStr = new Date().toLocaleDateString('az-AZ');
 
-    var startDate = document.getElementById('startDate').value;
-    var endDate = document.getElementById('endDate').value;
-    var sprintVal = document.getElementById('sprintFilter').value;
+    var startDate = (document.getElementById('startDate') || {}).value || '';
+    var endDate = (document.getElementById('endDate') || {}).value || '';
+    var sprintVal = (document.getElementById('sprintFilter') || {}).value || '';
     var periodText = '';
     var periodStart = null, periodEnd = null;
     if (startDate || endDate) {
@@ -443,7 +424,8 @@ export async function exportTasksToWord(title) {
 
     // Hesabat üçün vahidləri təyin edirik (Ana taskları çıxardırıq)
     var reportUnits = [];
-    state.filteredTasks.forEach(function(t) {
+    (state.filteredTasks || []).forEach(function(t) {
+        if (!t || !t.fields || !t.fields.status) return;
         var st = normalizeStr(t.fields.status.name);
         var isPaused = st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
         if (isPaused) return;
@@ -637,10 +619,10 @@ export async function exportTasksToWord(title) {
         return parts.join(' ');
     }
 
-    function statCell(numberText, labelText, isLast, fontName) {
+    function statCell(numberText, labelText, isLast, fontName, widthPct) {
         fontName = fontName || REPORT_FONT;
         return new TableCell({
-            width: { size: 25, type: WidthType.PERCENTAGE },
+            width: { size: widthPct || 33, type: WidthType.PERCENTAGE },
             verticalAlign: VerticalAlign.CENTER,
             shading: { fill: FILL_ROW, type: ShadingType.CLEAR, color: 'auto' },
             margins: { top: 160, bottom: 160, left: 140, right: 140 },
@@ -687,10 +669,9 @@ export async function exportTasksToWord(title) {
         target.push(new Table({
             width: { size: 100, type: WidthType.PERCENTAGE },
             rows: [ new TableRow({ children: [
-                statCell(kpis.dueDisplay || kpis.due, w.dueLabel, false, fontName),
-                statCell(kpis.blocked, 'Mövcud çətinliklər', false, fontName),
-                statCell(kpis.done, 'Ümumi tamamlanan tapşırıq sayı', false, fontName),
-                statCell(kpis.planned, w.nextLabel, true, fontName)
+                statCell(kpis.dueDisplay || kpis.due, w.dueLabel, false, fontName, 33),
+                statCell(kpis.blocked, 'Mövcud çətinliklər', false, fontName, 33),
+                statCell(kpis.done, 'Ümumi tamamlanan tapşırıq sayı', true, fontName, 34)
             ] }) ]
         }));
         target.push(new Paragraph({ text: '', spacing: { after: 200 } }));
@@ -745,7 +726,7 @@ export async function exportTasksToWord(title) {
         var byText = {};
         (entries || []).forEach(function(e) {
             if (!e || !e.text) return;
-            var key = normalizeStr(String(e.text).replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?\s*/i, '').replace(/[.]+$/, ''));
+            var key = normalizeStr(String(e.text).replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*-?\s*(?:cü|cu|cı|ci)\s+il)?(?:\s*tarixində)?\s*/i, '').replace(/[.]+$/, ''));
             if (!key) return;
             var prev = byText[key];
             if (!prev) {
@@ -791,6 +772,9 @@ export async function exportTasksToWord(title) {
     function formatEntryLine(entry) {
         if (!entry) return '';
         var body = (entry.text || '').trim();
+        body = body.replace(/^(?:[-–—,;:.\s]*)(?:cü|cu|cı|ci)\s+il(?:\s+tarixində)?[\s,;:.-]*/i, '');
+        body = body.replace(/\s+(?:cü|cu|cı|ci)\s+il(?:\s+tarixində)?(?=\s|[.,;]|$)/gi, '');
+        body = body.replace(/\s+/g, ' ').trim();
         if (!body) return '';
         var alreadyDated = /^\d{1,2}[./]\d{1,2}[./]\d{4}/.test(body);
         var text;
@@ -1030,21 +1014,23 @@ export async function exportTasksToWord(title) {
         return true;
     }
 
-    function taskHasMonthActivity(t, start, end) {
+    function getReportBitmeDate(t) {
+        if (!t || !t.fields) return null;
+        return parsePhaseDate(t.fields['customfield_10807']);
+    }
+
+    function taskMonthDatesInPeriod(t, start, end) {
         if (!t || !t.fields || isPausedTask(t)) return false;
         var startD = getTaskStartDate(t);
-        if (startD && isDateInReportPeriod(startD, start, end)) return true;
-        var dueRaw = t.fields['customfield_10807'] || t.fields.duedate;
-        if (dueRaw) {
-            var due = parseReportIsoDate(String(dueRaw).split('T')[0]);
-            if (due && isDateInReportPeriod(due, start, end)) return true;
+        var dueD = getReportBitmeDate(t);
+        if (!startD || !isDateInReportPeriod(startD, start, end)) return false;
+        if (!dueD || !isDateInReportPeriod(dueD, start, end)) return false;
+        var dated = getDatedPhaseEntries(t) || [];
+        if (!dated.length) return true;
+        for (var i = 0; i < dated.length; i++) {
+            if (dated[i] && dated[i].date && isDateInReportPeriod(dated[i].date, start, end)) return true;
         }
-        var entries = getDatedPhaseEntries(t);
-        for (var i = 0; i < entries.length; i++) {
-            if (entries[i].date && isDateInReportPeriod(entries[i].date, start, end)) return true;
-        }
-        var raw = getRawPhaseEntries(t, start, end);
-        return raw.length > 0;
+        return getRawPhaseEntries(t, start, end).length > 0;
     }
 
     function collectMonthlySource(info) {
@@ -1057,10 +1043,10 @@ export async function exportTasksToWord(title) {
             out.push(t);
         }
         (state.filteredTasks || []).forEach(function(t) {
-            if (taskHasMonthActivity(t, info.start, info.end)) add(t);
+            if (taskMonthDatesInPeriod(t, info.start, info.end)) add(t);
         });
         (state.allTasks || []).forEach(function(t) {
-            if (taskHasMonthActivity(t, info.start, info.end)) add(t);
+            if (taskMonthDatesInPeriod(t, info.start, info.end)) add(t);
         });
         return out;
     }
@@ -1110,7 +1096,7 @@ export async function exportTasksToWord(title) {
         var byKey = {};
         (entries || []).forEach(function(e) {
             if (!e || !e.text) return;
-            var body = normalizeStr(String(e.text).replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?\s*/i, '').replace(/[.]+$/, ''));
+            var body = normalizeStr(String(e.text).replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*-?\s*(?:cü|cu|cı|ci)\s+il)?(?:\s*tarixində)?\s*/i, '').replace(/[.]+$/, ''));
             if (!body) return;
             var fi = phaseFieldIndex(e);
             var day = e.date ? formatDateObj(e.date) : '';
@@ -1213,7 +1199,7 @@ export async function exportTasksToWord(title) {
     function withQurumOnTitle(name, qurum) {
         if (!name) return name;
         if (!qurum || textHasQurum(name, qurum)) return name;
-        return qurum + ' — ' + name;
+        return qurum + ' - ' + name;
     }
 
     function formatMonthlyEntryLine(entry) {
@@ -1234,6 +1220,7 @@ export async function exportTasksToWord(title) {
                 kids.forEach(walk);
             }
             if (allowedKeys && !allowedKeys[t.key]) return;
+            if (!taskMonthDatesInPeriod(t, info.start, info.end)) return;
             var entries = issueMonthPhaseEntries(t, info);
             if (entries.length === 0) return;
             var qurum = resolvePhaseQurum(t);
@@ -1318,20 +1305,22 @@ export async function exportTasksToWord(title) {
 
     function officialItemText(group, mode) {
         var head = '';
+        var qurum = (group.qurum || '').trim();
         if (mode === 'qurum') {
-            head = (group.qurum || group.name || '').trim();
+            head = qurum || (group.name || '').trim();
         } else {
             var title = (group.name || '').trim();
-            if (group.qurum && title && !textHasQurum(title, group.qurum)) {
-                head = group.qurum + ' — ' + title;
+            if (qurum && title && !textHasQurum(title, qurum)) {
+                head = qurum + ' - ' + title;
             } else if (title) {
                 head = title;
             } else {
-                head = (group.qurum || '').trim();
+                head = qurum;
             }
         }
-        var body = (group.lines || []).join(' ');
-        if (head && body) return head + '. ' + body;
+        var body = (group.lines || []).join(' ').trim();
+        head = String(head || '').replace(/[.;:\s]+$/, '').trim();
+        if (head && body) return head + ' - ' + body;
         if (body) return body;
         return head;
     }
@@ -1396,14 +1385,12 @@ export async function exportTasksToWord(title) {
         var statusName = t.fields && t.fields.status ? t.fields.status.name : '';
         var g = getStatusGroup(statusName);
         if (g === 'rejected' || g === 'paused') return false;
+        var dueD = getReportBitmeDate(t);
         var resolved = fieldDay(t, 'resolutiondate');
-        if (resolved && isDateInReportPeriod(resolved, info.start, info.end)) return true;
-        if (g !== 'done') return false;
-        if (taskHasMonthActivity(t, info.start, info.end)) return true;
-        var created = fieldDay(t, 'created');
-        if (created && isDateInReportPeriod(created, info.start, info.end)) return true;
-        var due = getTaskDueDate(t);
-        return !!(due && isDateInReportPeriod(due, info.start, info.end));
+        var dueIn = !!(dueD && isDateInReportPeriod(dueD, info.start, info.end));
+        var resIn = !!(resolved && isDateInReportPeriod(resolved, info.start, info.end));
+        if (g === 'done' && (dueIn || resIn)) return true;
+        return false;
     }
 
     function cleanSystemName(raw) {
@@ -1438,11 +1425,6 @@ export async function exportTasksToWord(title) {
         }
         (parentList || []).forEach(add);
         (monthSource || []).forEach(add);
-        (state.allTasks || []).forEach(function(t) {
-            var dir = resolveDirection(t);
-            var name = dir ? (dir.fields.summary || '').trim() : '';
-            if (name === dirName) add(t);
-        });
         return out;
     }
 
@@ -1540,13 +1522,6 @@ export async function exportTasksToWord(title) {
         }
         uniqueParents.forEach(addToBucket);
         (monthSource || []).forEach(addToBucket);
-        if (sourceMode !== 'sprint') {
-            (state.allTasks || []).forEach(function(t) {
-                var dir = resolveDirection(t);
-                var name = dir ? (dir.fields.summary || '').trim() : '';
-                if (name && (isReyestrDirection(name) || isMaqsadDirection(name))) addToBucket(t);
-            });
-        }
 
         var unitsByCanon = {};
         CANON_ORDER.forEach(function(id) {
@@ -1591,11 +1566,10 @@ export async function exportTasksToWord(title) {
         } else if (kind === 'period') {
             monthKpis = collectVisibleDashboardKpis();
         } else if (kind === 'month') {
-            var kpiUnits = (reportUnits || []).filter(function(t) {
-                return taskBelongsToDateRange(t, info.start, info.end);
-            });
+            var kpiUnits = countableWorkUnits(monthSource);
             monthKpis = collectDashboardKpis(kpiUnits, function(t) {
-                return isDueInDateRange(t, info.start, info.end);
+                var bitme = getReportBitmeDate(t);
+                return !!(bitme && isDateInReportPeriod(bitme, info.start, info.end));
             });
         } else {
             var weekUnits = countableWorkUnits((state.filteredTasks || []).filter(function(t) {
@@ -1633,7 +1607,8 @@ export async function exportTasksToWord(title) {
             if (isSystemRegistrationTask(t) && wasRegisteredInMonth(t, info)) return false;
             return !isReyestrProcessTask(t);
         });
-        if (systems.length || reyestrPlanUnits.length) {
+        var planGroups = groupMonthlyUnits(reyestrPlanUnits, false);
+        if (systems.length || planGroups.length) {
             monthChildren.push(sectionHeadingParagraph(CANON_TITLES.reyestr, MONTH_FONT));
             anySection = true;
             if (systems.length) {
@@ -1643,9 +1618,8 @@ export async function exportTasksToWord(title) {
                     if (line) monthChildren.push(bodyParagraph(line, MONTH_FONT));
                 });
             }
-            monthChildren.push(bodyParagraph(TEDBIRLER_PLANI, MONTH_FONT));
-            var planGroups = groupMonthlyUnits(reyestrPlanUnits, false);
             if (planGroups.length) {
+                monthChildren.push(bodyParagraph(TEDBIRLER_PLANI, MONTH_FONT));
                 appendOfficialList(monthChildren, planGroups.map(function(g) {
                     return officialItemText(g, 'item');
                 }), MONTH_FONT);
@@ -1653,11 +1627,14 @@ export async function exportTasksToWord(title) {
         }
 
         var meqsedUnits = unitsByCanon.meqsed || [];
+        var digerAllUnits = unitsByCanon.diger || [];
+        var digerMetodiki = filterMonthlyUnits(digerAllUnits, function(t) { return isMetodikiTask(t); });
+        var digerUnits = filterMonthlyUnits(digerAllUnits, function(t) { return !isMetodikiTask(t); });
         var meqsedProcess = filterMonthlyUnits(meqsedUnits, function(t) { return isReyestrProcessTask(t); });
         var meqsedMain = filterMonthlyUnits(meqsedUnits, function(t) {
             return !isReyestrProcessTask(t);
         });
-        var meqsedMetodiki = filterMonthlyUnits(meqsedMain, function(t) { return isMetodikiTask(t); });
+        var meqsedMetodiki = filterMonthlyUnits(meqsedMain, function(t) { return isMetodikiTask(t); }).concat(digerMetodiki);
         var meqsedRest = filterMonthlyUnits(meqsedMain, function(t) { return !isMetodikiTask(t); });
         var meqsedDone = filterMonthlyUnits(meqsedRest, function(t, row) { return unitIsDone(row); });
         var meqsedOpen = filterMonthlyUnits(meqsedRest, function(t, row) { return !unitIsDone(row); });
@@ -1697,8 +1674,26 @@ export async function exportTasksToWord(title) {
         emitGrouped('diag', unitsByCanon.diag, true);
         emitGrouped('isq', unitsByCanon.isq, true);
         emitGrouped('exq', unitsByCanon.exq, true);
-        emitGrouped('inteqrasiya', unitsByCanon.inteqrasiya, false);
-        emitGrouped('diger', unitsByCanon.diger, false);
+
+        var inteqUnits = unitsByCanon.inteqrasiya || [];
+        var inteqDone = filterMonthlyUnits(inteqUnits, function(t, row) { return unitIsDone(row); });
+        var inteqOpen = filterMonthlyUnits(inteqUnits, function(t, row) { return !unitIsDone(row); });
+        if (inteqDone.length || inteqOpen.length) {
+            emitSectionTitle('inteqrasiya');
+            if (inteqDone.length) {
+                appendOfficialList(monthChildren, groupMonthlyUnits(inteqDone, false).map(function(g) {
+                    return officialItemText(g, 'item');
+                }), MONTH_FONT);
+            }
+            if (inteqOpen.length) {
+                monthChildren.push(bodyParagraph('Həmçinin aşağıdakı sorğular təhlil mərhələsindədir:', MONTH_FONT));
+                appendOfficialList(monthChildren, groupMonthlyUnits(inteqOpen, false).map(function(g) {
+                    return officialItemText(g, 'item');
+                }), MONTH_FONT);
+            }
+        }
+
+        emitGrouped('diger', digerUnits, false);
 
         if (!anySection) {
             monthChildren.push(new Paragraph({
@@ -1897,6 +1892,14 @@ export async function exportTasksToWord(title) {
         });
     }
 
+    try {
+        await downloadSelectedReport();
+    } catch (err) {
+        console.error(err);
+        showToast('Hesabat yaradılarkən xəta baş verdi: ' + (err && err.message ? err.message : String(err)), 'error');
+    }
+
+    async function downloadSelectedReport() {
     var monthInfo = getMonthRangeInfo(startDate, endDate);
     if (monthInfo) {
         var covered = (monthInfo.months && monthInfo.months.length) ? monthInfo.months : [monthInfo];
@@ -1905,7 +1908,15 @@ export async function exportTasksToWord(title) {
         for (var mi = 0; mi < covered.length; mi++) {
             var one = monthInfoForCovered(covered[mi]);
             if (!one) continue;
-            var ok = await downloadGeneratedDoc(buildMonthlyDocument(one), monthlyFileName(one));
+            var monthDoc;
+            try {
+                monthDoc = buildMonthlyDocument(one);
+            } catch (buildErr) {
+                console.error(buildErr);
+                showToast('Hesabat yaradılarkən xəta baş verdi: ' + (buildErr && buildErr.message ? buildErr.message : String(buildErr)), 'error');
+                return;
+            }
+            var ok = await downloadGeneratedDoc(monthDoc, monthlyFileName(one));
             if (!ok) {
                 failed = true;
                 break;
@@ -1967,4 +1978,5 @@ export async function exportTasksToWord(title) {
     }
 
     showToast('Hesabat üçün sprint və ya tarix aralığı seçin.', 'error');
+    }
 }

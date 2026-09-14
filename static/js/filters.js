@@ -4,7 +4,7 @@ import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueTh
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
-import { renderAssessmentSections } from './assessments.js?v=idda26';
+import { renderAssessmentSections } from './assessments.js?v=idda27';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -213,11 +213,12 @@ function applyCommittedDateFilter() {
 }
 
 export function applyDatePopover() {
-    if (!dateDraft.start && !dateDraft.end) {
-        closeDatePopover();
+    if (dateDraft.start || dateDraft.end) {
+        applyCommittedDateFilter();
         return;
     }
-    applyCommittedDateFilter();
+    closeDatePopover();
+    applyFilters();
 }
 
 export function onDateOverlayClick() {

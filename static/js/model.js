@@ -163,30 +163,88 @@ export function resolveDirection(t) {
 }
 
 export function isKomplaynsName(raw) {
-    var n = normalizeStr(raw);
-    if (!n) return false;
-    return n.indexOf('komplanys') !== -1 || n.indexOf('komplayn') !== -1 || n.indexOf('komplain') !== -1 || n.indexOf('compliance') !== -1;
+    return componentMatchesTeam(raw, 'komplayns');
 }
 
-export function hasKomplaynsComponent(t) {
-    if (!t || !t.fields) return false;
-    var comps = t.fields.components;
-    if (!comps) return false;
-    if (!Array.isArray(comps)) comps = [comps];
-    for (var i = 0; i < comps.length; i++) {
-        var c = comps[i];
-        var raw = '';
-        if (typeof c === 'string') raw = c;
-        else if (c && typeof c === 'object') raw = c.name || c.value || '';
-        if (isKomplaynsName(raw)) return true;
+export var TEAM_OPTIONS = [
+    { id: 'komplayns', label: 'Komplayns' },
+    { id: 'koordinasiya', label: 'Koordinasiya' },
+    { id: 'servis-dizayn', label: 'Servis dizayn' }
+];
+
+export function normalizeTeamId(raw) {
+    var n = normalizeStr(raw).replace(/i̇/g, 'i').replace(/[\s_]+/g, '-');
+    var compact = n.replace(/-/g, '');
+    if (n === 'komplayns' || n === 'koordinasiya' || n === 'servis-dizayn') return n;
+    if (compact.indexOf('servisdizayn') !== -1) return 'servis-dizayn';
+    if (compact.indexOf('koordin') !== -1) return 'koordinasiya';
+    if (
+        compact.indexOf('komplayn') !== -1
+        || compact.indexOf('komplan') !== -1
+        || compact.indexOf('complain') !== -1
+        || compact.indexOf('compliance') !== -1
+    ) return 'komplayns';
+    return 'komplayns';
+}
+
+export function teamLabel(teamId) {
+    var id = normalizeTeamId(teamId);
+    var i;
+    for (i = 0; i < TEAM_OPTIONS.length; i++) {
+        if (TEAM_OPTIONS[i].id === id) return TEAM_OPTIONS[i].label;
+    }
+    return 'Komplayns';
+}
+
+export function currentTeamId() {
+    var el = document.getElementById('teamFilter');
+    if (el && el.value) return normalizeTeamId(el.value);
+    return normalizeTeamId(state.currentTeam || 'komplayns');
+}
+
+export function componentMatchesTeam(raw, teamId) {
+    var n = compactIssueTypeName(raw);
+    if (!n) return false;
+    var id = normalizeTeamId(teamId);
+    if (id === 'komplayns') {
+        return n.indexOf('komplanys') !== -1 || n.indexOf('komplayn') !== -1
+            || n.indexOf('komplain') !== -1 || n.indexOf('compliance') !== -1;
+    }
+    if (id === 'koordinasiya') {
+        return n.indexOf('koordinasiya') !== -1 || n.indexOf('koordinasiy') !== -1;
+    }
+    if (id === 'servis-dizayn') {
+        return n.indexOf('servisdizayn') !== -1;
     }
     return false;
 }
 
+export function hasTeamComponent(t, teamId) {
+    if (!t || !t.fields) return false;
+    var comps = t.fields.components;
+    if (!comps) return false;
+    if (!Array.isArray(comps)) comps = [comps];
+    var id = normalizeTeamId(teamId || currentTeamId());
+    var i;
+    for (i = 0; i < comps.length; i++) {
+        var c = comps[i];
+        var raw = '';
+        if (typeof c === 'string') raw = c;
+        else if (c && typeof c === 'object') raw = c.name || c.value || '';
+        if (componentMatchesTeam(raw, id)) return true;
+    }
+    return false;
+}
+
+export function hasKomplaynsComponent(t) {
+    return hasTeamComponent(t, 'komplayns');
+}
+
 export function belongsToDept(t) {
+    var teamId = currentTeamId();
     var cur = t, depth = 0;
     while (cur && depth < 10) {
-        if (hasKomplaynsComponent(cur)) return true;
+        if (hasTeamComponent(cur, teamId)) return true;
         cur = getParentIssue(cur);
         depth++;
     }
@@ -798,7 +856,7 @@ export function getRawPhaseEntries(t, periodStart, periodEnd) {
 export function parsePhaseEntriesFromText(text, fallbackDate) {
     var raw = String(text || '').trim();
     if (!raw) return [];
-    var re = /(\d{1,2}[./]\d{1,2}[./]\d{4})(?:\s*tarixində)?/gi;
+    var re = /(\d{1,2}[./]\d{1,2}[./]\d{4})(?:\s*-?\s*(?:cü|cu|cı|ci)\s+il)?(?:\s*tarixində)?/gi;
     var hits = [];
     var m;
     while ((m = re.exec(raw)) !== null) {
@@ -836,7 +894,7 @@ export function getDatedPhaseEntries(t) {
         if (isUsableDate(fieldDate)) {
             entries.push({
                 date: fieldDate,
-                text: textStr.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*tarixində)?\s*/i, '').trim() || textStr,
+                text: textStr.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:\s*-?\s*(?:cü|cu|cı|ci)\s+il)?(?:\s*tarixində)?\s*/i, '').trim() || textStr,
                 fieldIndex: idx
             });
             return;

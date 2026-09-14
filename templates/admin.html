@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4c1d95">
+    <title>İstifadəçilər — Rəqəmsal İdarəetmə Paneli</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda57">
+</head>
+<body class="auth-page">
+    <div class="auth-wrap auth-wrap--wide">
+        <header class="auth-head">
+            <div>
+                <p class="auth-kicker">Admin panel</p>
+                <h1>İstifadəçilər</h1>
+                <p class="auth-sub">Hesab əlavə edin; layihə açarı və komandanı təyin edin</p>
+            </div>
+            <div class="auth-head-actions">
+                <a class="auth-btn auth-btn--ghost" href="/">Dashboard</a>
+                <button type="button" class="auth-btn auth-btn--ghost" id="logoutBtn">Çıxış</button>
+            </div>
+        </header>
+
+        <div class="auth-card">
+            <h2 id="formTitle">Yeni istifadəçi</h2>
+            <p class="auth-error" id="formError"></p>
+            <form id="userForm">
+                <input type="hidden" id="userId" value="">
+                <div class="auth-grid">
+                    <div class="auth-field">
+                        <span>İstifadəçi adı</span>
+                        <input id="username" required minlength="3" autocomplete="off">
+                    </div>
+                    <div class="auth-field">
+                        <span>Göstərilən ad</span>
+                        <input id="displayName" autocomplete="off">
+                    </div>
+                    <div class="auth-field">
+                        <span>Parol</span>
+                        <input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="Ən azı 6 simvol">
+                    </div>
+                    <div class="auth-field">
+                        <span>Layihə açarı</span>
+                        <input id="projectKey" class="uppercase" value="DGD" placeholder="DGD" style="text-transform:uppercase">
+                    </div>
+                    <div class="auth-field">
+                        <span>Komanda</span>
+                        <select id="team">
+                            <option value="komplayns">Komplayns</option>
+                            <option value="koordinasiya">Koordinasiya</option>
+                            <option value="servis-dizayn">Servis dizayn</option>
+                        </select>
+                    </div>
+                    <div class="auth-field">
+                        <span>Rol</span>
+                        <select id="role">
+                            <option value="user">İstifadəçi</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <p class="auth-hint">Layihə açarı Jira layihəsini, komanda isə Jira Component/s sahəsini seçir (Komplayns, Koordinasiya, Servis dizayn). Dashboard həmin komponentin tapşırıqlarını göstərir. Diaqnostika analitikası yalnız əsas layihədə (adətən DGD) və Komplayns komandasında görünür.</p>
+                <div class="auth-actions">
+                    <button type="submit" class="auth-btn auth-btn--primary" id="saveBtn">Əlavə et</button>
+                    <button type="button" class="auth-btn auth-btn--light hidden" id="cancelEditBtn">Ləğv et</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="auth-card" style="margin-top:1rem;">
+            <h2>Mövcud hesablar</h2>
+            <p class="auth-error" id="listError"></p>
+            <div class="auth-table-wrap">
+                <table class="auth-table">
+                    <thead>
+                        <tr>
+                            <th>İstifadəçi</th>
+                            <th>Ad</th>
+                            <th>Rol</th>
+                            <th>Layihə</th>
+                            <th>Komanda</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="userRows"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script>
+    var editingId = '';
+    var homeProjectKey = 'DGD';
+    function showError(id, msg) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('is-on', !!msg);
+    }
+    function api(url, opts) {
+        opts = opts || {};
+        opts.credentials = 'same-origin';
+        opts.headers = opts.headers || {};
+        return fetch(url, opts).then(function(r) {
+            if (r.status === 401) { window.location.href = '/login'; }
+            if (r.status === 403) { window.location.href = '/'; }
+            return r.json().then(function(data) { return { ok: r.ok, status: r.status, data: data }; }).catch(function() {
+                return { ok: r.ok, status: r.status, data: {} };
+            });
+        });
+    }
+    function resetForm() {
+        editingId = '';
+        document.getElementById('userId').value = '';
+        document.getElementById('username').value = '';
+        document.getElementById('displayName').value = '';
+        document.getElementById('password').value = '';
+        document.getElementById('password').placeholder = 'Ən azı 6 simvol';
+        document.getElementById('password').required = true;
+        document.getElementById('projectKey').value = homeProjectKey;
+        document.getElementById('team').value = 'komplayns';
+        document.getElementById('role').value = 'user';
+        document.getElementById('formTitle').textContent = 'Yeni istifadəçi';
+        document.getElementById('saveBtn').textContent = 'Əlavə et';
+        document.getElementById('cancelEditBtn').classList.add('hidden');
+        showError('formError', '');
+    }
+    function fillEdit(user) {
+        editingId = user.id;
+        document.getElementById('username').value = user.username || '';
+        document.getElementById('displayName').value = user.displayName || '';
+        document.getElementById('password').value = '';
+        document.getElementById('password').required = false;
+        document.getElementById('password').placeholder = 'Boş saxlasanız dəyişməz';
+        document.getElementById('projectKey').value = user.projectKey || homeProjectKey;
+        document.getElementById('team').value = user.team || 'komplayns';
+        document.getElementById('role').value = user.role === 'admin' ? 'admin' : 'user';
+        document.getElementById('formTitle').textContent = 'İstifadəçini redaktə et';
+        document.getElementById('saveBtn').textContent = 'Yadda saxla';
+        document.getElementById('cancelEditBtn').classList.remove('hidden');
+        showError('formError', '');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function renderRows(users) {
+        var tbody = document.getElementById('userRows');
+        tbody.innerHTML = '';
+        (users || []).forEach(function(user) {
+            var tr = document.createElement('tr');
+            var roleClass = user.role === 'admin' ? 'auth-badge' : 'auth-badge is-user';
+            tr.innerHTML =
+                '<td>' + esc(user.username) + '</td>' +
+                '<td>' + esc(user.displayName || '') + '</td>' +
+                '<td><span class="' + roleClass + '">' + (user.role === 'admin' ? 'Admin' : 'İstifadəçi') + '</span></td>' +
+                '<td>' + esc(user.projectKey || '') + '</td>' +
+                '<td>' + esc(user.teamLabel || user.team || '') + '</td>' +
+                '<td class="auth-row-actions"></td>';
+            var actions = tr.querySelector('.auth-row-actions');
+            var editBtn = document.createElement('button');
+            editBtn.type = 'button';
+            editBtn.className = 'auth-btn auth-btn--light';
+            editBtn.textContent = 'Redaktə';
+            editBtn.addEventListener('click', function() { fillEdit(user); });
+            var delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'auth-btn auth-btn--danger';
+            delBtn.textContent = 'Sil';
+            delBtn.addEventListener('click', function() { removeUser(user); });
+            actions.appendChild(editBtn);
+            actions.appendChild(delBtn);
+            tbody.appendChild(tr);
+        });
+    }
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function loadUsers() {
+        return api('/api/users').then(function(res) {
+            if (!res.ok) {
+                showError('listError', (res.data && res.data.error) || 'Siyahı yüklənmədi');
+                return;
+            }
+            if (res.data.homeProjectKey) homeProjectKey = res.data.homeProjectKey;
+            if (!editingId) document.getElementById('projectKey').value = homeProjectKey;
+            renderRows(res.data.users || []);
+        });
+    }
+    function removeUser(user) {
+        if (!user || !user.id) return;
+        if (!confirm(user.username + ' hesabı silinsin?')) return;
+        api('/api/users/' + encodeURIComponent(user.id), { method: 'DELETE' }).then(function(res) {
+            if (!res.ok) {
+                showError('listError', (res.data && res.data.error) || 'Silinmədi');
+                return;
+            }
+            if (editingId === user.id) resetForm();
+            loadUsers();
+        });
+    }
+    document.getElementById('cancelEditBtn').addEventListener('click', resetForm);
+    document.getElementById('logoutBtn').addEventListener('click', function() {
+        api('/api/auth/logout', { method: 'POST' }).finally(function() {
+            window.location.href = '/login';
+        });
+    });
+    document.getElementById('userForm').addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        var btn = document.getElementById('saveBtn');
+        btn.disabled = true;
+        showError('formError', '');
+        var payload = {
+            username: document.getElementById('username').value,
+            displayName: document.getElementById('displayName').value,
+            projectKey: String(document.getElementById('projectKey').value || '').toUpperCase(),
+            team: document.getElementById('team').value || 'komplayns',
+            role: document.getElementById('role').value
+        };
+        var password = document.getElementById('password').value;
+        if (password) payload.password = password;
+        var req;
+        if (editingId) {
+            req = api('/api/users/' + encodeURIComponent(editingId), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        } else {
+            if (!payload.password) {
+                btn.disabled = false;
+                showError('formError', 'Yeni istifadəçi üçün parol yazın');
+                return;
+            }
+            req = api('/api/users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+        req.then(function(res) {
+            btn.disabled = false;
+            if (!res.ok) {
+                showError('formError', (res.data && res.data.error) || 'Yadda saxlanılmadı');
+                return;
+            }
+            resetForm();
+            loadUsers();
+        }).catch(function() {
+            btn.disabled = false;
+            showError('formError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    });
+    api('/api/auth/me').then(function(res) {
+        if (!res.ok || !res.data.authenticated) { window.location.href = '/login'; return; }
+        if (!res.data.user || res.data.user.role !== 'admin') { window.location.href = '/'; return; }
+        if (res.data.homeProjectKey) homeProjectKey = res.data.homeProjectKey;
+        resetForm();
+        loadUsers();
+    });
+    </script>
+</body>
+</html>

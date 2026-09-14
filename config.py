@@ -1,6 +1,6 @@
 import os
 
-# Jira URL/layihə. Token saytın Token düyməsindən daxil edilir; git-ə yazmayın.
+# Jira URL/layihə. İstehsalda JIRA_PAT-i .env-də saxlayın.
 
 
 def _load_dotenv():
@@ -21,14 +21,18 @@ def _load_dotenv():
 
 _load_dotenv()
 
-# Boş saxlayın — hər kəs öz tokenini brauzerdə yazır.
+# Boş saxlayın — brauzerdə yazılacaq. İstehsalda .env-ə JIRA_PAT yazın.
 _JIRA_PAT_FALLBACK = ''
 
 JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', 'https://jira.idda.az').rstrip('/')
 JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
 SECRET_KEY = os.environ.get('SECRET_KEY') or ''
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME') or 'admin'
 ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or ''
+DEPT_USERNAME = os.environ.get('DEPT_USERNAME') or ''
+DEPT_PASSWORD = os.environ.get('DEPT_PASSWORD') or ''
+DEPT_DISPLAY_NAME = os.environ.get('DEPT_DISPLAY_NAME') or 'Qiymətləndirmə və komplayens şöbəsi'
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') or ''
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or ''
 

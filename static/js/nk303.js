@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda26';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda27';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -19,6 +19,7 @@ import {
 } from './model.js';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
+import { apiFetch, canSeeDiagnostics } from './session.js';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
@@ -996,6 +997,7 @@ function iconSvg(name) {
         refresh: '<path d="M21 12a9 9 0 11-3.2-6.8"/><path d="M21 4v5h-5"/>',
         download: '<path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M5 19h14"/>',
         upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
+        file: '<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5"/>',
         external: '<path d="M14 5h5v5"/><path d="M20 4l-9 9"/><path d="M9 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-3"/>',
         chevron: '<path d="M15 18l-6-6 6-6"/>',
         close: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>'
@@ -1038,13 +1040,11 @@ function pageHeadHtml(model) {
                 + '</div>'
                 + (isAdmin()
                     ? '<div class="nk303-admin-row">'
-                        + '<button type="button" class="nk303-upload" onclick="nk303Call(\'upload\')">' + iconSvg('upload') + ' Excel yüklə</button>'
                         + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'logout\')">Çıx</button>'
                         + '</div>'
                     : '')
                 + '</div>')
         + '</div>'
-        + (ui.hub === 'report' ? '' : excelFilesHtml())
         + hubNavHtml();
 }
 
@@ -1115,28 +1115,6 @@ function hubNavHtml() {
 
 function isAdmin() {
     return !!adminState.isAdmin;
-}
-
-function excelFilesHtml() {
-    if (!isAdmin()) return '';
-    var files = excelStore.files || [];
-    if (!files.length) return '';
-    return '<div class="nk303-xl-files">' + files.map(function(f) {
-        return '<span class="nk303-xl-chip">' + esc(f.name)
-            + (f.orgCount ? '<em>' + esc(String(f.orgCount)) + ' qurum</em>' : '')
-            + '<button type="button" class="nk303-xl-del" title="Excel-i sil" onclick="event.stopPropagation(); nk303Call(\'removeExcel\',\'' + qarg(f.id) + '\')">Sil</button></span>';
-    }).join('') + '</div>';
-}
-
-function backToCountryHtml(compact) {
-    if (compact) {
-        return '<button type="button" class="nk303-back" onclick="nk303Call(\'mode\',\'country\')">'
-            + iconSvg('chevron') + ' Ölkə üzrə nəticələr</button>';
-    }
-    return '<button type="button" class="nk303-home nk303-home--back" onclick="nk303Call(\'mode\',\'country\')">'
-        + '<span class="nk303-home-ic">' + iconSvg('chevron') + '</span>'
-        + '<span class="nk303-home-txt"><span class="nk303-home-kicker">Geri qayıt</span>'
-        + '<span class="nk303-home-name">Ölkə üzrə nəticələr</span></span></button>';
 }
 
 function currentHubView() {
@@ -1216,7 +1194,6 @@ function hubPageHtml(view) {
     var period = view.period || getAssessmentPeriodLabel() || 'Bütün illər';
     return '<div class="nk303-hub-toolbar">'
         + '<div class="nk303-hub-toolbar-main">'
-        + backToCountryHtml(true)
         + '<div class="nk303-hub-toolbar-title">'
         + '<h3 id="nk303HubTitle">' + esc(view.label) + ' nəticələri</h3>'
         + '<p class="nk303-hint">Dövr: ' + esc(period)
@@ -1403,8 +1380,7 @@ function orgTableHtml(model, rows) {
         var weak = weakestDirOf(o);
         return '<tr class="' + on.trim() + '" onclick="nk303Call(\'openOrg\',\'' + qarg(o.key) + '\')">'
             + '<td class="num">' + rank + '</td>'
-            + '<td class="q" title="' + esc(o.name) + '">' + esc(o.name)
-            + (o.fromExcel && isAdmin() ? ' <em class="nk303-xl">Excel</em>' : '') + '</td>'
+            + '<td class="q" title="' + esc(o.name) + '">' + esc(o.name) + '</td>'
             + '<td><div class="nk303-scorecell"><b>' + esc(o.qrsg == null ? '—' : fmt1(o.qrsg)) + '</b>'
             + '<span class="bar"><i style="width:' + w + '%;background:' + barColor(o.qrsg) + '"></i></span></div></td>'
             + '<td>' + matBadge(o.qrsg) + '</td>'
@@ -1502,8 +1478,7 @@ function highGapsBody(model) {
     var rows = highPriorityGaps(model.gaps);
     return countryKpis(model)
         + '<section class="nk303-card" id="nkHighGaps">'
-        + backToCountryHtml()
-        + '<h3 style="margin-top:0.7rem">Yüksək prioritetli boşluqlar</h3>'
+        + '<h3>Yüksək prioritetli boşluqlar</h3>'
         + '<p class="nk303-hint">İlkin səviyyə və yüksək prioritet sahələr. Sətirə klikləyib qurumun analizində həmin boşluğa baxın.</p>'
         + highGapsTableHtml(rows, true)
         + '</section>';
@@ -1579,8 +1554,7 @@ function countryOrgListBody(model, kind) {
     var rows = isVisNav(kind) ? all.filter(function(o) { return o.visId === kind; }) : all;
     return countryKpis(model)
         + '<section class="nk303-card nk303-card--orgs" id="nkCountryList">'
-        + backToCountryHtml()
-        + '<h3 style="margin-top:0.7rem">' + esc(info.title) + '</h3>'
+        + '<h3>' + esc(info.title) + '</h3>'
         + '<p class="nk303-hint">' + esc(info.hint) + '</p>'
         + orgTableHtml(model, rows)
         + '</section>';
@@ -1725,23 +1699,6 @@ function actionPreviewHtml(model) {
         + '</div>';
 }
 
-function summaryText(model) {
-    if (model.countryAvg == null) {
-        return (model.orgs.length ? (model.orgs.length + ' qurum siyahıdadır. ') : '')
-            + 'Ümumiləşdirilmiş göstərici üçün bal məlumatı mövcud deyil.';
-    }
-    var idx = fmt1(model.countryAvg);
-    var mat = maturityOf(model.countryAvg);
-    var strong = model.strongestDir;
-    var weak = model.weakestDir;
-    var parts = ['Qiymətləndirilmiş qurumlar üzrə ümumiləşdirilmiş göstərici ' + idx + ' baldır'
-        + (mat ? ' (' + mat.label + ').' : '.')];
-    parts.push(model.orgs.length + ' qurumdan ' + (model.byVis.done || 0) + ' diaqnostikası tamamlanıb.');
-    if (strong && strong.avg != null) parts.push('Ən yüksək nəticə: ' + strong.name + ' (' + fmt1(strong.avg) + ').');
-    if (weak && weak.avg != null) parts.push('Ən zəif istiqamət: ' + weak.name + ' (' + fmt1(weak.avg) + ').');
-    return parts.join(' ');
-}
-
 function dirCompareRows(dirAgg) {
     return DIRS.map(function(d) {
         var row = (dirAgg || []).filter(function(x) { return x.id === d.id; })[0];
@@ -1835,7 +1792,6 @@ function countryBody(model) {
         + '<div class="nk303-complete-top"><span>Tamamlanma faizi</span><b>' + donePct + '%</b></div>'
         + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div>'
         + '</div></section>'
-        + '<section class="nk303-result"><b>Əsas nəticə</b><p>' + esc(summaryText(model)) + '</p></section>'
         + trendChartHtml(model)
         + '</div>'
         + '<section class="nk303-card nk303-card--orgs"><h3>Qurumlar üzrə rəqəmsal yetkinlik</h3>'
@@ -2040,8 +1996,7 @@ function institutionBody(model) {
         };
     });
     return '<section class="nk303-card" style="margin-bottom:0.55rem">'
-        + backToCountryHtml()
-        + '<div class="nk303-profile" style="margin-top:0.55rem">'
+        + '<div class="nk303-profile">'
         + '<div>'
         + '<p class="nk303-kicker">Qurumun diaqnostika nəticələri</p>'
         + '<h3 style="margin:0;font-size:1.05rem">' + esc(org.name) + '</h3>'
@@ -2050,9 +2005,6 @@ function institutionBody(model) {
         + '<div><dt>Diaqnostika statusu</dt><dd>' + esc(org.visLabel) + ' · ' + esc(org.statusName) + '</dd></div>'
         + '<div><dt>Son yenilənmə</dt><dd>' + esc(org.updated ? fmtDate(org.updated) : NA) + '</dd></div>'
         + '<div><dt>Tapşırıq</dt><dd>' + issueLinkHtml(org.issueKey) + '</dd></div>'
-        + (org.fromExcel && isAdmin() ? '<div><dt>Excel</dt><dd>' + esc(org.excelFile || 'Yüklənib')
-            + (org.excelFileId ? ' <button type="button" class="nk303-link nk303-del" onclick="nk303Call(\'removeExcel\',\'' + qarg(org.excelFileId) + '\')">Sil</button>' : '')
-            + '</dd></div>' : '')
         + '</dl></div>'
         + '<div>'
         + '<p class="nk303-hint">Qurumun rəqəmsallaşma səviyyəsi' + (org.qrsgOfficial ? '' : '') + '</p>'
@@ -2346,6 +2298,10 @@ function reportAgg() {
     };
 }
 
+function reportFileTitle(name) {
+    return String(name || '').trim().replace(/\.(pptx?|PPTX?)$/, '');
+}
+
 function reportFilesHtml() {
     var files = isAdmin() ? (reportStore.files || []) : [];
     var reports = reportStore.reports || [];
@@ -2353,17 +2309,24 @@ function reportFilesHtml() {
         return { id: r.id, name: r.name || r.org, org: r.org };
     });
     if (!chips.length) return '';
-    return '<div class="nk303-xl-files">' + chips.map(function(f) {
+    return '<div class="nk303-rep-files" role="list">' + chips.map(function(f) {
         var on = ui.reportId === f.id || (!ui.reportId && selectedReport() && selectedReport().id === f.id);
-        return '<span class="nk303-xl-chip' + (on ? ' is-on' : '') + '">'
-            + '<button type="button" class="nk303-xl-pick" onclick="nk303Call(\'pickReport\',\'' + qarg(f.id) + '\')">'
-            + esc(f.name || f.org || 'Hesabat')
-            + (f.org && f.name && f.org !== f.name ? '<em>' + esc(f.org) + '</em>' : '')
+        var raw = f.name || f.org || 'Hesabat';
+        var title = reportFileTitle(raw) || 'Hesabat';
+        var org = f.org && f.org !== raw && f.org !== title ? f.org : '';
+        return '<div class="nk303-rep-file' + (on ? ' is-on' : '') + '" role="listitem">'
+            + '<button type="button" class="nk303-rep-file-btn" onclick="nk303Call(\'pickReport\',\'' + qarg(f.id) + '\')">'
+            + '<span class="nk303-rep-file-ic" aria-hidden="true">' + iconSvg('file') + '</span>'
+            + '<span class="nk303-rep-file-txt">'
+            + '<strong title="' + esc(title) + '">' + esc(title) + '</strong>'
+            + (org ? '<em title="' + esc(org) + '">' + esc(org) + '</em>' : '')
+            + '</span>'
+            + '<span class="nk303-rep-file-ext">PPTX</span>'
             + '</button>'
             + (isAdmin()
                 ? '<button type="button" class="nk303-xl-del" title="Hesabatı sil" onclick="event.stopPropagation(); nk303Call(\'removeReport\',\'' + qarg(f.id) + '\')">Sil</button>'
                 : '')
-            + '</span>';
+            + '</div>';
     }).join('') + '</div>';
 }
 
@@ -2498,7 +2461,6 @@ function reportPageHtml() {
         : '';
     var head = '<div class="nk303-hub-toolbar">'
         + '<div class="nk303-hub-toolbar-main">'
-        + backToCountryHtml(true)
         + '<div class="nk303-hub-toolbar-title">'
         + '<h3>Hesabat analizi</h3>'
         + '<p class="nk303-hint">Yüklənmiş PPTX əsasında qurumun rəqəmsal inkişafının qiymətləndirilməsi.</p>'
@@ -4127,7 +4089,7 @@ function isAdminPath() {
 function diagApi(url, opts) {
     opts = opts || {};
     if (!opts.credentials) opts.credentials = 'same-origin';
-    return fetch(url, opts);
+    return apiFetch(url, opts);
 }
 
 function showAdminGate() {
@@ -4317,7 +4279,14 @@ function hideNk303Page() {
 }
 
 export function syncNk303Route() {
-    if (isNk303Path()) showNk303Page();
+    if (isNk303Path()) {
+        if (!canSeeDiagnostics()) {
+            try { history.replaceState({}, '', '/'); } catch (e) {}
+            hideNk303Page();
+            return;
+        }
+        showNk303Page();
+    }
     else hideNk303Page();
 }
 
@@ -4338,6 +4307,10 @@ function resetFilters() {
 }
 
 export function openNk303() {
+    if (!canSeeDiagnostics()) {
+        showToast('Diaqnostika analitikası yalnız Komplayns komandasında əlçatandır', 'error');
+        return;
+    }
     if (typeof window.closeDiagModal === 'function') window.closeDiagModal();
     var period = getAssessmentPeriodState();
     ui.year = period && period.year && period.year !== 'custom' ? period.year : 'all';
@@ -4424,8 +4397,15 @@ function applyReportPayload(data) {
 
 function loadReportUploads() {
     return diagApi('/api/hesabat/uploads')
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (r.status === 403) {
+                applyReportPayload({ files: [], reports: [] });
+                return null;
+            }
+            return r.json();
+        })
         .then(function(data) {
+            if (!data) return;
             applyReportPayload(data);
             if (ui.open) render();
         })
@@ -4520,124 +4500,21 @@ function removeReportFile(fileId) {
 
 function loadExcelUploads() {
     return diagApi('/api/diaqnostika/uploads')
-        .then(function(r) { return r.json(); })
+        .then(function(r) {
+            if (r.status === 403) {
+                applyExcelPayload({ files: [], orgs: [] });
+                return null;
+            }
+            return r.json();
+        })
         .then(function(data) {
+            if (!data) return;
             applyExcelPayload(data);
             if (ui.open) render();
         })
         .catch(function() {
             excelStore.loaded = true;
         });
-}
-
-function pickExcelFile() {
-    if (!isAdmin()) return;
-    var input = document.getElementById('nk303ExcelInput');
-    if (!input) {
-        input = document.createElement('input');
-        input.type = 'file';
-        input.id = 'nk303ExcelInput';
-        input.accept = '.xlsx,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-        input.multiple = true;
-        input.style.display = 'none';
-        input.addEventListener('change', onExcelChosen);
-        document.body.appendChild(input);
-    }
-    input.click();
-}
-
-function onExcelChosen(ev) {
-    var input = ev.target;
-    var files = input.files;
-    if (!files || !files.length) return;
-    var fd = new FormData();
-    var i;
-    for (i = 0; i < files.length; i++) fd.append('file', files[i]);
-    input.value = '';
-    showToast('Excel oxunur…', 'info');
-    fetch('/api/diaqnostika/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
-        .then(function(r) {
-            return r.json().then(function(data) {
-                return { ok: r.ok, status: r.status, data: data };
-            }).catch(function() {
-                return {
-                    ok: false,
-                    status: r.status,
-                    data: { error: r.status === 413 ? 'Fayl 25 MB-dan böyükdür' : 'Excel oxunmadı' }
-                };
-            });
-        })
-        .then(function(res) {
-            if (!res.ok) {
-                showToast((res.data && res.data.error) || (res.status === 401 ? 'Admin girişi lazımdır' : 'Excel oxunmadı'), 'error');
-                return;
-            }
-            return diagApi('/api/diaqnostika/uploads').then(function(r) { return r.json(); }).then(function(data) {
-                applyExcelPayload(data);
-                var names = [];
-                (res.data.files || []).forEach(function(f) {
-                    (f.orgs || []).forEach(function(o) {
-                        if (o && o.name) names.push(o.name);
-                    });
-                });
-                showToast(
-                    (names[0] || 'Excel') + (names.length > 1 ? ' və ' + (names.length - 1) + ' qurum' : '') + ' yükləndi',
-                    'success'
-                );
-                if (res.data.errors && res.data.errors.length) {
-                    showToast(res.data.errors[0], 'error');
-                }
-                ui.status = '';
-                var uploadedOrgs = [];
-                (res.data.files || []).forEach(function(f) {
-                    (f.orgs || []).forEach(function(o) { uploadedOrgs.push(o); });
-                });
-                var ys = uniqueYearsFromOrgs(uploadedOrgs);
-                ui.year = ys.length === 1 ? String(ys[0]) : 'all';
-                if (names.length === 1) {
-                    ui.orgKey = qurumMatchKey(names[0]) || ui.orgKey;
-                    ui.mode = 'institution';
-                    ui.nav = 'overview';
-                    applyOrgYear(ui.orgKey);
-                } else {
-                    ui.mode = 'country';
-                    ui.nav = 'orgs';
-                }
-                render();
-                window.scrollTo(0, 0);
-            });
-        })
-        .catch(function() { showToast('Excel yüklənmədi', 'error'); });
-}
-
-function removeExcelFile(fileId) {
-    fileId = darg(fileId || '');
-    if (!fileId || !isAdmin()) return;
-    var file = (excelStore.files || []).filter(function(f) { return f.id === fileId; })[0];
-    var label = file && file.name ? file.name : 'Excel';
-    if (!window.confirm(label + ' silinsin? Bu fayldan gələn qurum nəticələri səhifədən çıxacaq.')) return;
-    fetch('/api/diaqnostika/uploads/' + encodeURIComponent(fileId), { method: 'DELETE', credentials: 'same-origin' })
-        .then(function(r) {
-            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
-        })
-        .then(function(res) {
-            if (!res.ok) {
-                showToast((res.data && res.data.error) || 'Silinmədi', 'error');
-                return;
-            }
-            return diagApi('/api/diaqnostika/uploads').then(function(r) { return r.json(); }).then(function(data) {
-                applyExcelPayload(data);
-                var still = buildModel();
-                if (ui.orgKey && !still.selected) {
-                    ui.orgKey = '';
-                    ui.mode = 'country';
-                    ui.nav = 'overview';
-                }
-                showToast('Excel silindi', 'success');
-                render();
-            });
-        })
-        .catch(function() { showToast('Excel silinmədi', 'error'); });
 }
 
 export function nk303Call(action, payload) {
@@ -4801,12 +4678,6 @@ export function nk303Call(action, payload) {
         var issueKey = darg(payload || '');
         var href = jiraBrowseUrl(issueKey);
         if (href) window.open(href, '_blank', 'noopener,noreferrer');
-        return;
-    } else if (action === 'upload') {
-        pickExcelFile();
-        return;
-    } else if (action === 'removeExcel') {
-        removeExcelFile(payload);
         return;
     } else if (action === 'uploadReport') {
         pickPptxFile();

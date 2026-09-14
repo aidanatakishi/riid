@@ -53,5 +53,11 @@ export const state = {
     dailyDateRange: null,
     deferredDirty: true,
     deferredGen: 0,
-    sectionRenderGen: {}
+    sectionRenderGen: {},
+    hasServerToken: false,
+    homeProjectKey: 'DGD',
+    currentProjectKey: 'DGD',
+    currentTeam: 'komplayns',
+    currentUser: null,
+    canSeeDiagnostics: true
 };
