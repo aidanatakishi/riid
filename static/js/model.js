@@ -278,6 +278,88 @@ export function isActiveExecutionGroup(g) {
     return g === 'progress' || g === 'esd' || g === 'review';
 }
 
+/** Jira «ESD Statusu» seçimləri — workflow ESD olanda daxili mərhələ. */
+export var ESD_INNER_STAGES = [
+    { id: 'huseyn', label: 'Hüseyn Mammadov' },
+    { id: 'viza', label: 'Nazirlikdə vizada' },
+    { id: 'daxil', label: 'Daxildə' },
+    { id: 'imza', label: 'İmzada' },
+    { id: 'gonder', label: 'Göndərilib' },
+    { id: 'none', label: 'Seçilməyib' }
+];
+
+function isEsdStatusFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('esd') === -1) return false;
+    return folded.indexOf('status') !== -1;
+}
+
+export function collectEsdStatusFieldIds() {
+    var ids = [];
+    var seen = {};
+    function add(id) {
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        ids.push(id);
+    }
+    var named = findJiraFieldsByNeedles(['esd statusu', 'esd status']);
+    var i;
+    for (i = 0; i < named.length; i++) add(named[i].id);
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (isEsdStatusFieldName(foldAz(names[key]))) add(key);
+    }
+    return ids;
+}
+
+function classifyEsdInnerLabel(text) {
+    var raw = String(text || '').trim();
+    var f = foldAz(raw);
+    if (!f || f === 'none' || f === 'null' || f === 'secilmeyib' || f === 'qeyd edilmeyib') {
+        return { id: 'none', label: 'Seçilməyib' };
+    }
+    if (f.indexOf('gonder') !== -1) return { id: 'gonder', label: 'Göndərilib' };
+    if (f.indexOf('imza') !== -1) return { id: 'imza', label: 'İmzada' };
+    if (f.indexOf('viza') !== -1 || f.indexOf('nazirlik') !== -1) {
+        return { id: 'viza', label: 'Nazirlikdə vizada' };
+    }
+    if (f.indexOf('daxil') !== -1) return { id: 'daxil', label: 'Daxildə' };
+    if (f.indexOf('huseyn') !== -1 || f.indexOf('mammadov') !== -1) {
+        return { id: 'huseyn', label: 'Hüseyn Mammadov' };
+    }
+    return { id: 'other:' + f, label: raw };
+}
+
+function readEsdStatusRaw(t) {
+    if (!t || !t.fields) return null;
+    var ids = collectEsdStatusFieldIds();
+    var i;
+    for (i = 0; i < ids.length; i++) {
+        var text = fieldValueText(t.fields[ids[i]]);
+        if (text) return text;
+    }
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in t.fields) {
+        if (!Object.prototype.hasOwnProperty.call(t.fields, key)) continue;
+        if (!isEsdStatusFieldName(foldAz(names[key] || key))) continue;
+        text = fieldValueText(t.fields[key]);
+        if (text) return text;
+    }
+    return null;
+}
+
+/** Workflow statusu ESD olan tapşırığın daxili «ESD Statusu» sahəsi. */
+export function getEsdInnerStatus(t) {
+    if (!t || !t.fields || !t.fields.status) return null;
+    if (getStatusGroup(t.fields.status.name || '') !== 'esd') return null;
+    var raw = readEsdStatusRaw(t);
+    if (!raw) return { id: 'none', label: 'Seçilməyib' };
+    return classifyEsdInnerLabel(raw);
+}
+
 export function getBakuWeekRange(weekOffset) {
     var offset = weekOffset || 0;
     var now = new Date();
@@ -1514,6 +1596,21 @@ var DIAG_NETICE_HEADINGS = [
     'Əməliyyat modelləri üzrə nəticə'
 ];
 
+export var ISQ_DIR_DEFS = [
+    { id: 'strategy', title: 'Strateji və idarəçilik sənədləri', short: 'Strateji' },
+    { id: 'procedure', title: 'Prosedurlar və təlimatlar', short: 'Prosedur' },
+    { id: 'ops', title: 'Əməliyyatlar', short: 'Əməliyyat' },
+    { id: 'lifecycle', title: 'Proqram təminatının həyat dövrü', short: 'Həyat dövrü' },
+    { id: 'quality', title: 'Proqram təminatının keyfiyyətinə nəzarət', short: 'Keyfiyyət' },
+    { id: 'integ', title: 'İnteqrasiya', short: 'İnteqrasiya' },
+    { id: 'info', title: 'İnformasiya ehtiyatı sistemi', short: 'Ehtiyat' },
+    { id: 'network', title: 'Şəbəkə', short: 'Şəbəkə' },
+    { id: 'data', title: 'Məlumatların idarəedilməsi', short: 'Məlumat' },
+    { id: 'infra', title: 'Fiziki və virtual infrastruktur', short: 'İnfrastruktur' }
+];
+
+export var ISQ_NETICE_HEADINGS = ISQ_DIR_DEFS.map(function(d) { return d.title; });
+
 var ASSESS_NEARBY_IDS = ['customfield_17315', 'customfield_17318', 'customfield_17320'];
 var ASSESS_RESERVED_IDS = {
     customfield_17316: true,
@@ -2029,6 +2126,8 @@ var assessChildIndexRef = null;
 var assessMemo = typeof WeakMap !== 'undefined' ? {
     diagParse: new WeakMap(),
     diagHeadline: new WeakMap(),
+    isqParse: new WeakMap(),
+    isqInfo: new WeakMap(),
     meqsed: new WeakMap(),
     self: new WeakMap(),
     fieldText: new WeakMap()
@@ -2520,7 +2619,7 @@ function splitScoreAndResult(value) {
         var first = lines[0].trim();
         var compactFirst = first.replace(/\s+/g, '');
         var n = coerceScoreNumber(first);
-        if (n != null && /^[-–—]?\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)?$/.test(compactFirst)) {
+        if (n != null && /^[-–—]?\d+(?:[.,]\d+)?(?:\/\d+(?:[.,]\d+)?)?%?$/.test(compactFirst)) {
             score = formatAssessmentScore(n);
             text = lines.slice(1).join('\n').trim();
         }
@@ -2681,6 +2780,11 @@ function looksLikeFlattenedTable(text) {
     for (i = 0; i < DIAG_NETICE_HEADINGS.length; i++) {
         if (f.indexOf(foldAz(DIAG_NETICE_HEADINGS[i])) !== -1) hits++;
     }
+    var isqHits = 0;
+    for (i = 0; i < ISQ_NETICE_HEADINGS.length; i++) {
+        if (f.indexOf(foldAz(ISQ_NETICE_HEADINGS[i])) !== -1) isqHits++;
+    }
+    if (isqHits >= 3) return true;
     return hits >= 2 && (f.indexOf('bal') !== -1 || f.indexOf('istiqamet') !== -1);
 }
 
@@ -3703,6 +3807,349 @@ export function getExqScore(t) {
     var r = getExqResult(t);
     if (r && r.percent != null) return formatAssessmentScore(r.percent);
     return '—';
+}
+
+function isIsqMetaLabel(label) {
+    var f = foldAz(label);
+    if (!f) return false;
+    if (f === 'isq') return true;
+    if (f.indexOf('qurum') !== -1 && (f.indexOf('ad') !== -1 || f === 'qurum')) return true;
+    if (f.indexOf('fealiyyet') !== -1) return true;
+    if (f.indexOf('istiqamet') !== -1 && (f.indexOf('isq') !== -1 || f.indexOf('fealiyyet') !== -1)) return true;
+    return false;
+}
+
+export function canonicalIsqLabel(raw) {
+    var f = foldAz(raw);
+    if (!f || isIsqMetaLabel(raw)) return '';
+    var i;
+    for (i = 0; i < ISQ_DIR_DEFS.length; i++) {
+        if (f === foldAz(ISQ_DIR_DEFS[i].title) || f === foldAz(ISQ_DIR_DEFS[i].short)) {
+            return ISQ_DIR_DEFS[i].title;
+        }
+    }
+    if ((f.indexOf('proqram') !== -1 || f.indexOf('program') !== -1)
+        && (f.indexOf('hayat') !== -1 || f.indexOf('dovr') !== -1)) {
+        return 'Proqram təminatının həyat dövrü';
+    }
+    if ((f.indexOf('proqram') !== -1 || f.indexOf('program') !== -1)
+        && (f.indexOf('keyfiyyet') !== -1 || f.indexOf('nezeret') !== -1)) {
+        return 'Proqram təminatının keyfiyyətinə nəzarət';
+    }
+    if (f.indexOf('informasiya') !== -1 && f.indexOf('qiymetlendir') === -1
+        && (f.indexOf('ehtiyat') !== -1 || f.indexOf('sistem') !== -1)) {
+        return 'İnformasiya ehtiyatı sistemi';
+    }
+    if (f.indexOf('fiziki') !== -1 || (f.indexOf('virtual') !== -1 && f.indexOf('infrastruktur') !== -1)) {
+        return 'Fiziki və virtual infrastruktur';
+    }
+    if (f.indexOf('strateji') !== -1 || (f.indexOf('idarecilik') !== -1 && f.indexOf('melumat') === -1)) {
+        return 'Strateji və idarəçilik sənədləri';
+    }
+    if (f.indexOf('prosedur') !== -1 || f.indexOf('telimat') !== -1) {
+        return 'Prosedurlar və təlimatlar';
+    }
+    if (f.indexOf('inteqras') !== -1) return 'İnteqrasiya';
+    if (f.indexOf('sebeke') !== -1 || f === 'network') return 'Şəbəkə';
+    if (f.indexOf('melumat') !== -1 && f.indexOf('idare') !== -1) return 'Məlumatların idarəedilməsi';
+    if (f.indexOf('emeliyyat') !== -1 && f.indexOf('model') === -1) return 'Əməliyyatlar';
+    return String(raw || '').replace(/^§\s*/, '').replace(/:\s*$/, '').trim();
+}
+
+function knownIsqDirectionTitle(label) {
+    if (!label || isIsqMetaLabel(label) || isOverallNeticeLabel(label)) return null;
+    var canon = canonicalIsqLabel(label);
+    if (!canon) return null;
+    var i;
+    for (i = 0; i < ISQ_NETICE_HEADINGS.length; i++) {
+        if (canon === ISQ_NETICE_HEADINGS[i]) return ISQ_NETICE_HEADINGS[i];
+        if (foldAz(canon) === foldAz(ISQ_NETICE_HEADINGS[i])) return ISQ_NETICE_HEADINGS[i];
+    }
+    return null;
+}
+
+function formatIsqPercentLabel(val) {
+    var n = coerceScoreNumber(val);
+    if (n == null) {
+        var s = String(val == null ? '' : val).trim();
+        return s || '—';
+    }
+    var core = formatAssessmentScore(n);
+    if (core === '—') return '—';
+    return core + '%';
+}
+
+function splitIsqLabeledLines(text) {
+    var lines = String(text || '').split(/\n/);
+    var blocks = [];
+    var i;
+    for (i = 0; i < lines.length; i++) {
+        var line = lines[i].replace(/\s+/g, ' ').trim();
+        if (!line) continue;
+        var rest = '';
+        var label = '';
+        var colon = line.search(/[:\-–—]/);
+        if (colon > 1) {
+            label = line.slice(0, colon).trim();
+            rest = line.slice(colon + 1).trim();
+        } else {
+            var m = line.match(/(-?\d+(?:[.,]\d+)?)\s*%?\s*$/);
+            if (m) {
+                label = line.slice(0, m.index).trim();
+                rest = m[0].trim();
+            } else {
+                label = line;
+            }
+        }
+        var title = knownIsqDirectionTitle(label) || knownIsqDirectionTitle(line);
+        if (!title) continue;
+        if (!rest) {
+            var tail = line.match(/(-?\d+(?:[.,]\d+)?)\s*%?\s*$/);
+            rest = tail ? tail[0].trim() : '';
+        }
+        blocks.push({ label: title, value: rest });
+    }
+    return blocks;
+}
+
+function splitInlineIsqHeadings(text) {
+    var s = String(text || '');
+    if (!s) return null;
+    var hits = [];
+    var i;
+    for (i = 0; i < ISQ_NETICE_HEADINGS.length; i++) {
+        var title = ISQ_NETICE_HEADINGS[i];
+        var idx = s.indexOf(title);
+        if (idx === -1) {
+            var re = new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+                .replace(/ə/gi, '[əe]')
+                .replace(/ı/gi, '[ıiI]'), 'i');
+            var m = re.exec(s);
+            if (m) idx = m.index;
+        }
+        if (idx !== -1) hits.push({ index: idx, end: idx + title.length, label: title });
+    }
+    hits.sort(function(a, b) { return a.index - b.index; });
+    if (hits.length < 2) return null;
+    var blocks = [];
+    for (i = 0; i < hits.length; i++) {
+        var from = hits[i].end;
+        var to = i + 1 < hits.length ? hits[i + 1].index : s.length;
+        blocks.push({ label: hits[i].label, value: s.slice(from, to).replace(/^[\s:;\-–—|]+/, '').trim() });
+    }
+    return blocks;
+}
+
+function fillIsqFromNamedFields(t, dirMap) {
+    if (!t || !t.fields) return;
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (key === 'customfield_17316' || ASSESS_RESERVED_IDS[key]) continue;
+        var title = knownIsqDirectionTitle(names[key]);
+        if (!title) continue;
+        var val = readIssueField(t, key);
+        if (isEmptyJiraValue(val)) continue;
+        var n = coerceScoreNumber(val);
+        var text = '';
+        if (n == null) {
+            text = formatAssessmentFieldText(val);
+            if (!text || text === '—') continue;
+        }
+        dirMap[title] = mergeDirSlot(dirMap[title], n != null ? formatAssessmentScore(n) : null, text === '—' ? '' : text);
+    }
+}
+
+export function parseIsqNetice(raw) {
+    if (raw != null && typeof raw === 'object' && memoHas('isqParse', raw)) return memoGet('isqParse', raw);
+    var dirMap = {};
+    var extras = [];
+    var overallScore = null;
+    var overallText = '';
+
+    function sink(label, value, scoreHint) {
+        if (isIsqMetaLabel(label)) return;
+        var split = splitScoreAndResult(value);
+        var score = null;
+        var hintNum = coerceScoreNumber(scoreHint);
+        if (hintNum != null) score = formatAssessmentScore(hintNum);
+        else if (scoreHint != null && scoreHint !== '' && !isColumnHeaderToken(scoreHint)) {
+            var hs = formatAssessmentScore(scoreHint);
+            if (hs !== '—' && !isHeaderOnlyText(hs)) score = hs;
+        }
+        if (!score) score = split.score;
+        if (score && isHeaderOnlyText(score)) score = null;
+        var text = split.text;
+        if (isHeaderOnlyText(label) && coerceScoreNumber(score) == null && (!text || isHeaderOnlyText(text))) return;
+        var title = knownIsqDirectionTitle(label);
+        if (title) {
+            dirMap[title] = mergeDirSlot(dirMap[title], score, text);
+            return;
+        }
+        if (isOverallNeticeLabel(label)) {
+            if (score && score !== '—' && !overallScore) overallScore = score;
+            if (text && !isHeaderOnlyText(text) && !isOverallTitleDump(text) && !looksLikeFlattenedTable(text)
+                && (!overallText || overallText.indexOf(text) === -1)) {
+                overallText = overallText ? overallText + '\n' + text : text;
+            }
+            return;
+        }
+        var extraTitle = String(label || '').replace(/^§\s*/, '').replace(/:\s*$/, '').trim() || 'Digər';
+        if (!extraTitle || isHeaderOnlyText(extraTitle) || isColumnHeaderToken(extraTitle) || isIsqMetaLabel(extraTitle)) return;
+        if (knownIsqDirectionTitle(extraTitle)) {
+            dirMap[knownIsqDirectionTitle(extraTitle)] = mergeDirSlot(dirMap[knownIsqDirectionTitle(extraTitle)], score, text);
+            return;
+        }
+        var ei;
+        for (ei = 0; ei < extras.length; ei++) {
+            if (extras[ei].title === extraTitle && extras[ei].text === (text || '')) return;
+        }
+        extras.push({ title: extraTitle, score: score || '—', text: text || '' });
+    }
+
+    ingestStructuredNetice(raw, sink);
+    if (typeof raw === 'string') ingestHtmlTables(raw, sink);
+    var plain = typeof raw === 'string' ? stripMarkupToText(raw) : jiraValuePlainText(raw);
+    ingestTabAndWikiTables(plain, sink);
+    if (raw && typeof raw === 'object' && isAdfDoc(raw)) ingestTabAndWikiTables(adfToMarkedText(raw), sink);
+    splitIsqLabeledLines(plain).forEach(function(b) { sink(b.label, b.value, null); });
+    var inline = splitInlineIsqHeadings(plain);
+    if (inline) inline.forEach(function(b) { sink(b.label, b.value, null); });
+    var blocks = parseAssessmentNetice(raw);
+    var bi;
+    for (bi = 0; bi < blocks.length; bi++) {
+        var blk = blocks[bi];
+        var blob = [blk.label, blk.value].filter(Boolean).join('\n');
+        if (looksLikeFlattenedTable(blk.value) || looksLikeFlattenedTable(blob)) {
+            ingestHtmlTables(blk.value, sink);
+            ingestTabAndWikiTables(blk.value, sink);
+            splitIsqLabeledLines(blk.value).forEach(function(b) { sink(b.label, b.value, null); });
+        }
+        if (isHeaderOnlyText(blk.label) && !String(blk.value || '').trim()) continue;
+        sink(blk.label, blk.value, null);
+    }
+
+    overallText = dropHeaderLines(overallText);
+    if (overallText && looksLikeFlattenedTable(overallText)) {
+        ingestTabAndWikiTables(overallText, sink);
+        splitIsqLabeledLines(overallText).forEach(function(b) { sink(b.label, b.value, null); });
+        overallText = dropHeaderLines(overallText);
+        if (isHeaderOnlyText(overallText) || looksLikeFlattenedTable(overallText) || isOverallTitleDump(overallText)) {
+            overallText = '';
+        }
+    }
+    extras = extras.filter(function(e) {
+        return e && !isHeaderOnlyText(e.title) && !isColumnHeaderToken(e.title)
+            && !isOverallNeticeLabel(e.title) && !isIsqMetaLabel(e.title) && !knownIsqDirectionTitle(e.title);
+    });
+
+    var filledDirs = 0;
+    var fi;
+    for (fi = 0; fi < ISQ_NETICE_HEADINGS.length; fi++) {
+        var slot = dirMap[ISQ_NETICE_HEADINGS[fi]];
+        if (slot && ((slot.score && slot.score !== '—') || (slot.text && String(slot.text).trim()))) filledDirs += 1;
+    }
+    if (filledDirs >= 2 && overallText) {
+        var of = foldAz(overallText);
+        var oh = 0;
+        for (fi = 0; fi < ISQ_NETICE_HEADINGS.length; fi++) {
+            if (of.indexOf(foldAz(ISQ_NETICE_HEADINGS[fi])) !== -1) oh += 1;
+        }
+        if (oh >= 2) {
+            overallText = '';
+            if (overallScore && filledDirs >= 2) overallScore = null;
+        }
+    }
+
+    if (!overallText && !overallScore && blocks.length === 1 && !blocks[0].label) {
+        var onlyVal = dropHeaderLines(blocks[0].value);
+        if (onlyVal && !looksLikeFlattenedTable(onlyVal) && !isHeaderOnlyText(onlyVal)) {
+            var only = splitScoreAndResult(onlyVal);
+            overallScore = only.score || overallScore;
+            overallText = only.text || overallText;
+        }
+    }
+
+    var result = {
+        overall: { score: overallScore || '—', text: overallText || '' },
+        directions: ISQ_NETICE_HEADINGS.map(function(title) {
+            var d = dirMap[title] || { score: '—', text: '' };
+            var text = d.text || '';
+            if (isHeaderOnlyText(text) || isOverallTitleDump(text)) text = '';
+            return { title: title, score: d.score || '—', text: text };
+        }),
+        extras: extras
+    };
+    return memoSet('isqParse', raw, result);
+}
+
+export function getIsqInfo(t) {
+    if (memoHas('isqInfo', t)) return memoGet('isqInfo', t);
+    var raw = t && t.fields ? t.fields.customfield_17316 : null;
+    var parsed = parseIsqNetice(raw);
+    var dirMap = {};
+    (parsed.directions || []).forEach(function(d) {
+        dirMap[d.title] = { score: d.score, text: d.text };
+    });
+    fillIsqFromNamedFields(t, dirMap);
+    var directions = ISQ_DIR_DEFS.map(function(d) {
+        var slot = dirMap[d.title] || { score: '—', text: '' };
+        return {
+            title: d.title,
+            score: slot.score && slot.score !== '—' ? formatIsqPercentLabel(slot.score) : '—',
+            text: slot.text || ''
+        };
+    });
+    var extras = (parsed.extras || []).map(function(e) {
+        return {
+            title: e.title,
+            score: e.score && e.score !== '—' ? formatIsqPercentLabel(e.score) : '—',
+            text: e.text || ''
+        };
+    });
+    var overallN = coerceScoreNumber(parsed.overall && parsed.overall.score);
+    if (overallN == null) {
+        var nums = directions.map(function(d) { return coerceScoreNumber(d.score); })
+            .filter(function(n) { return n != null && isFinite(n); });
+        if (nums.length) {
+            var sum = 0;
+            nums.forEach(function(n) { sum += n; });
+            overallN = Math.round((sum / nums.length) * 10) / 10;
+        }
+    }
+    if (overallN == null) {
+        var yekun = resultFromExqRaw(raw, false);
+        if (yekun && yekun.percent != null) overallN = yekun.percent;
+    }
+    var info = {
+        overall: {
+            score: overallN != null ? formatIsqPercentLabel(overallN) : '—',
+            text: (parsed.overall && parsed.overall.text) || ''
+        },
+        directions: directions,
+        extras: extras
+    };
+    return memoSet('isqInfo', t, info);
+}
+
+/** İSQ nəticəsi (customfield_17316) — sütunlar + Qərar 380 yekunu. */
+export function getIsqResult(t) {
+    var info = getIsqInfo(t);
+    var n = coerceScoreNumber(info && info.overall && info.overall.score);
+    if (n != null) return { percent: n, star: exqStarFromPercent(n), source: 'isq' };
+    var raw = t && t.fields ? t.fields.customfield_17316 : null;
+    return resultFromExqRaw(raw, false) || emptyExqResult();
+}
+
+export function getIsqScore(t) {
+    var r = getIsqResult(t);
+    if (r && r.percent != null) return formatIsqPercentLabel(r.percent);
+    return '—';
+}
+
+export function getIsqHeadline(t) {
+    return getIsqScore(t);
 }
 
 export function hasAssessmentResult(category, t) {

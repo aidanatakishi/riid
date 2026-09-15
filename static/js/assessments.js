@@ -15,6 +15,13 @@ import {
     getExqServiceCount,
     getExqScore,
     getExqResult,
+    getIsqResult,
+    getIsqScore,
+    getIsqInfo,
+    ISQ_DIR_DEFS,
+    parseExqCriteria,
+    computeExqYekun,
+    parseAssessmentNetice,
     EXQ_STAR_BANDS,
     EXQ_LAW_URL,
     exqStarFromPercent,
@@ -339,7 +346,16 @@ function serializeHubRow(section, r, i) {
     if (section === 'diag') {
         row.score = diagNumericScore(r);
     } else if (section === 'isq') {
-        row.score = isqNumericScore(r);
+        row.score = null;
+        row.star = null;
+        var isq = getIsqResult(t);
+        if (isq) {
+            row.score = isq.percent != null ? isq.percent : isqNumericScore(r);
+            row.star = isq.star || (row.score != null ? exqStarFromPercent(row.score) : null);
+        } else {
+            row.score = isqNumericScore(r);
+            row.star = exqStarFromPercent(row.score);
+        }
         row.result = formatAssessmentFieldText(t && t.fields && t.fields.customfield_17316);
     } else if (section === 'self') {
         var selfInfo = getSelfAssessInfo(t);
@@ -698,7 +714,7 @@ function listFilterGroups(section) {
         return { key: 'st_' + g, label: STATUS_GROUP_LABELS[g] || g };
     });
     var groups = [{ title: 'Status', items: statusItems }];
-    if (section === 'diag' || section === 'isq' || section === 'self') {
+    if (section === 'diag' || section === 'self') {
         groups.push({
             title: 'Nəticə',
             items: [
@@ -708,13 +724,15 @@ function listFilterGroups(section) {
             ]
         });
     }
-    if (section === 'exq') {
+    if (section === 'isq' || section === 'exq') {
         groups.push({
             title: 'Ulduz (Qərar 380)',
             items: (EXQ_STAR_BANDS || []).map(function(b) {
                 return { key: 'star_' + b.star, label: b.star + ' ulduz (' + b.lo + '–' + b.hi + '%)' };
             })
         });
+    }
+    if (section === 'exq') {
         groups.push({
             title: 'Xidmət',
             items: [
@@ -1417,13 +1435,14 @@ function renderIsq(rows) {
     if (!rows.length) return emptyHtml();
     var body = rows.map(function(r) {
         var t = r.task;
-        var netice = formatAssessmentFieldText(t.fields && t.fields.customfield_17316);
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'İSQ Nəticəsi', html: '<span class="assess-text-value whitespace-pre-wrap break-words">' + escapeHtml(netice) + '</span>' }
+            { label: 'İSQ nəticəsi', html: scoreBadge(getIsqScore(t)) },
+            { label: 'Göndərilmə tarixi', cls: 'assess-hub-cell--date', html: sendDateHtml(t) },
+            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
     }).join('');
-    return hubTable('isq', ['Qurum adı', 'İSQ Nəticəsi'], body);
+    return hubTable('isq', ['Qurum adı', 'İSQ nəticəsi', 'Göndərilmə tarixi', ''], body);
 }
 
 function renderSelf(rows) {
@@ -1998,6 +2017,7 @@ function isqRowMatchesDashFilter(r, filter) {
     var score = isqNumericScore(r);
     if (filter === 'has_result') return score != null;
     if (filter === 'no_result') return score == null;
+    if (filter.indexOf('star_') === 0) return isqStarOf(r) === Number(filter.slice(5));
     if (filter === 'score_high' || filter === 'score_mid' || filter === 'score_low' || filter === 'score_none') {
         return scoreBandKey(score) === filter;
     }
@@ -2255,11 +2275,78 @@ function hexToRgba(hex, a) {
 }
 
 function isqNumericScore(r) {
+    var got = getIsqResult(r && r.task);
+    if (got && got.percent != null && isFinite(got.percent)) return got.percent;
     var raw = r && r.task && r.task.fields ? r.task.fields.customfield_17316 : null;
     var text = formatAssessmentFieldText(raw);
     var n = parseScoreForSort(text);
     if (n != null) return n;
     return parseScoreForSort(raw);
+}
+
+function isqStarOf(r) {
+    if (r && r.star != null && isFinite(Number(r.star))) return Number(r.star);
+    var got = getIsqResult(r && r.task);
+    if (got && got.star) return got.star;
+    return exqStarFromPercent(isqNumericScore(r));
+}
+
+function matchIsqPillar(text) {
+    var n = normalizeStr(text);
+    if (!n) return null;
+    var i;
+    for (i = 0; i < (ISQ_DIR_DEFS || []).length; i++) {
+        var d = ISQ_DIR_DEFS[i];
+        if (n.indexOf(normalizeStr(d.title)) !== -1 || n.indexOf(normalizeStr(d.short)) !== -1) return d;
+    }
+    return null;
+}
+
+function isqStarFillRadar(yekun) {
+    return ((yekun && yekun.byStar) || []).map(function(s) {
+        var avg = s && s.possible > 0
+            ? Math.round((s.collected / s.possible) * 1000) / 10
+            : null;
+        return {
+            title: s.star + ' ulduz',
+            short: s.star + '★',
+            avg: avg,
+            target: 100,
+            qurumN: s.possible || 0
+        };
+    });
+}
+
+function isqStarShareRadar(byStar, qurumN) {
+    var den = qurumN || 0;
+    return (EXQ_STAR_BANDS || []).map(function(b) {
+        var n = (byStar && byStar[b.star]) || 0;
+        return {
+            title: b.star + ' ulduz (' + b.lo + '–' + b.hi + '%)',
+            short: b.star + '★',
+            avg: den ? Math.round((n / den) * 1000) / 10 : null,
+            target: null,
+            qurumN: n
+        };
+    });
+}
+
+function isqPillarRadar(pillarByQurum) {
+    var order = ISQ_DIR_DEFS || [];
+    var radar = order.map(function(p) {
+        var qurumAvgs = Object.keys(pillarByQurum || {}).map(function(qk) {
+            return avgOf((pillarByQurum[qk] && pillarByQurum[qk][p.id]) || []);
+        }).filter(function(n) { return n != null && isFinite(n); });
+        return {
+            title: p.title,
+            short: p.short,
+            avg: avgOf(qurumAvgs),
+            target: 100,
+            qurumN: qurumAvgs.length
+        };
+    });
+    var scored = radar.filter(function(d) { return d.avg != null && isFinite(d.avg); });
+    return scored.length >= 3 ? radar : [];
 }
 
 function exqNumericScore(r) {
@@ -2281,31 +2368,77 @@ function collectIsqListStats(rows) {
         noResult: 0,
         byStatus: emptyStatusCounts(),
         byBand: { score_high: 0, score_mid: 0, score_low: 0, score_none: 0 },
+        byStar: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, none: 0 },
+        dirRadar: [],
+        radarTitle: 'Ulduz səviyyələri',
+        radarHasTarget: true,
+        bestDirection: null,
         avg: null
     };
     var byQurumScores = {};
-    (rows || []).forEach(function(r) {
+    var pillarByQurum = {};
+    var allCriteria = [];
+    (rows || []).forEach(function(r, i) {
         stats.total += 1;
         var g = rowStatusGroup(r);
         if (!Object.prototype.hasOwnProperty.call(stats.byStatus, g)) g = 'other';
         stats.byStatus[g] += 1;
+        var t = r && r.task;
+        var raw = t && t.fields ? t.fields.customfield_17316 : null;
         var score = isqNumericScore(r);
-        var band = scoreBandKey(score);
-        stats.byBand[band] += 1;
-        var has = score != null || hasTextResult(r && r.task && r.task.fields && r.task.fields.customfield_17316);
+        stats.byBand[scoreBandKey(score)] += 1;
+        var has = score != null || hasTextResult(raw);
         if (has) stats.hasResult += 1;
         else stats.noResult += 1;
-        if (score == null) return;
-        var qk = qurumMatchKey(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || '';
-        if (!qk) return;
-        if (!byQurumScores[qk]) byQurumScores[qk] = [];
-        byQurumScores[qk].push(score);
+        var qk = qurumRowKey(r, i);
+        if (score != null) {
+            if (!byQurumScores[qk]) byQurumScores[qk] = [];
+            byQurumScores[qk].push(score);
+        }
+        parseExqCriteria(raw).forEach(function(it) { allCriteria.push(it); });
+        var isqInfo = getIsqInfo(t);
+        (isqInfo.directions || []).forEach(function(d) {
+            var pillar = matchIsqPillar(d.title);
+            var n = parseScoreForSort(d && d.score);
+            if (!pillar || n == null) return;
+            if (!pillarByQurum[qk]) pillarByQurum[qk] = {};
+            if (!pillarByQurum[qk][pillar.id]) pillarByQurum[qk][pillar.id] = [];
+            pillarByQurum[qk][pillar.id].push(n);
+        });
     });
     var qurumAvgs = Object.keys(byQurumScores).map(function(k) {
         return avgOf(byQurumScores[k]);
     }).filter(function(n) { return n != null && isFinite(n); });
     stats.avg = avgOf(qurumAvgs);
+    if (stats.avg == null) {
+        var pooled = computeExqYekun(allCriteria);
+        if (pooled && pooled.percent != null) stats.avg = pooled.percent;
+    }
     stats.qurum = countQurums(rows);
+    qurumAvgs.forEach(function(n) {
+        var st = exqStarFromPercent(n);
+        if (st) stats.byStar[st] += 1;
+        else stats.byStar.none += 1;
+    });
+    var pillarRadar = isqPillarRadar(pillarByQurum);
+    var fillRadar = isqStarFillRadar(computeExqYekun(allCriteria));
+    var fillHas = fillRadar.some(function(d) { return d.avg != null && isFinite(d.avg); });
+    if (pillarRadar.length) {
+        stats.dirRadar = pillarRadar;
+        stats.radarTitle = 'Qiymətləndirmə meyarları';
+        stats.radarHasTarget = true;
+    } else if (fillHas) {
+        stats.dirRadar = fillRadar;
+        stats.radarTitle = 'Ulduz səviyyələri üzrə yerinə yetirmə';
+        stats.radarHasTarget = true;
+    } else {
+        stats.dirRadar = isqStarShareRadar(stats.byStar, qurumAvgs.length);
+        stats.radarTitle = 'Qurumların ulduz payı';
+        stats.radarHasTarget = false;
+    }
+    var ranked = stats.dirRadar.filter(function(d) { return d.avg != null && isFinite(d.avg); })
+        .slice().sort(function(a, b) { return b.avg - a.avg; });
+    stats.bestDirection = ranked.length ? ranked[0] : null;
     return stats;
 }
 
@@ -2590,15 +2723,33 @@ function diagListDashHtml(stats) {
 }
 
 function isqListDashHtml(stats) {
-    var left = '<div class="exq-ld-side-head">'
-        + '<p class="assess-ld-block-label">Bal diapazonu</p>'
-        + ldSideMeta('Orta', formatAvg(stats.avg), '')
-        + '</div>'
-        + '<div class="meqsed-ld-chart-box assess-ld-score-chart">'
-        + (hasScoreBandData(stats.byBand, true)
-            ? '<canvas id="assessScoreBandChart" aria-label="İSQ bal diapazonu"></canvas>'
-            : '<p class="meqsed-ld-chart-empty">Bal məlumatı yoxdur.</p>')
-        + '</div>';
+    var radar = stats.dirRadar || [];
+    var hasRadar = radar.some(function(d) { return d.avg != null && isFinite(d.avg); });
+    var best = stats.bestDirection;
+    var left = '<div class="diag-radar-panel">'
+        + '<p class="assess-ld-block-label">' + escapeHtml(stats.radarTitle || 'Ulduz səviyyələri') + '</p>'
+        + exqScoreMeterHtml(stats.avg, { label: 'Ölkə üzrə yekun nəticə' })
+        + (best && stats.radarHasTarget
+            ? '<div class="diag-best-dir">'
+                + '<span>Ən yüksək ox</span>'
+                + '<b>' + escapeHtml(best.short || best.title) + '</b>'
+                + '<em>' + escapeHtml(formatAvg(best.avg)) + '</em>'
+                + '</div>'
+            : '')
+        + '<p class="exq-law-hint">Qərar 380, bənd 4.14–4.18 · '
+        + '<a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a>'
+        + ' · bütün qurumların ortalaması</p>'
+        + (stats.radarHasTarget
+            ? '<ul class="nk303-compare-legend">'
+                + '<li class="is-now" style="--nk-now:' + exqStarColor(stats.avg) + '">Mövcud vəziyyət</li>'
+                + '<li class="is-goal" style="--nk-goal:' + exqStarColor(100) + '">Hədəf olunan</li>'
+                + '</ul>'
+            : '')
+        + '<div class="meqsed-ld-chart-box assess-ld-radar-chart">'
+        + (hasRadar
+            ? '<canvas id="assessIsqRadarChart" aria-label="İSQ radar diaqramı"></canvas>'
+            : '<p class="meqsed-ld-chart-empty">Radar üçün məlumat yoxdur.</p>')
+        + '</div></div>';
     return ldComboCard(
         'İSQ nəticələri',
         left,
@@ -2908,6 +3059,7 @@ function destroyMeqsedOpinionCharts() {
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
     destroyAssessChart('assessScoreBandChart', 'assessScoreBandChart');
     destroyAssessChart('assessDiagRadarChart', 'assessDiagRadarChart');
+    destroyAssessChart('assessIsqRadarChart', 'assessIsqRadarChart');
     destroyAssessChart('exqQurumSvcChart', 'exqQurumSvcChart');
 }
 
@@ -3531,10 +3683,99 @@ function drawDiagStatusChart(stats) {
     drawDiagRadarChart(stats);
 }
 
+function drawIsqRadarChart(stats) {
+    if (typeof Chart === 'undefined' || !stats) return;
+    destroyAssessChart('assessIsqRadarChart', 'assessIsqRadarChart');
+    var canvas = document.getElementById('assessIsqRadarChart');
+    var dirs = stats.dirRadar || [];
+    if (!canvas || !dirs.length) return;
+    var labels = dirs.map(function(d) { return d.short || d.title; });
+    var nowCol = exqStarColor(stats.avg) || '#2563eb';
+    var goalCol = exqStarColor(100);
+    var datasets = [{
+        label: 'Mövcud vəziyyət',
+        data: dirs.map(function(d) { return d.avg != null && isFinite(d.avg) ? d.avg : 0; }),
+        fill: true,
+        backgroundColor: hexToRgba(nowCol, 0.22),
+        borderColor: nowCol,
+        borderWidth: 2.2,
+        pointBackgroundColor: nowCol,
+        pointBorderColor: '#fff',
+        pointBorderWidth: 2,
+        pointRadius: 4,
+        pointHoverRadius: 5
+    }];
+    if (stats.radarHasTarget !== false) {
+        datasets.push({
+            label: 'Hədəf olunan',
+            data: dirs.map(function(d) {
+                if (d.target != null && isFinite(d.target)) return d.target;
+                return 100;
+            }),
+            fill: true,
+            backgroundColor: hexToRgba(goalCol, 0.16),
+            borderColor: goalCol,
+            borderWidth: 2.2,
+            borderDash: [5, 4],
+            pointBackgroundColor: goalCol,
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 4,
+            pointHoverRadius: 5
+        });
+    }
+    state.assessIsqRadarChart = new Chart(canvas.getContext('2d'), {
+        type: 'radar',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            var row = dirs[ctx.dataIndex];
+                            var qn = row ? (row.qurumN || 0) : 0;
+                            var val = ctx.parsed && ctx.parsed.r != null ? formatAvg(ctx.parsed.r) : '—';
+                            if (ctx.datasetIndex === 0) {
+                                return ' Mövcud: ' + val + (qn ? '  ·  ' + qn : '');
+                            }
+                            return ' Hədəf: ' + val;
+                        }
+                    }
+                }
+            },
+            scales: {
+                r: {
+                    min: 0,
+                    max: 100,
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 20,
+                        showLabelBackdrop: false,
+                        color: '#94a3b8',
+                        font: { size: 10 }
+                    },
+                    grid: { color: 'rgba(148, 163, 184, 0.28)' },
+                    angleLines: { color: 'rgba(148, 163, 184, 0.28)' },
+                    pointLabels: {
+                        color: '#334155',
+                        font: { size: 11, weight: '700' }
+                    }
+                }
+            }
+        }
+    });
+}
+
 function drawIsqStatusChart(stats) {
     if (!stats) return;
     drawAssessListDonut(statusDonutItems(stats.byStatus || {}), stats.qurum || 0, 'Qurum');
-    drawScoreBandChart(stats.byBand, true);
+    drawIsqRadarChart(stats);
 }
 
 function listDashHtmlForSection(section, rows) {
@@ -3703,6 +3944,43 @@ function diagModalBodyHtml(r) {
     return parts.join('');
 }
 
+function isqModalBodyHtml(r) {
+    var t = r && r.task;
+    var info = getIsqInfo(t);
+    var qurum = (r && r.qurum) || getAssessmentQurumLabel(t) || '—';
+    var parts = [];
+    parts.push('<dl class="assess-isq-meta">'
+        + '<div><dt>Qurumun adı</dt><dd>' + escapeHtml(qurum) + '</dd></div>'
+        + '<div><dt>Fəaliyyət istiqaməti</dt><dd>İSQ</dd></div>'
+        + '</dl>');
+    var overallScore = info && info.overall && info.overall.score && info.overall.score !== '—'
+        && !isJiraTableHeaderDump(info.overall.score) ? info.overall.score : '';
+    var overallText = (info && info.overall && info.overall.text) || '';
+    if (isJiraTableHeaderDump(overallText)) overallText = '';
+    if (overallScore || overallText) {
+        parts.push('<div class="assess-modal-overall">'
+            + '<div class="assess-modal-overall-label">Ümumi nəticə</div>'
+            + (overallScore ? '<div class="assess-modal-overall-score">' + scoreBadge(overallScore) + '</div>' : '')
+            + (overallText ? '<p class="assess-modal-overall-text">' + escapeHtml(overallText) + '</p>' : '')
+            + '</div>');
+    }
+    var dirs = (info && info.directions) || [];
+    var extras = (info && info.extras) || [];
+    var dirHtml = dirs.map(function(d) { return directionCard(d, overallText); }).join('')
+        + extras.map(function(e) { return directionCard(e, overallText); }).join('');
+    if (dirHtml) {
+        parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə istiqamətləri</h4>');
+        parts.push('<div class="assess-dir-grid assess-dir-grid--isq">' + dirHtml + '</div>');
+    }
+    var hasAny = overallScore || overallText
+        || dirs.some(function(d) { return (d.score && d.score !== '—') || d.text; })
+        || extras.length;
+    if (!hasAny) {
+        return parts.join('') + '<p class="assess-modal-empty">İSQ nəticəsi qeyd edilməyib.</p>';
+    }
+    return parts.join('');
+}
+
 function meqsedModalBodyHtml(t) {
     var info = getMeqsedInfo(t);
     var vis = meqsedModalVisibility(info.novuKind);
@@ -3765,12 +4043,14 @@ function exqModalBodyHtml(t) {
 }
 
 function hasDetailModal(cat) {
-    return cat === 'diag' || cat === 'self' || cat === 'meqsed' || cat === 'exq';
+    return cat === 'diag' || cat === 'self' || cat === 'meqsed' || cat === 'exq' || cat === 'isq';
 }
 
 function fillDiagModal(r) {
     var t = r && r.task;
-    var cat = (t && classifyAssessmentCategory(t)) || activeTab;
+    var cat = (activeTab && hasDetailModal(activeTab))
+        ? activeTab
+        : ((t && classifyAssessmentCategory(t)) || activeTab);
     if (!hasDetailModal(cat)) {
         closeDiagModal();
         return;
@@ -3778,12 +4058,13 @@ function fillDiagModal(r) {
     var overlay = document.getElementById(DIAG_MODAL_ID);
     var panel = overlay && overlay.querySelector('.assess-modal-panel');
     if (panel) panel.classList.toggle('assess-modal-panel--compact', cat === 'meqsed');
-    fillModalChrome(r, SECTION_LABELS[cat] || 'Ətraflı baxış', cat === 'diag' || cat === 'meqsed');
+    fillModalChrome(r, SECTION_LABELS[cat] || 'Ətraflı baxış', cat === 'diag' || cat === 'meqsed' || cat === 'isq');
     var bodyEl = document.getElementById('assessDiagModalBody');
     if (!bodyEl) return;
     if (cat === 'meqsed') bodyEl.innerHTML = meqsedModalBodyHtml(t);
     else if (cat === 'self') bodyEl.innerHTML = selfModalBodyHtml(t);
     else if (cat === 'exq') bodyEl.innerHTML = exqModalBodyHtml(t);
+    else if (cat === 'isq') bodyEl.innerHTML = isqModalBodyHtml(r);
     else bodyEl.innerHTML = diagModalBodyHtml(r);
 }
 
@@ -3816,7 +4097,9 @@ export function openDiagModal(key, btn) {
         r = { task: found, qurum: getAssessmentQurumLabel(found), year: y, years: y != null ? [y] : [] };
         hubRowByKey[key] = r;
     }
-    var cat = classifyAssessmentCategory(r.task) || activeTab;
+    var cat = (activeTab && hasDetailModal(activeTab))
+        ? activeTab
+        : (classifyAssessmentCategory(r.task) || activeTab);
     if (!hasDetailModal(cat)) return;
     openDiagKey = key;
     lastEyeBtn = btn || null;

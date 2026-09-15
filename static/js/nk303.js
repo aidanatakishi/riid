@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda27';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda29';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -42,6 +42,32 @@ var HUB_TABS = [
     { id: 'meqsed', label: 'Məqsədəuyğunluq', color: '#5b21b6' },
     { id: 'report', label: 'Hesabat analizi', color: '#0f766e' }
 ];
+var PAGE_HEADS = {
+    diag: {
+        title: 'Ölkə üzrə Rəqəmsallaşma Diaqnostikası',
+        sub: 'Qurumların rəqəmsal yetkinlik səviyyəsinin qiymətləndirilməsi'
+    },
+    isq: {
+        title: 'İnformasiya sistemlərinin qiymətləndirilməsi',
+        sub: 'Qurumların informasiya sistemləri üzrə qiymətləndirmə nəticələri'
+    },
+    exq: {
+        title: 'Elektron xidmətlərin qiymətləndirilməsi',
+        sub: 'Qurumların elektron xidmətləri üzrə qiymətləndirmə nəticələri'
+    },
+    self: {
+        title: 'Özünüqiymətləndirmə',
+        sub: 'Qurumların özünüqiymətləndirmə nəticələri'
+    },
+    meqsed: {
+        title: 'Məqsədəuyğunluq',
+        sub: 'Məqsədəuyğunluq rəyləri və müraciətlər'
+    },
+    report: {
+        title: 'Hesabat analizi',
+        sub: 'Yüklənmiş PPTX hesabatların təhlili'
+    }
+};
 var HUB_STATUS_COLORS = {
     done: '#059669',
     progress: '#2563eb',
@@ -1006,6 +1032,14 @@ function iconSvg(name) {
         + (paths[name] || '') + '</svg>';
 }
 
+function pageHeadCopy(model) {
+    if (ui.hub && PAGE_HEADS[ui.hub]) return PAGE_HEADS[ui.hub];
+    if (ui.mode === 'institution' && model && model.selected) {
+        return { title: model.selected.name, sub: 'Qurumun diaqnostika nəticələri' };
+    }
+    return PAGE_HEADS.diag;
+}
+
 function pageHeadHtml(model) {
     var orgOpts = optionHtml('', 'Bütün qurumlar', ui.orgKey)
         + (model.orgOptions || model.orgs).slice().sort(function(a, b) {
@@ -1015,35 +1049,35 @@ function pageHeadHtml(model) {
         }).join('');
     var yearOpts = optionHtml('all', 'Bütün illər', ui.year)
         + model.years.map(function(y) { return optionHtml(String(y), String(y), String(ui.year)); }).join('');
-    var title = ui.mode === 'institution' && model.selected
-        ? model.selected.name
-        : 'Ölkə üzrə Rəqəmsallaşma Diaqnostikası';
-    var sub = ui.mode === 'institution' && model.selected
-        ? 'Qurumun diaqnostika nəticələri'
-        : 'Qurumların rəqəmsal yetkinlik səviyyəsinin qiymətləndirilməsi';
+    var copy = pageHeadCopy(model);
+    var title = copy.title;
+    var sub = copy.sub;
+    var onDiag = !ui.hub;
+    var yearHtml = '';
+    if (!(onDiag && ui.orgKey)) {
+        if (onDiag) {
+            yearHtml = '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>';
+        } else if (ui.hub !== 'report') {
+            yearHtml = hubYearFilterHtml(ui.hub);
+        }
+    }
+    var orgHtml = onDiag
+        ? '<label class="nk303-field"><span>Qurum</span><select onchange="nk303Call(\'org\', this.value)">' + orgOpts + '</select></label>'
+        : '';
+    var toolsHtml = (yearHtml || orgHtml)
+        ? '<div class="nk303-tools"><div class="nk303-filters">' + yearHtml + orgHtml + '</div></div>'
+        : '';
     return '<div class="nk303-wrap"><div class="nk303-head">'
         + '<div class="nk303-head-left">'
         + '<a href="/" class="nk303-home" onclick="closeNk303(); return false;">'
         + '<span class="nk303-home-ic">' + iconSvg('chevron') + '</span>'
         + '<span class="nk303-home-txt"><span class="nk303-home-kicker">Geri qayıt</span>'
         + '<span class="nk303-home-name">İdarəetmə paneli</span></span></a>'
-        + '<p class="nk303-kicker">Diaqnostika analitikası</p>'
+        + '<p class="nk303-kicker">Qiymətləndirmə analitikası</p>'
         + '<h1 id="nk303Title">' + esc(title) + '</h1>'
         + '<p class="sub">' + esc(sub) + '</p>'
         + '</div>'
-        + (ui.hub === 'report'
-            ? ''
-            : '<div class="nk303-tools">'
-                + '<div class="nk303-filters">'
-                + (ui.orgKey ? '' : '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>')
-                + '<label class="nk303-field"><span>Qurum</span><select onchange="nk303Call(\'org\', this.value)">' + orgOpts + '</select></label>'
-                + '</div>'
-                + (isAdmin()
-                    ? '<div class="nk303-admin-row">'
-                        + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'logout\')">Çıx</button>'
-                        + '</div>'
-                    : '')
-                + '</div>')
+        + toolsHtml
         + '</div>'
         + hubNavHtml();
 }
@@ -1197,10 +1231,9 @@ function hubPageHtml(view) {
         + '<div class="nk303-hub-toolbar-title">'
         + '<h3 id="nk303HubTitle">' + esc(view.label) + ' nəticələri</h3>'
         + '<p class="nk303-hint">Dövr: ' + esc(period)
-        + (view.section === 'exq' ? ' · Qərar 380, bənd 4.14–4.18' : '')
+        + (view.section === 'exq' || view.section === 'isq' ? ' · Qərar 380, bənd 4.14–4.18' : '')
         + '</p>'
         + '</div></div>'
-        + hubYearFilterHtml(view.section)
         + '</div>'
         + '<div class="nk303-hub-page">' + hubBodyHtml(view) + '</div>';
 }
@@ -3163,6 +3196,35 @@ function hubKpisHtml(view) {
             subHtml: '<div class="sub">qurum</div>',
             onclick: hubKpiHit('in_progress'), on: f === 'in_progress'
         });
+    } else if (view.section === 'isq') {
+        kpiCls = ' nk303-kpis--4';
+        var isqAvg = st.avg;
+        var isqStar = exqStarFromPercent(isqAvg);
+        cards = kpiCardHtml({
+            ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə yekun nəticə',
+            valueHtml: isqAvg == null ? '—' : esc(fmt1(isqAvg)) + ' <small>%</small>',
+            subHtml: isqStar
+                ? '<div class="sub">' + esc(exqStarLabel(isqStar)) + ' · Qərar 380, bənd 4.18</div>'
+                : '<div class="sub">bütün qurumların ortalaması</div>'
+        })
+        + kpiCardHtml({
+            ic: 'is-blue', icon: 'building', label: 'Əhatə olunan qurumlar',
+            valueHtml: esc(String(st.qurum || 0)),
+            subHtml: '<div class="sub">' + esc(view.period || getAssessmentPeriodLabel() || 'Bütün illər') + '</div>',
+            onclick: hubKpiHit('orgs'), on: f === 'orgs'
+        })
+        + kpiCardHtml({
+            ic: 'is-green', icon: 'star', label: 'Tamamlanmış',
+            valueHtml: esc(String(vis.done)) + ' <small>/ ' + esc(String(total)) + '</small>',
+            subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
+            onclick: hubKpiHit('done'), on: f === 'done'
+        })
+        + kpiCardHtml({
+            ic: 'is-amber', icon: 'flag', label: 'İcradadır',
+            valueHtml: esc(String(vis.in_progress || 0)),
+            subHtml: '<div class="sub">qurum</div>',
+            onclick: hubKpiHit('in_progress'), on: f === 'in_progress'
+        });
     } else {
         var isRadar = view.section === 'diag' || view.section === 'self';
         var best = st.bestDirection;
@@ -3229,7 +3291,7 @@ function hubGaugeHtml(score, law) {
         + '</div>';
 }
 
-function hubExqGaugeHtml(score) {
+function hubExqGaugeHtml(score, extraHint) {
     var star = exqStarFromPercent(score);
     var pos = score == null || !isFinite(score) ? 0 : Math.max(0, Math.min(100, score));
     var f = ui.hubFilter || '';
@@ -3245,6 +3307,9 @@ function hubExqGaugeHtml(score) {
         return '<span class="' + (on ? 'is-on' : '') + '">'
             + esc(b.lo + '–' + b.hi + '%') + '<br>' + esc(b.star + ' ulduz') + '</span>';
     }).join('');
+    var formula = extraHint || ('Yekun nəticə = ümumi toplanmış / ümumi mümkün × 100. '
+        + 'Çəkilər: 1★ 0,2 · 2★ 0,4 · 3★ 0,6 · 4★ 0,8 · 5★ 1 (bənd 4.16). '
+        + 'N/A altmeyarlar mümkün nəticəyə daxil edilmir.');
     return '<div class="nk303-gauge">'
         + '<div class="nk303-gauge-box"><canvas id="nkHubGauge"></canvas></div>'
         + (star
@@ -3257,9 +3322,7 @@ function hubExqGaugeHtml(score) {
         + '<div class="nk303-scalecaps is-5">' + caps + '</div></div>'
         + '<p class="nk303-hint nk303-hint--law">Qərar 380, bənd 4.14–4.18 · '
         + '<a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a></p>'
-        + '<p class="nk303-exq-formula">Yekun nəticə = ümumi toplanmış / ümumi mümkün × 100. '
-        + 'Çəkilər: 1★ 0,2 · 2★ 0,4 · 3★ 0,6 · 4★ 0,8 · 5★ 1 (bənd 4.16). '
-        + 'N/A altmeyarlar mümkün nəticəyə daxil edilmir.</p>'
+        + '<p class="nk303-exq-formula">' + esc(formula) + '</p>'
         + '</div>';
 }
 
@@ -3267,7 +3330,7 @@ function hubRowHasResult(section, r) {
     if (section === 'meqsed') {
         return r.opinion === 'pos' || r.opinion === 'neg' || r.opinion === 'revision' || r.opinion === 'partial';
     }
-    if (section === 'exq') {
+    if (section === 'exq' || section === 'isq') {
         if (r.score != null || (r.star != null && isFinite(Number(r.star)))) return true;
         var txt = String(r.result || '').trim();
         return !!(txt && txt !== '—' && txt !== NA);
@@ -3456,7 +3519,7 @@ function sortHubRows(list, section, mode) {
 
 function hubFilterLabel(key) {
     if (!key || key === 'all') return '';
-    if (key === 'orgs') return ui.hub === 'exq' ? 'Əhatə olunan qurumlar' : 'Müraciət edən qurumlar';
+    if (key === 'orgs') return ui.hub === 'exq' || ui.hub === 'isq' ? 'Əhatə olunan qurumlar' : 'Müraciət edən qurumlar';
     if (key === 'has_result') return 'Nəticəsi olan';
     if (key === 'no_result') return 'Nəticəsiz';
     if (key === 'done') return 'Tamamlanmış';
@@ -3501,7 +3564,7 @@ function hubTableHtml(view) {
     var heads;
     if (view.section === 'exq') heads = ['№', 'Qurum', 'İl', 'Xidmət', 'Yekun', 'Status'];
     else if (view.section === 'meqsed') heads = ['№', 'Qurum', 'Müraciət növü', 'Rəy', 'Tarix'];
-    else if (view.section === 'isq') heads = ['№', 'Qurum', 'İl', 'Bal', 'Nəticə', 'Status'];
+    else if (view.section === 'isq') heads = ['№', 'Qurum', 'İl', 'Yekun', 'Status'];
     else heads = ['№', 'Qurum', 'İl', 'Bal', 'Status'];
     var body = slice.map(function(r, i) {
         var rank = (ui.hubPage - 1) * HUB_PAGE_SIZE + i + 1;
@@ -3530,9 +3593,12 @@ function hubTableHtml(view) {
                 + '<span class="bar"><i style="width:' + w + '%;background:' + exqBarColor(r.score) + '"></i></span></div></td>'
                 + '<td>' + esc(r.status || '—') + '</td>';
         } else if (view.section === 'isq') {
+            var iw = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
+            var isqStar = exqStarOfRow(r);
             cells += '<td class="num">' + esc(r.year || '—') + '</td>'
-                + '<td class="num">' + esc(r.score == null ? '—' : fmt1(r.score)) + '</td>'
-                + '<td class="act">' + esc(clipText(r.result || NA, 90)) + '</td>'
+                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score) + '%') + '</b>'
+                + (isqStar ? '<em class="nk303-star-mini">' + esc(exqStarLabel(isqStar)) + '</em>' : '')
+                + '<span class="bar"><i style="width:' + iw + '%;background:' + exqBarColor(r.score) + '"></i></span></div></td>'
                 + '<td>' + esc(r.status || '—') + '</td>';
         } else {
             var sw = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
@@ -3651,17 +3717,20 @@ function hubBodyHtml(view) {
     var donePct = pct(vis.done, total);
     var avg = view.section === 'exq' && st.weightedAvg != null ? st.weightedAvg : st.avg;
     var rankHtml = '';
-    var isRadar = view.section === 'diag' || view.section === 'self';
+    var isRadar = view.section === 'diag' || view.section === 'self' || view.section === 'isq';
+    var isqRadarTarget = view.section === 'isq' && st.radarHasTarget !== false;
     if (isRadar) {
         rankHtml = '<ol class="nk303-rank">'
             + (st.dirRadar || []).map(function(d, i) {
-                var goal = maturityTarget(d.avg);
+                var goal = view.section === 'isq'
+                    ? (isqRadarTarget ? (d.target != null ? d.target : 100) : null)
+                    : maturityTarget(d.avg);
                 return '<li title="Mövcud: ' + esc(d.avg == null ? '—' : fmt1(d.avg))
-                    + ' · Hədəf: ' + esc(goal == null ? '—' : fmt1(goal)) + '">'
+                    + (goal == null ? '' : (' · Hədəf: ' + esc(fmt1(goal)))) + '">'
                     + '<i>' + (i + 1) + '</i>'
                     + '<span>' + esc(d.short || d.title) + '</span>'
                     + '<b>' + esc(d.avg == null ? '—' : fmt1(d.avg)) + '</b>'
-                    + '<em>' + esc(goal == null ? '—' : fmt1(goal)) + '</em>'
+                    + (goal == null ? '<em></em>' : ('<em>' + esc(fmt1(goal)) + '</em>'))
                     + '</li>';
             }).join('')
             + '</ol>';
@@ -3698,12 +3767,21 @@ function hubBodyHtml(view) {
         + '</ul>';
     var midLeftTitle = view.section === 'meqsed' ? 'Rəy payı'
         : (view.section === 'exq' ? 'Yekun nəticə' : 'Ümumi nəticə');
-    var midRightTitle = isRadar ? 'Rəqəmsallaşma istiqamətləri'
-        : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
-            : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu'));
+    var midRightTitle = view.section === 'isq'
+        ? (st.radarTitle || 'Ulduz səviyyələri')
+        : (isRadar ? 'Rəqəmsallaşma istiqamətləri'
+            : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
+                : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu')));
+    var radarLegend = view.section === 'isq'
+        ? (isqRadarTarget
+            ? compareLegendHtml(exqBarColor(avg), exqBarColor(100))
+            : '<ul class="nk303-compare-legend" aria-hidden="false">'
+                + '<li class="is-now" style="--nk-now:' + exqBarColor(avg) + '">Mövcud vəziyyət</li>'
+                + '</ul>')
+        : compareLegendHtml(barColor(avg), barColor(maturityTarget(avg)));
     var midRight = isRadar
         ? '<div class="nk303-hub-radar">'
-            + compareLegendHtml(barColor(avg), barColor(maturityTarget(avg)))
+            + radarLegend
             + '<div class="nk303-radar-row">'
             + '<div class="nk303-chart nk303-chart--radar"><canvas id="nkHubRadar"></canvas></div>'
             + rankHtml + '</div></div>'
@@ -3713,12 +3791,20 @@ function hubBodyHtml(view) {
                 + (view.section === 'exq' ? Math.max(16, exqQurumsForChart(st).length * 2.15 + 2.4) : 16)
                 + 'rem"><canvas id="nkHubBars"></canvas></div>');
     var statusTitle = view.section === 'meqsed' ? 'Rəy vəziyyəti' : 'Qiymətləndirmələrin icra vəziyyəti';
+    var isqFormula = 'Ölkə üzrə yekun nəticə bütün qurumların İSQ yekununun ortalamasıdır. '
+        + 'Hər qurumun yekunu Qərar 380, bənd 4.14–4.16 üzrə (toplanmış / mümkün × 100) hesablanır, '
+        + 'sonra bənd 4.18 ulduz şkalasına salınır.';
+    var gaugeHtml = view.section === 'meqsed'
+        ? '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>'
+        : (view.section === 'exq'
+            ? hubExqGaugeHtml(avg)
+            : (view.section === 'isq'
+                ? hubExqGaugeHtml(avg, isqFormula)
+                : hubGaugeHtml(avg, isRadar)));
     return hubKpisHtml(view)
         + '<div class="nk303-mid">'
         + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
-        + (view.section === 'meqsed'
-            ? '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>'
-            : (view.section === 'exq' ? hubExqGaugeHtml(avg) : hubGaugeHtml(avg, isRadar)))
+        + gaugeHtml
         + '</section>'
         + '<section class="nk303-card nk303-card--radar"><h3>' + esc(midRightTitle) + '</h3>'
         + midRight
@@ -3761,10 +3847,11 @@ function drawHubCharts(view) {
     if (typeof Chart === 'undefined') return;
     var st = view.stats || {};
     var avg = view.section === 'exq' && st.weightedAvg != null ? st.weightedAvg : st.avg;
+    var use380 = view.section === 'exq' || view.section === 'isq';
     if (document.getElementById('nkHubGauge')) {
         var empty = avg == null;
         var v = empty ? 0 : Math.max(0, Math.min(100, avg));
-        var col = empty ? '#cbd5e1' : (view.section === 'exq' ? exqBarColor(avg) : barColor(avg));
+        var col = empty ? '#cbd5e1' : (use380 ? exqBarColor(avg) : barColor(avg));
         makeHubChart('nkHubGauge', {
             type: 'doughnut',
             data: {
@@ -3785,27 +3872,35 @@ function drawHubCharts(view) {
             },
             plugins: [centerTextPlugin('nkHubGaugeCenter', [
                 { text: avg == null ? '—' : fmt1(avg), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
-                { text: view.section === 'exq' ? '%' : '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
+                { text: use380 ? '%' : '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
             ])]
         });
     }
     if (document.getElementById('nkHubRadar')) {
-        var dirs = (st.dirRadar || []).length ? st.dirRadar : DIRS.map(function(d) {
-            return { short: dirShort(d), avg: null };
+        var dirs = (st.dirRadar || []).length
+            ? st.dirRadar
+            : ((view.section === 'diag' || view.section === 'self')
+                ? DIRS.map(function(d) { return { short: dirShort(d), avg: null }; })
+                : []);
+        var nowHex = use380 ? exqBarColor(avg) : barColor(avg);
+        var goalHex = view.section === 'isq' ? exqBarColor(100) : barColor(maturityTarget(avg));
+        var nowVals = dirs.map(function(d) { return d.avg != null ? d.avg : 0; });
+        var goalVals = dirs.map(function(d) {
+            if (view.section === 'isq') {
+                if (st.radarHasTarget === false) return 0;
+                return d.target != null ? d.target : 100;
+            }
+            var goal = maturityTarget(d.avg);
+            return goal != null ? goal : 0;
         });
+        if (dirs.length) {
+        var radarSets = radarPairDatasets(nowVals, goalVals, nowHex, goalHex);
+        if (view.section === 'isq' && st.radarHasTarget === false) radarSets = radarSets.slice(0, 1);
         makeHubChart('nkHubRadar', {
             type: 'radar',
             data: {
                 labels: dirs.map(function(d) { return d.short || d.title; }),
-                datasets: radarPairDatasets(
-                    dirs.map(function(d) { return d.avg != null ? d.avg : 0; }),
-                    dirs.map(function(d) {
-                        var goal = maturityTarget(d.avg);
-                        return goal != null ? goal : 0;
-                    }),
-                    barColor(avg),
-                    barColor(maturityTarget(avg))
-                )
+                datasets: radarSets
             },
             options: {
                 responsive: true,
@@ -3836,6 +3931,7 @@ function drawHubCharts(view) {
                 }
             }
         });
+        }
     }
     if (document.getElementById('nkHubDonut')) {
         var items;
@@ -4032,6 +4128,7 @@ function render() {
     destroyHubCharts();
     destroyMeqsedOverviewCharts();
     root.innerHTML = pageHeadHtml(model) + bodyHtml(model);
+    document.title = pageHeadCopy(model).title;
     requestAnimationFrame(function() {
         if (ui.hub === 'report') {
             drawReportCharts();
@@ -4242,7 +4339,7 @@ function showNk303Page() {
         main.setAttribute('aria-hidden', 'true');
     }
     document.body.classList.add('nk303-page');
-    document.title = 'Ölkə üzrə Rəqəmsallaşma Diaqnostikası';
+    document.title = pageHeadCopy().title;
     bindEsc();
     bindHistory();
     bindAdminGate();
@@ -4308,7 +4405,7 @@ function resetFilters() {
 
 export function openNk303() {
     if (!canSeeDiagnostics()) {
-        showToast('Diaqnostika analitikası yalnız Komplayns komandasında əlçatandır', 'error');
+        showToast('Qiymətləndirmə analitikası yalnız Komplayns komandasında əlçatandır', 'error');
         return;
     }
     if (typeof window.closeDiagModal === 'function') window.closeDiagModal();

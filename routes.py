@@ -152,7 +152,7 @@ def diagnostics_required(fn):
         if not is_logged_in():
             return jsonify({'error': 'Giriş lazımdır'}), 401
         if not can_see_diagnostics():
-            return jsonify({'error': 'Diaqnostika analitikası yalnız Komplayns üçün əlçatandır'}), 403
+            return jsonify({'error': 'Qiymətləndirmə analitikası yalnız Komplayns üçün əlçatandır'}), 403
         return fn(*args, **kwargs)
     return wrapper
 
