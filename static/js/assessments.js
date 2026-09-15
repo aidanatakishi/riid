@@ -25,6 +25,7 @@ import {
     EXQ_STAR_BANDS,
     EXQ_LAW_URL,
     exqStarFromPercent,
+    exqStarTarget,
     exqStarColor,
     exqStarLabel,
     getPhaseFieldText,
@@ -2311,7 +2312,7 @@ function isqStarFillRadar(yekun) {
             title: s.star + ' ulduz',
             short: s.star + '★',
             avg: avg,
-            target: 100,
+            target: exqStarTarget(avg),
             qurumN: s.possible || 0
         };
     });
@@ -2337,11 +2338,12 @@ function isqPillarRadar(pillarByQurum) {
         var qurumAvgs = Object.keys(pillarByQurum || {}).map(function(qk) {
             return avgOf((pillarByQurum[qk] && pillarByQurum[qk][p.id]) || []);
         }).filter(function(n) { return n != null && isFinite(n); });
+        var avg = avgOf(qurumAvgs);
         return {
             title: p.title,
             short: p.short,
-            avg: avgOf(qurumAvgs),
-            target: 100,
+            avg: avg,
+            target: exqStarTarget(avg),
             qurumN: qurumAvgs.length
         };
     });
@@ -2741,8 +2743,8 @@ function isqListDashHtml(stats) {
         + ' · bütün qurumların ortalaması</p>'
         + (stats.radarHasTarget
             ? '<ul class="nk303-compare-legend">'
-                + '<li class="is-now" style="--nk-now:' + exqStarColor(stats.avg) + '">Mövcud vəziyyət</li>'
-                + '<li class="is-goal" style="--nk-goal:' + exqStarColor(100) + '">Hədəf olunan</li>'
+                + '<li class="is-now" style="--nk-now:#d97706">Mövcud vəziyyət</li>'
+                + '<li class="is-goal" style="--nk-goal:#0e7490">Hədəf olunan</li>'
                 + '</ul>'
             : '')
         + '<div class="meqsed-ld-chart-box assess-ld-radar-chart">'
@@ -2820,7 +2822,7 @@ function exqListDashHtml(stats) {
     var svcSum = stats.svcSum || 0;
     var qurumWithSvc = stats.qurumWithSvc != null ? stats.qurumWithSvc : chartN;
     var hasQurum = chartN > 0;
-    var chartH = Math.max(10, 1.9 * Math.max(chartN, 1) + 2.2);
+    var chartH = Math.max(14, 3.15 * Math.max(chartN, 1) + 2.6);
     var summary = qurumWithSvc + ' qurumda ' + svcSum + ' xidmət qiymətləndirilib';
     return ldHead(section, 'Elektron xidmət qiymətləndirmə nəticələri')
         + '<div class="meqsed-ld-card assess-ld-panel exq-ld-combo assess-ld-combo">'
@@ -3179,10 +3181,35 @@ function drawExqStatusChart(stats) {
     drawExqQurumSvcChart(exqQurumsOnDash(stats.byQurum));
 }
 
-function truncateChartLabel(s, max) {
-    var t = String(s || '').trim();
-    if (t.length <= max) return t;
-    return t.slice(0, Math.max(0, max - 1)) + '…';
+function wrapChartLabel(s, maxChars) {
+    var t = String(s || '').replace(/\s+/g, ' ').trim();
+    if (!t) return [''];
+    maxChars = maxChars || 24;
+    if (t.length <= maxChars) return [t];
+    var words = t.split(' ');
+    var lines = [];
+    var cur = '';
+    var i;
+    for (i = 0; i < words.length; i++) {
+        var w = words[i];
+        var next = cur ? cur + ' ' + w : w;
+        if (next.length <= maxChars) {
+            cur = next;
+            continue;
+        }
+        if (cur) lines.push(cur);
+        if (w.length > maxChars) {
+            while (w.length > maxChars) {
+                lines.push(w.slice(0, maxChars));
+                w = w.slice(maxChars);
+            }
+            cur = w;
+        } else {
+            cur = w;
+        }
+    }
+    if (cur) lines.push(cur);
+    return lines;
 }
 
 function drawExqQurumSvcChart(items) {
@@ -3191,7 +3218,15 @@ function drawExqQurumSvcChart(items) {
     var canvas = document.getElementById('exqQurumSvcChart');
     var rows = (items || []).slice();
     if (!canvas || !rows.length) return;
-    var maxName = 42;
+    var labels = rows.map(function(q) { return wrapChartLabel(q.name, 24); });
+    var lineN = 1;
+    labels.forEach(function(lines) {
+        lineN = Math.max(lineN, (lines && lines.length) || 1);
+    });
+    var box = canvas.parentNode;
+    if (box) {
+        box.style.height = Math.max(14, rows.length * (1.15 + lineN * 0.82) + 2.8) + 'rem';
+    }
     var scores = rows.map(function(q) {
         return q.score != null && isFinite(q.score) ? Number(q.score) : 0;
     });
@@ -3199,7 +3234,7 @@ function drawExqQurumSvcChart(items) {
     state.exqQurumSvcChart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
-            labels: rows.map(function(q) { return truncateChartLabel(q.name, maxName); }),
+            labels: labels,
             datasets: [{
                 label: 'Bal',
                 data: scores,
@@ -3218,7 +3253,7 @@ function drawExqQurumSvcChart(items) {
             responsive: true,
             maintainAspectRatio: false,
             indexAxis: 'y',
-            layout: { padding: { right: 44, top: 4, bottom: 4 } },
+            layout: { padding: { left: 4, right: 44, top: 6, bottom: 6 } },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -3258,7 +3293,11 @@ function drawExqQurumSvcChart(items) {
                     ticks: {
                         autoSkip: false,
                         font: { size: 11, weight: '600' },
-                        color: '#334155'
+                        color: '#1e293b',
+                        padding: 8
+                    },
+                    afterFit: function(axis) {
+                        axis.width = Math.max(axis.width || 0, 196);
                     },
                     grid: { display: false },
                     border: { display: false }
@@ -3690,8 +3729,8 @@ function drawIsqRadarChart(stats) {
     var dirs = stats.dirRadar || [];
     if (!canvas || !dirs.length) return;
     var labels = dirs.map(function(d) { return d.short || d.title; });
-    var nowCol = exqStarColor(stats.avg) || '#2563eb';
-    var goalCol = exqStarColor(100);
+    var nowCol = '#d97706';
+    var goalCol = '#0e7490';
     var datasets = [{
         label: 'Mövcud vəziyyət',
         data: dirs.map(function(d) { return d.avg != null && isFinite(d.avg) ? d.avg : 0; }),
@@ -3710,7 +3749,8 @@ function drawIsqRadarChart(stats) {
             label: 'Hədəf olunan',
             data: dirs.map(function(d) {
                 if (d.target != null && isFinite(d.target)) return d.target;
-                return 100;
+                var step = exqStarTarget(d.avg);
+                return step != null ? step : 0;
             }),
             fill: true,
             backgroundColor: hexToRgba(goalCol, 0.16),

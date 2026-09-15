@@ -1,7 +1,10 @@
+import time
+
 import requests
 import urllib3
 
 from config import MAX_RESULTS, REQUEST_TIMEOUT, COUNT_TIMEOUT
+from users import TEAM_IDS, component_matches_team, normalize_team
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -268,8 +271,65 @@ def fetch_project_components(base_url, pat, project_key):
     return rows, None, 200
 
 
-def collect_component_people(base_url, pat, project_key, components, limit_issues=1200):
+def _team_for_component_name(name):
+    hits = [tid for tid in TEAM_IDS if component_matches_team(name, tid)]
+    if len(hits) == 1:
+        return hits[0]
+    return ''
+
+
+def _issue_team_ids(fields):
+    comps = (fields or {}).get('components') or []
+    if not isinstance(comps, list):
+        comps = [comps]
+    teams = set()
+    for item in comps:
+        if isinstance(item, dict):
+            raw = item.get('name') or item.get('value') or ''
+        else:
+            raw = item
+        tid = _team_for_component_name(raw)
+        if tid:
+            teams.add(tid)
+    return teams
+
+
+def _bucket_people_by_team(issues):
+    scores = {}
+    for issue in issues or []:
+        fields = issue.get('fields') if isinstance(issue, dict) else None
+        person = _norm_jira_person((fields or {}).get('assignee'))
+        if not person or not person.get('displayName'):
+            continue
+        teams = _issue_team_ids(fields)
+        if not teams:
+            continue
+        ident = person['accountId'] or person['displayName']
+        slot = scores.setdefault(ident, {'person': person, 'counts': {}})
+        for tid in teams:
+            slot['counts'][tid] = slot['counts'].get(tid, 0) + 1
+    buckets = {tid: [] for tid in TEAM_IDS}
+    for slot in scores.values():
+        counts = slot.get('counts') or {}
+        if not counts:
+            continue
+        best = max(counts.values())
+        winners = [tid for tid, n in counts.items() if n == best]
+        if len(winners) != 1:
+            continue
+        buckets[winners[0]].append(slot['person'])
+    for tid in buckets:
+        buckets[tid].sort(key=lambda row: str(row.get('displayName') or '').lower())
+    return buckets
+
+
+_team_people_cache = {}
+_TEAM_PEOPLE_TTL = 180
+
+
+def collect_component_people(base_url, pat, project_key, components, team=None, limit_issues=1500):
     key = str(project_key or '').strip().upper()
+    team_id = normalize_team(team) if team else ''
     rows = []
     for item in components or []:
         if isinstance(item, dict):
@@ -287,6 +347,23 @@ def collect_component_people(base_url, pat, project_key, components, limit_issue
             names.append(name)
     if not base_url or not pat or not key or (not ids and not names):
         return [], None, 200
+    cache_key = (str(base_url), key, tuple(ids or names))
+    now = time.time()
+    cached = _team_people_cache.get(cache_key)
+    if cached and now - cached[0] < _TEAM_PEOPLE_TTL:
+        buckets = cached[1]
+        if team_id:
+            return list(buckets.get(team_id) or []), None, 200
+        people = []
+        seen = set()
+        for tid in TEAM_IDS:
+            for person in buckets.get(tid) or []:
+                ident = person.get('accountId') or person.get('displayName')
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                people.append(person)
+        return people, None, 200
     if ids:
         jql = 'project = %s AND component in (%s) AND assignee is not EMPTY ORDER BY updated DESC' % (
             key, ', '.join(ids)
@@ -296,8 +373,7 @@ def collect_component_people(base_url, pat, project_key, components, limit_issue
         jql = 'project = %s AND component in (%s) AND assignee is not EMPTY ORDER BY updated DESC' % (key, quoted)
     session = make_session()
     headers = auth_headers(pat)
-    people = []
-    seen = set()
+    issues = []
     start_at = 0
     page = min(MAX_RESULTS, 500)
     scanned = 0
@@ -310,7 +386,7 @@ def collect_component_people(base_url, pat, project_key, components, limit_issue
                     'jql': jql,
                     'startAt': start_at,
                     'maxResults': page,
-                    'fields': 'assignee'
+                    'fields': 'assignee,components'
                 },
                 verify=False,
                 timeout=REQUEST_TIMEOUT
@@ -327,23 +403,26 @@ def collect_component_people(base_url, pat, project_key, components, limit_issue
             data = res.json()
         except Exception:
             return None, {'error': 'Jira cavabı JSON formatında deyil'}, 502
-        issues = data.get('issues') or []
-        for issue in issues:
-            fields = issue.get('fields') if isinstance(issue, dict) else None
-            person = _norm_jira_person((fields or {}).get('assignee'))
-            if not person or not person.get('displayName'):
-                continue
-            ident = person['accountId'] or person['displayName']
+        batch = data.get('issues') or []
+        issues.extend(batch)
+        scanned += len(batch)
+        total = int(data.get('total') or 0)
+        start_at += page
+        if start_at >= total or not batch:
+            break
+    buckets = _bucket_people_by_team(issues)
+    _team_people_cache[cache_key] = (now, buckets)
+    if team_id:
+        return list(buckets.get(team_id) or []), None, 200
+    people = []
+    seen = set()
+    for tid in TEAM_IDS:
+        for person in buckets.get(tid) or []:
+            ident = person.get('accountId') or person.get('displayName')
             if ident in seen:
                 continue
             seen.add(ident)
             people.append(person)
-        scanned += len(issues)
-        total = int(data.get('total') or 0)
-        start_at += page
-        if start_at >= total or not issues:
-            break
-    people.sort(key=lambda row: str(row.get('displayName') or '').lower())
     return people, None, 200
 
 

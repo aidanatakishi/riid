@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda30';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda34';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -14,6 +14,7 @@ import {
     EXQ_STAR_BANDS,
     EXQ_LAW_URL,
     exqStarFromPercent,
+    exqStarTarget,
     exqStarColor,
     exqStarLabel
 } from './model.js';
@@ -480,6 +481,9 @@ function radarPairDatasets(nowVals, goalVals, nowHex, goalHex) {
 function exqBarColor(score) {
     return exqStarColor(score) || '#94a3b8';
 }
+
+var ISQ_RADAR_NOW = '#d97706';
+var ISQ_RADAR_GOAL = '#0e7490';
 
 function exqStarsHtml(star) {
     var i;
@@ -3355,6 +3359,37 @@ function hubRowMatchesFilter(section, r, filter) {
     return true;
 }
 
+function wrapAxisLabel(text, maxChars) {
+    var raw = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return [''];
+    maxChars = maxChars || 24;
+    if (raw.length <= maxChars) return [raw];
+    var words = raw.split(' ');
+    var lines = [];
+    var cur = '';
+    var i;
+    for (i = 0; i < words.length; i++) {
+        var w = words[i];
+        var next = cur ? cur + ' ' + w : w;
+        if (next.length <= maxChars) {
+            cur = next;
+            continue;
+        }
+        if (cur) lines.push(cur);
+        if (w.length > maxChars) {
+            while (w.length > maxChars) {
+                lines.push(w.slice(0, maxChars));
+                w = w.slice(maxChars);
+            }
+            cur = w;
+        } else {
+            cur = w;
+        }
+    }
+    if (cur) lines.push(cur);
+    return lines;
+}
+
 function uniqueHubOrgs(list) {
     var seen = {};
     return (list || []).filter(function(r) {
@@ -3369,6 +3404,20 @@ function exqQurumsForChart(st) {
     return ((st && st.byQurum) || []).filter(function(q) {
         return q && (q.svc || 0) > 0;
     });
+}
+
+function exqQurumLabel(q) {
+    return String((q && (q.name || q.qurum)) || '').trim();
+}
+
+function exqBarChartHeightRem(qurums) {
+    var rows = qurums || [];
+    var lines = 1;
+    rows.forEach(function(q) {
+        lines = Math.max(lines, wrapAxisLabel(exqQurumLabel(q), 22).length);
+    });
+    var n = Math.max(rows.length, 1);
+    return Math.max(18, n * (1.2 + lines * 0.82) + 3.2);
 }
 
 function collapseExqHubRows(list, keepUnevaluated) {
@@ -3723,7 +3772,7 @@ function hubBodyHtml(view) {
         rankHtml = '<ol class="nk303-rank">'
             + (st.dirRadar || []).map(function(d, i) {
                 var goal = view.section === 'isq'
-                    ? (isqRadarTarget ? (d.target != null ? d.target : 100) : null)
+                    ? (isqRadarTarget ? (d.target != null ? d.target : exqStarTarget(d.avg)) : null)
                     : maturityTarget(d.avg);
                 return '<li title="Mövcud: ' + esc(d.avg == null ? '—' : fmt1(d.avg))
                     + (goal == null ? '' : (' · Hədəf: ' + esc(fmt1(goal)))) + '">'
@@ -3774,7 +3823,7 @@ function hubBodyHtml(view) {
                 : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu')));
     var radarLegend = view.section === 'isq'
         ? (isqRadarTarget
-            ? compareLegendHtml(exqBarColor(avg), exqBarColor(100))
+            ? compareLegendHtml(ISQ_RADAR_NOW, ISQ_RADAR_GOAL)
             : '<ul class="nk303-compare-legend" aria-hidden="false">'
                 + '<li class="is-now" style="--nk-now:' + exqBarColor(avg) + '">Mövcud vəziyyət</li>'
                 + '</ul>')
@@ -3787,8 +3836,8 @@ function hubBodyHtml(view) {
             + rankHtml + '</div></div>'
         : (view.section === 'meqsed'
             ? meqsedKindShareHtml(st)
-            : '<div class="nk303-chart nk303-chart--trend" style="height:'
-                + (view.section === 'exq' ? Math.max(16, exqQurumsForChart(st).length * 2.15 + 2.4) : 16)
+            : '<div class="nk303-chart nk303-chart--trend nk303-chart--exq-bars" style="height:'
+                + (view.section === 'exq' ? exqBarChartHeightRem(exqQurumsForChart(st)) : 16)
                 + 'rem"><canvas id="nkHubBars"></canvas></div>');
     var statusTitle = view.section === 'meqsed' ? 'Rəy vəziyyəti' : 'Qiymətləndirmələrin icra vəziyyəti';
     var isqFormula = 'Ölkə üzrə yekun nəticə bütün qurumların İSQ yekununun ortalamasıdır. '
@@ -3806,7 +3855,7 @@ function hubBodyHtml(view) {
         + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
         + gaugeHtml
         + '</section>'
-        + '<section class="nk303-card nk303-card--radar"><h3>' + esc(midRightTitle) + '</h3>'
+        + '<section class="nk303-card nk303-card--radar' + (view.section === 'exq' ? ' nk303-card--exq-bars' : '') + '"><h3>' + esc(midRightTitle) + '</h3>'
         + midRight
         + '</section>'
         + '<section class="nk303-card nk303-card--status"><h3>' + esc(statusTitle) + '</h3>'
@@ -3882,13 +3931,17 @@ function drawHubCharts(view) {
             : ((view.section === 'diag' || view.section === 'self')
                 ? DIRS.map(function(d) { return { short: dirShort(d), avg: null }; })
                 : []);
-        var nowHex = use380 ? exqBarColor(avg) : barColor(avg);
-        var goalHex = view.section === 'isq' ? exqBarColor(100) : barColor(maturityTarget(avg));
+        var nowHex = view.section === 'isq'
+            ? ISQ_RADAR_NOW
+            : (use380 ? exqBarColor(avg) : barColor(avg));
+        var goalHex = view.section === 'isq' ? ISQ_RADAR_GOAL : barColor(maturityTarget(avg));
         var nowVals = dirs.map(function(d) { return d.avg != null ? d.avg : 0; });
         var goalVals = dirs.map(function(d) {
             if (view.section === 'isq') {
                 if (st.radarHasTarget === false) return 0;
-                return d.target != null ? d.target : 100;
+                if (d.target != null && isFinite(d.target)) return d.target;
+                var step = exqStarTarget(d.avg);
+                return step != null ? step : 0;
             }
             var goal = maturityTarget(d.avg);
             return goal != null ? goal : 0;
@@ -3993,7 +4046,7 @@ function drawHubCharts(view) {
             makeHubChart('nkHubBars', {
                 type: 'bar',
                 data: {
-                    labels: qurums.map(function(q) { return q.name; }),
+                    labels: qurums.map(function(q) { return wrapAxisLabel(exqQurumLabel(q), 22); }),
                     datasets: [{
                         data: qurums.map(function(q) {
                             return q.score != null && isFinite(q.score) ? q.score : 0;
@@ -4002,17 +4055,24 @@ function drawHubCharts(view) {
                             return q.score != null && isFinite(q.score) ? exqBarColor(q.score) : '#cbd5e1';
                         }),
                         borderRadius: 6,
-                        maxBarThickness: 18
+                        borderSkipped: false,
+                        maxBarThickness: 18,
+                        clip: false
                     }]
                 },
                 options: {
                     indexAxis: 'y',
                     responsive: true,
                     maintainAspectRatio: false,
+                    layout: { padding: { left: 6, right: 10, top: 6, bottom: 2 } },
                     plugins: {
                         legend: { display: false },
                         tooltip: {
                             callbacks: {
+                                title: function(ctx) {
+                                    var row = qurums[ctx && ctx[0] ? ctx[0].dataIndex : -1];
+                                    return row ? exqQurumLabel(row) : '';
+                                },
                                 label: function(ctx) {
                                     var row = qurums[ctx.dataIndex];
                                     if (!row) return '';
@@ -4027,8 +4087,26 @@ function drawHubCharts(view) {
                         }
                     },
                     scales: {
-                        x: { min: 0, max: 100, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(148,163,184,0.2)' } },
-                        y: { ticks: { color: '#334155', font: { size: 11, weight: '600' } }, grid: { display: false } }
+                        x: {
+                            min: 0,
+                            max: 100,
+                            ticks: { color: '#94a3b8', font: { size: 11 } },
+                            grid: { color: 'rgba(148,163,184,0.2)' },
+                            border: { display: false }
+                        },
+                        y: {
+                            ticks: {
+                                color: '#1e293b',
+                                font: { size: 11, weight: '600' },
+                                autoSkip: false,
+                                padding: 8
+                            },
+                            afterFit: function(axis) {
+                                axis.width = Math.max(axis.width || 0, 188);
+                            },
+                            grid: { display: false },
+                            border: { display: false }
+                        }
                     }
                 }
             });

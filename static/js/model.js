@@ -1883,6 +1883,21 @@ export function collectSelfDisplayFieldIds() {
     return ids;
 }
 
+export function collectIsqDisplayFieldIds() {
+    var ids = ['customfield_17316'];
+    var seen = { customfield_17316: true };
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (seen[key] || ASSESS_RESERVED_IDS[key]) continue;
+        if (!knownIsqDirectionTitle(names[key])) continue;
+        seen[key] = true;
+        ids.push(key);
+    }
+    return ids;
+}
+
 function formatJiraOptionText(val) {
     if (isEmptyJiraValue(val)) return '—';
     var texts = [];
@@ -3440,6 +3455,14 @@ export function exqStarFromPercent(p) {
     return 5;
 }
 
+export function exqStarTarget(score) {
+    var star = exqStarFromPercent(score);
+    if (star == null) return null;
+    var next = exqStarBand(star + 1);
+    if (!next) return 100;
+    return next.lo;
+}
+
 export function exqStarBand(star) {
     var s = Number(star);
     var i;
@@ -3857,6 +3880,8 @@ export function canonicalIsqLabel(raw) {
 }
 
 function knownIsqDirectionTitle(label) {
+    if (!label) return null;
+    label = String(label).replace(/\s+/g, ' ').replace(/:\s*$/, '').trim();
     if (!label || isIsqMetaLabel(label) || isOverallNeticeLabel(label)) return null;
     var canon = canonicalIsqLabel(label);
     if (!canon) return null;
@@ -3942,22 +3967,31 @@ function splitInlineIsqHeadings(text) {
 
 function fillIsqFromNamedFields(t, dirMap) {
     if (!t || !t.fields) return;
+    var fields = t.fields;
     var names = state.jiraFieldNames || {};
-    var key;
-    for (key in names) {
-        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
-        if (key === 'customfield_17316' || ASSESS_RESERVED_IDS[key]) continue;
-        var title = knownIsqDirectionTitle(names[key]);
-        if (!title) continue;
-        var val = readIssueField(t, key);
-        if (isEmptyJiraValue(val)) continue;
+    var seen = {};
+    function consider(key, label) {
+        if (!key || seen[key] || ASSESS_RESERVED_IDS[key]) return;
+        var title = knownIsqDirectionTitle(label);
+        if (!title) return;
+        seen[key] = true;
+        if (!Object.prototype.hasOwnProperty.call(fields, key)) return;
+        var val = fields[key];
+        if (isEmptyJiraValue(val)) return;
         var n = coerceScoreNumber(val);
         var text = '';
         if (n == null) {
             text = formatAssessmentFieldText(val);
-            if (!text || text === '—') continue;
+            if (!text || text === '—') return;
         }
         dirMap[title] = mergeDirSlot(dirMap[title], n != null ? formatAssessmentScore(n) : null, text === '—' ? '' : text);
+    }
+    var key;
+    for (key in names) {
+        if (Object.prototype.hasOwnProperty.call(names, key)) consider(key, names[key]);
+    }
+    for (key in fields) {
+        if (Object.prototype.hasOwnProperty.call(fields, key)) consider(key, names[key] || key);
     }
 }
 

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#4c1d95">
     <title>İstifadəçilər — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/admin.css?v=idda86">
+    <link rel="stylesheet" href="/static/css/admin.css?v=idda87">
 </head>
 <body class="admin-page">
     <div class="admin-shell">
@@ -53,7 +53,7 @@
         <div class="admin-grid">
             <section class="admin-panel">
                 <h2 id="formTitle">Yeni hesab</h2>
-                <p class="admin-kicker" id="formHint">Komplayns seçəndə Jira-dakı həmin komponentin adları açılır. Siyahıda yoxdursa yalnız istifadəçi adı və parol yazılır.</p>
+                <p class="admin-kicker" id="formHint">Komanda seçəndə Jira-da həmin komponentin adamları açılır. Siyahıda yoxdursa yalnız istifadəçi adı və parol yazılır.</p>
                 <p class="admin-error" id="formError"></p>
                 <form id="userForm">
                     <input type="hidden" id="userId" value="">
@@ -104,7 +104,6 @@
 
             <section class="admin-panel">
                 <h2>Mövcud hesablar</h2>
-                <p class="admin-kicker">Jira adı bağlıdırsa chatbot həmin şəxslə danışır.</p>
                 <p class="admin-error" id="listError"></p>
                 <div class="admin-list" id="userRows"></div>
             </section>
@@ -115,6 +114,7 @@
     var homeProjectKey = 'DGD';
     var peopleCache = {};
     var peopleLoading = false;
+    var peopleReq = 0;
 
     function showError(id, msg) {
         var el = document.getElementById(id);
@@ -165,12 +165,12 @@
             setTokenStatus(!!res.data.hasToken, !!res.data.hasSharedToken);
         });
     }
-    function isKomplayns() {
-        return document.getElementById('team').value === 'komplayns';
+    function selectedTeam() {
+        return document.getElementById('team').value || 'komplayns';
     }
     function cacheKey() {
         var project = String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase();
-        return project + ':komplayns';
+        return project + ':' + selectedTeam();
     }
     function personById(accountId) {
         if (!accountId) return null;
@@ -199,18 +199,11 @@
         }
     }
     function applyMode() {
-        var komplayns = isKomplayns();
         var person = selectedPerson();
         var jiraWrap = document.getElementById('jiraFieldWrap');
         var note = document.getElementById('modeNote');
         var username = document.getElementById('username');
-        jiraWrap.classList.toggle('hidden', !komplayns);
-        if (!komplayns) {
-            document.getElementById('jiraPerson').value = '';
-            setJiraHidden('', '');
-            note.textContent = 'Bu komanda üçün Jira siyahısı yoxdur. Yalnız istifadəçi adı və parol təyin olunur.';
-            return;
-        }
+        if (jiraWrap) jiraWrap.classList.remove('hidden');
         if (person && person.accountId) {
             if (!editingId && person.suggestedUsername && !username.dataset.locked) {
                 username.value = person.suggestedUsername;
@@ -264,12 +257,10 @@
         applyMode();
     }
     function loadPeople() {
-        if (!isKomplayns()) {
-            applyMode();
-            return Promise.resolve();
-        }
         var project = String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase();
+        var team = selectedTeam();
         var key = cacheKey();
+        var req = ++peopleReq;
         if (peopleCache[key]) {
             fillPeopleOptions(peopleCache[key], document.getElementById('jiraAccountId').value);
             return Promise.resolve();
@@ -277,7 +268,8 @@
         var sel = document.getElementById('jiraPerson');
         sel.innerHTML = '<option value="">Yüklənir…</option>';
         peopleLoading = true;
-        return api('/api/jira/component-people?team=komplayns&project=' + encodeURIComponent(project)).then(function(res) {
+        return api('/api/jira/component-people?team=' + encodeURIComponent(team) + '&project=' + encodeURIComponent(project)).then(function(res) {
+            if (req !== peopleReq) return;
             peopleLoading = false;
             if (!res.ok) {
                 sel.innerHTML = '<option value="">Siyahıda yoxdur — statik hesab</option>';
@@ -288,6 +280,7 @@
             peopleCache[key] = res.data.people || [];
             fillPeopleOptions(peopleCache[key], document.getElementById('jiraAccountId').value);
         }).catch(function() {
+            if (req !== peopleReq) return;
             peopleLoading = false;
             sel.innerHTML = '<option value="">Siyahıda yoxdur — statik hesab</option>';
             applyMode();
@@ -356,12 +349,13 @@
             var roleText = user.roleLabel || (user.role === 'superadmin' ? 'Superadmin' : (user.role === 'admin' ? 'Admin' : 'İstifadəçi'));
             row.innerHTML =
                 '<span class="admin-avatar">' + esc(initials(name)) + '</span>' +
-                '<div><h3>' + esc(name) + '</h3>' +
-                (loginName ? '<p>Giriş: ' + esc(loginName) + '</p>' : '') +
+                '<div class="admin-person-copy">' +
+                '<h3>' + esc(name) + '</h3>' +
+                '<p>Giriş: ' + esc(loginName || '—') + '</p>' +
                 '<div class="admin-meta">' +
                 '<span class="admin-badge' + (privileged ? ' is-admin' : '') + '">' + esc(roleText) + '</span>' +
                 '<span class="admin-badge">' + esc(user.teamLabel || user.team || '') + '</span>' +
-                (jira ? '<span class="admin-badge is-jira">' + esc(jira) + '</span>' : '') +
+                '<span class="admin-badge is-jira' + (jira ? '' : ' is-placeholder') + '">' + (jira ? esc(jira) : '&nbsp;') + '</span>' +
                 '</div></div><div class="admin-person-actions"></div>';
             var actions = row.querySelector('.admin-person-actions');
             var resetBtn = document.createElement('button');
@@ -383,6 +377,12 @@
                 delBtn.textContent = 'Sil';
                 delBtn.addEventListener('click', function() { removeUser(user); });
                 actions.appendChild(delBtn);
+            } else {
+                var slot = document.createElement('span');
+                slot.className = 'admin-btn admin-btn--danger admin-btn--slot';
+                slot.setAttribute('aria-hidden', 'true');
+                slot.textContent = 'Sil';
+                actions.appendChild(slot);
             }
             box.appendChild(row);
         });
@@ -414,6 +414,10 @@
     }
     document.getElementById('team').addEventListener('change', function() {
         showError('formError', '');
+        if (!editingId) {
+            setJiraHidden('', '');
+            document.getElementById('username').dataset.locked = '';
+        }
         loadPeople();
     });
     document.getElementById('jiraPerson').addEventListener('change', applyMode);
@@ -431,7 +435,7 @@
         var btn = document.getElementById('saveBtn');
         btn.disabled = true;
         showError('formError', '');
-        var person = isKomplayns() ? selectedPerson() : null;
+        var person = selectedPerson();
         if (person && person.linkedUserId && person.linkedUserId !== editingId) {
             btn.disabled = false;
             showError('formError', 'Bu Jira şəxsinin artıq hesabı var.');

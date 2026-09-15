@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js';
 import { normalizeStr, showToast, hideSettings } from './utils.js';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectEsdStatusFieldIds, hasTeamComponent } from './model.js';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, hasTeamComponent } from './model.js';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
@@ -130,6 +130,7 @@ function searchFieldsList() {
     var extra = collectActivityDirectionFieldIds()
         .concat(collectMeqsedDisplayFieldIds())
         .concat(collectSelfDisplayFieldIds())
+        .concat(collectIsqDisplayFieldIds())
         .concat(collectEsdStatusFieldIds());
     var parts = SEARCH_FIELDS.split(',');
     var seen = {};
@@ -273,13 +274,13 @@ var lastJqlCache = { key: '', data: null };
 
 export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
     if (!hasJiraAuth(pat)) throw new Error('Jira hələ qurulmayıb.');
+    await fetchJiraFieldCatalog(baseUrl, pat);
     var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + searchFieldsList();
     if (jqlInflight[cacheKey]) return jqlInflight[cacheKey];
     if (!expandChangelog && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
     var run = (async function() {
         var transport = await pickTransport();
         var data;
-        await fetchJiraFieldCatalog(baseUrl, pat);
         try {
             data = transport.type === 'proxy'
                 ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog, transport.root)

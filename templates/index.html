@@ -18,8 +18,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda88">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda68">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda90">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda70">
 </head>
 <body class="app-page">
 
@@ -695,35 +695,6 @@
                 </div>
             </section>
 
-            <section class="app-settings-block hidden" id="settingsPasswordBlock" aria-labelledby="settingsPasswordTitle">
-                <details class="app-settings-fold" id="settingsPasswordFold">
-                    <summary>
-                        <span id="settingsPasswordTitle">Parolu dəyiş</span>
-                    </summary>
-                    <form id="settingsPasswordForm" class="app-settings-password" onsubmit="changeSelectedUserPassword(event)">
-                        <p class="app-settings-note">Əvvəl şəxsin adını seçin, sonra yeni parolu yazın.</p>
-                        <div class="app-settings-grid">
-                            <label class="app-field">
-                                <span>Şəxs</span>
-                                <select id="settingsPasswordUser" required>
-                                    <option value="">Ad seçin</option>
-                                </select>
-                            </label>
-                            <label class="app-field">
-                                <span>Yeni parol</span>
-                                <input id="settingsNewPassword" type="password" autocomplete="new-password" required minlength="6">
-                            </label>
-                            <label class="app-field">
-                                <span>Yeni parolu təkrar yazın</span>
-                                <input id="settingsConfirmPassword" type="password" autocomplete="new-password" required minlength="6">
-                            </label>
-                            <button type="submit" class="app-btn app-btn--primary" id="settingsPasswordBtn">Parolu yadda saxla</button>
-                        </div>
-                        <p class="app-settings-password-msg" id="settingsPasswordMsg"></p>
-                    </form>
-                </details>
-            </section>
-
             <section class="app-settings-block hidden" id="settingsScopeBlock" aria-labelledby="settingsScopeTitle">
                 <h3 id="settingsScopeTitle">Layihə və komanda</h3>
                 <div class="app-settings-grid">
@@ -763,7 +734,7 @@
             </section>
         </div>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda97"></script>
+    <script type="module" src="/static/js/main.js?v=idda102"></script>
 
 </body>
 </html>

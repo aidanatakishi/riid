@@ -16,6 +16,7 @@ from report_pptx import parse_report_pptx
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
+    TEAM_IDS,
     TEAM_LABELS,
     can_manage_tech,
     can_manage_users,
@@ -538,6 +539,17 @@ def api_jira_component_people():
     if err:
         return jsonify(err), status
     matched = [row for row in (comps or []) if component_matches_team(row.get('name'), team)]
+    all_team_comps = []
+    seen_comp = set()
+    for row in comps or []:
+        name = row.get('name')
+        if not any(component_matches_team(name, tid) for tid in TEAM_IDS):
+            continue
+        mark = str(row.get('id') or name or '').strip()
+        if not mark or mark in seen_comp:
+            continue
+        seen_comp.add(mark)
+        all_team_comps.append(row)
     if not matched:
         label = TEAM_LABELS.get(team) or 'Komplayns'
         return jsonify({
@@ -547,7 +559,7 @@ def api_jira_component_people():
             'components': [],
             'people': []
         }), 200
-    people, err, status = collect_component_people(base_url, pat, project, matched)
+    people, err, status = collect_component_people(base_url, pat, project, all_team_comps or matched, team=team)
     if err:
         return jsonify(err), status
     existing = list_users()

@@ -1609,9 +1609,10 @@ button.meqsed-ld-kpi:hover {
 }
 .meqsed-ld-chart-box.exq-qurum-chart {
     height: auto;
-    min-height: 10rem;
+    min-height: 14rem;
     max-width: none;
     margin: 0;
+    overflow: visible;
 }
 .assess-hub-cell--exq-metrics {
     min-width: 9rem;
@@ -4242,27 +4243,6 @@ body.settings-open { overflow: hidden; }
     flex-wrap: wrap;
     gap: 0.5rem;
 }
-.app-settings-password {
-    width: 100%;
-    margin-top: 0.95rem;
-    padding-top: 0.85rem;
-    border-top: 1px solid #ede9fe;
-}
-.app-settings-password h3 {
-    margin: 0 0 0.35rem;
-}
-.app-settings-password .app-settings-note {
-    margin: 0 0 0.7rem;
-}
-.app-settings-password-msg {
-    min-height: 1.1rem;
-    margin: 0.45rem 0 0;
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #64748b;
-}
-.app-settings-password-msg.is-err { color: #9f1239; }
-.app-settings-password-msg.is-ok { color: #047857; }
 .app-settings .app-userbox {
     align-items: flex-start;
     padding: 0;
