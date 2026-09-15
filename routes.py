@@ -302,34 +302,7 @@ def auth_status():
 def auth_setup():
     if request.method == 'OPTIONS':
         return options_ok()
-    if has_users():
-        return jsonify({'error': 'Sistem artıq qurulub. Daxil olun.'}), 409
-    data = request_json()
-    if not isinstance(data, dict):
-        data = {}
-    user, err = create_user(
-        data.get('username'),
-        data.get('password'),
-        data.get('displayName') or 'Admin',
-        'superadmin',
-        home_project_key(),
-        allow_superadmin=True
-    )
-    if err:
-        return jsonify({'error': err}), 400
-    bind_session(user, wants_remember(data))
-    payload = login_payload(user)
-    dept_name = data.get('deptUsername')
-    dept_pass = data.get('deptPassword')
-    if dept_name and dept_pass:
-        create_user(
-            dept_name,
-            dept_pass,
-            data.get('deptDisplayName') or 'Qiymətləndirmə və komplayens şöbəsi',
-            'user',
-            home_project_key()
-        )
-    return jsonify(payload), 201
+    return jsonify({'error': 'İlk quraşdırma yoxdur. Hesabı superadmin yaradır.'}), 403
 
 
 @api.route('/api/auth/login', methods=['POST', 'OPTIONS'])

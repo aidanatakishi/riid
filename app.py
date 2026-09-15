@@ -99,7 +99,6 @@ OPEN_PATHS = {
     '/api/auth/login',
     '/api/auth/logout',
     '/api/auth/status',
-    '/api/auth/setup',
     '/api/auth/me',
 }
 
