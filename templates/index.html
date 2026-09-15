@@ -18,7 +18,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda83">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda88">
     <link rel="stylesheet" href="/static/css/nk303.css?v=idda68">
 </head>
 <body class="app-page">
@@ -235,7 +235,7 @@
                 </div>
                 <div class="dash-stat-nums">
                     <p class="val" id="sprintTasks">0</p>
-                    <p class="hint">ESD &amp; Rəy</p>
+                    <p class="hint" id="sprintMixHint">ESD &amp; Rəy</p>
                 </div>
             </div>
             <div class="dash-stat-foot">
@@ -300,10 +300,17 @@
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 mb-6 items-stretch">
-        <div class="card p-3 md:p-4 flex flex-col fade-in min-w-0">
+        <div class="card p-3 md:p-4 flex flex-col fade-in min-w-0 icra-status-card">
             <h2 class="font-semibold text-sm text-slate-800 mb-2">İcra statusu</h2>
-            <div class="chart-box w-full h-56 md:h-64">
-                <canvas id="statusChart"></canvas>
+            <div class="icra-status-body">
+                <div class="chart-box icra-status-chart">
+                    <canvas id="statusChart"></canvas>
+                </div>
+                <div id="statusChartLegend" class="icra-status-legend"></div>
+            </div>
+            <div id="esdStatusPanel" class="esd-status-panel hidden" hidden role="dialog" aria-label="ESD mərhələsi">
+                <p class="esd-status-kicker">ESD mərhələsi</p>
+                <div id="esdStatusChips" class="esd-status-list"></div>
             </div>
         </div>
         <div class="card p-3 md:p-4 flex flex-col fade-in min-w-0">
@@ -688,6 +695,35 @@
                 </div>
             </section>
 
+            <section class="app-settings-block hidden" id="settingsPasswordBlock" aria-labelledby="settingsPasswordTitle">
+                <details class="app-settings-fold" id="settingsPasswordFold">
+                    <summary>
+                        <span id="settingsPasswordTitle">Parolu dəyiş</span>
+                    </summary>
+                    <form id="settingsPasswordForm" class="app-settings-password" onsubmit="changeSelectedUserPassword(event)">
+                        <p class="app-settings-note">Əvvəl şəxsin adını seçin, sonra yeni parolu yazın.</p>
+                        <div class="app-settings-grid">
+                            <label class="app-field">
+                                <span>Şəxs</span>
+                                <select id="settingsPasswordUser" required>
+                                    <option value="">Ad seçin</option>
+                                </select>
+                            </label>
+                            <label class="app-field">
+                                <span>Yeni parol</span>
+                                <input id="settingsNewPassword" type="password" autocomplete="new-password" required minlength="6">
+                            </label>
+                            <label class="app-field">
+                                <span>Yeni parolu təkrar yazın</span>
+                                <input id="settingsConfirmPassword" type="password" autocomplete="new-password" required minlength="6">
+                            </label>
+                            <button type="submit" class="app-btn app-btn--primary" id="settingsPasswordBtn">Parolu yadda saxla</button>
+                        </div>
+                        <p class="app-settings-password-msg" id="settingsPasswordMsg"></p>
+                    </form>
+                </details>
+            </section>
+
             <section class="app-settings-block hidden" id="settingsScopeBlock" aria-labelledby="settingsScopeTitle">
                 <h3 id="settingsScopeTitle">Layihə və komanda</h3>
                 <div class="app-settings-grid">
@@ -727,7 +763,7 @@
             </section>
         </div>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda95"></script>
+    <script type="module" src="/static/js/main.js?v=idda97"></script>
 
 </body>
 </html>

@@ -101,6 +101,7 @@ OPEN_PATHS = {
     '/api/auth/logout',
     '/api/auth/status',
     '/api/auth/me',
+    '/api/auth/change-password',
 }
 
 

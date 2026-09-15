@@ -7,50 +7,122 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
     <title>Giriş — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/auth.css?v=idda87">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda93">
 </head>
 <body class="auth-page">
-    <div class="auth-wrap">
-        <header class="auth-head">
-            <div>
-                <p class="auth-kicker">Rəqəmsal İdarəetmə Departamenti</p>
-                <h1>Rəqəmsal İdarəetmə Paneli</h1>
-                <p class="auth-sub">Hesab və parol olmadan panel açılmır. Hesabları yalnız superadmin yaradır.</p>
-            </div>
-        </header>
+    <div class="auth-shell">
+        <aside class="auth-brand">
+            <span class="auth-mark" aria-hidden="true">Rİ</span>
+            <p class="auth-kicker">Rəqəmsal İdarəetmə Departamenti</p>
+            <h1>Rəqəmsal İdarəetmə Paneli</h1>
+            <p class="auth-sub">Hesab və parol olmadan panel açılmır. Hesabları yalnız superadmin yaradır.</p>
+            <ul class="auth-points">
+                <li>Jira adı və ya istifadəçi adı ilə daxil olun</li>
+                <li>Parol Jira parolu deyil</li>
+                <li>Parolu özünüz, indiki parolla dəyişə bilərsiniz</li>
+            </ul>
+        </aside>
 
-        <div class="auth-card" id="loginCard">
-            <h2 id="formTitle">Daxil ol</h2>
-            <p class="auth-error" id="authError"></p>
-            <p class="auth-hint">Adınız, Jira-dakı tam ad və ya istifadəçi adı olar. Parol Jira parolu deyil — hesab yaradılarkən qoyulan paroldur.</p>
+        <div class="auth-stage">
+            <div class="auth-card" id="loginCard">
+                <p class="auth-card-kicker">Giriş</p>
+                <h2 id="formTitle">Daxil ol</h2>
+                <p class="auth-hint">Adınız, Jira-dakı tam ad və ya istifadəçi adı. Parol hesab yaradılarkən qoyulan paroldur.</p>
+                <p class="auth-error" id="authError"></p>
+                <p class="auth-ok" id="authOk"></p>
 
-            <form id="loginForm">
-                <div class="auth-field">
-                    <span>Ad, Jira adı və ya istifadəçi adı</span>
-                    <input id="username" name="username" autocomplete="username" required minlength="3">
-                </div>
-                <div class="auth-field">
-                    <span>Parol</span>
-                    <div class="auth-pass">
-                        <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6">
-                        <button type="button" class="auth-pass-toggle" data-pass="password" aria-label="Parolu göstər" aria-pressed="false" title="Parolu göstər">
-                            <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
-                            <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
-                        </button>
+                <form id="loginForm">
+                    <label class="auth-field">
+                        <span>İstifadəçi adı</span>
+                        <span class="auth-control">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            <input id="username" name="username" autocomplete="username" required minlength="3" placeholder="Ad, Jira adı və ya istifadəçi adı">
+                        </span>
+                    </label>
+                    <label class="auth-field">
+                        <span>Parol</span>
+                        <span class="auth-control auth-pass">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="Parolunuzu yazın">
+                            <button type="button" class="auth-pass-toggle" data-pass="password" aria-label="Parolu göstər" aria-pressed="false" title="Parolu göstər">
+                                <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
+                            </button>
+                        </span>
+                    </label>
+                    <div class="auth-toolbar">
+                        <label class="auth-check" for="rememberMe">
+                            <input id="rememberMe" name="remember" type="checkbox" checked>
+                            <span>Məni xatırla</span>
+                        </label>
+                        <button type="button" class="auth-text-btn" id="showResetBtn">Parolu dəyiş</button>
                     </div>
-                </div>
-                <label class="auth-check" for="rememberMe">
-                    <input id="rememberMe" name="remember" type="checkbox" checked>
-                    <span>Məni xatırla</span>
-                </label>
-                <div class="auth-actions">
-                    <button type="submit" class="auth-btn auth-btn--primary" id="loginBtn">Daxil ol</button>
-                </div>
-            </form>
+                    <button type="submit" class="auth-btn auth-btn--primary auth-btn--block" id="loginBtn">Daxil ol</button>
+                </form>
+            </div>
+
+            <div class="auth-card hidden" id="resetCard">
+                <p class="auth-card-kicker">Parol</p>
+                <h2>Parolu dəyiş</h2>
+                <p class="auth-hint">Hesabınızı, indiki parolu və yeni parolu yazın. Admin lazım deyil.</p>
+                <p class="auth-error" id="resetError"></p>
+                <form id="resetForm">
+                    <label class="auth-field">
+                        <span>Hesab</span>
+                        <span class="auth-control">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+                            <input id="resetUsername" name="resetUsername" autocomplete="username" required minlength="3" placeholder="Ad, Jira adı və ya istifadəçi adı">
+                        </span>
+                    </label>
+                    <label class="auth-field">
+                        <span>İndiki parol</span>
+                        <span class="auth-control auth-pass">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <input id="resetCurrentPassword" name="resetCurrentPassword" type="password" autocomplete="current-password" required minlength="6" placeholder="İndiki parolunuz">
+                            <button type="button" class="auth-pass-toggle" data-pass="resetCurrentPassword" aria-label="Parolu göstər" aria-pressed="false" title="Parolu göstər">
+                                <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
+                            </button>
+                        </span>
+                    </label>
+                    <label class="auth-field">
+                        <span>Yeni parol</span>
+                        <span class="auth-control auth-pass">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <input id="resetPassword" name="resetPassword" type="password" autocomplete="new-password" required minlength="6" placeholder="Ən azı 6 simvol">
+                            <button type="button" class="auth-pass-toggle" data-pass="resetPassword" aria-label="Parolu göstər" aria-pressed="false" title="Parolu göstər">
+                                <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
+                            </button>
+                        </span>
+                    </label>
+                    <label class="auth-field">
+                        <span>Yeni parolu təkrar yazın</span>
+                        <span class="auth-control auth-pass">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <input id="resetPassword2" name="resetPassword2" type="password" autocomplete="new-password" required minlength="6" placeholder="Yeni parolu təkrar yazın">
+                            <button type="button" class="auth-pass-toggle" data-pass="resetPassword2" aria-label="Parolu göstər" aria-pressed="false" title="Parolu göstər">
+                                <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
+                            </button>
+                        </span>
+                    </label>
+                    <div class="auth-actions">
+                        <button type="submit" class="auth-btn auth-btn--primary auth-btn--block" id="resetBtn">Parolu yadda saxla</button>
+                        <button type="button" class="auth-btn auth-btn--light auth-btn--block" id="showLoginBtn">Daxil ol ekranına qayıt</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
     <script>
     function showError(id, msg) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.textContent = msg || '';
+        el.classList.toggle('is-on', !!msg);
+    }
+    function showOk(id, msg) {
         var el = document.getElementById(id);
         if (!el) return;
         el.textContent = msg || '';
@@ -75,6 +147,23 @@
     }
     bindPasswordToggles();
     function goHome() { window.location.href = '/'; }
+    function showPanel(which) {
+        document.getElementById('loginCard').classList.toggle('hidden', which !== 'login');
+        document.getElementById('resetCard').classList.toggle('hidden', which !== 'reset');
+        document.querySelector('.auth-shell').classList.toggle('is-reset', which === 'reset');
+        showError('authError', '');
+        showError('resetError', '');
+        if (which === 'reset') {
+            showOk('authOk', '');
+            var fromLogin = document.getElementById('username').value.trim();
+            if (fromLogin) document.getElementById('resetUsername').value = fromLogin;
+            document.getElementById('resetUsername').focus();
+        } else {
+            document.getElementById('password').focus();
+        }
+    }
+    document.getElementById('showResetBtn').addEventListener('click', function() { showPanel('reset'); });
+    document.getElementById('showLoginBtn').addEventListener('click', function() { showPanel('login'); });
     var rememberedName = '';
     try { rememberedName = localStorage.getItem('jiraAuthRememberUser') || ''; } catch (e) {}
     if (rememberedName) {
@@ -93,6 +182,7 @@
         var btn = document.getElementById('loginBtn');
         btn.disabled = true;
         showError('authError', '');
+        showOk('authOk', '');
         fetch('/api/auth/login', {
             method: 'POST',
             credentials: 'same-origin',
@@ -121,6 +211,48 @@
         }).catch(function() {
             btn.disabled = false;
             showError('authError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    });
+    document.getElementById('resetForm').addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        var btn = document.getElementById('resetBtn');
+        var pwd = document.getElementById('resetPassword').value;
+        var pwd2 = document.getElementById('resetPassword2').value;
+        showError('resetError', '');
+        if (pwd !== pwd2) {
+            showError('resetError', 'Yeni parollar eyni deyil');
+            return;
+        }
+        btn.disabled = true;
+        fetch('/api/auth/change-password', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                username: document.getElementById('resetUsername').value.trim(),
+                currentPassword: document.getElementById('resetCurrentPassword').value,
+                password: pwd,
+                confirmPassword: pwd2
+            })
+        }).then(function(r) {
+            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+        }).then(function(res) {
+            btn.disabled = false;
+            if (!res.ok) {
+                showError('resetError', (res.data && res.data.error) || 'Parol yenilənmədi');
+                return;
+            }
+            var loginName = (res.data && res.data.username) || document.getElementById('resetUsername').value.trim();
+            document.getElementById('username').value = loginName;
+            document.getElementById('password').value = '';
+            document.getElementById('resetPassword').value = '';
+            document.getElementById('resetPassword2').value = '';
+            document.getElementById('resetCurrentPassword').value = '';
+            showPanel('login');
+            showOk('authOk', 'Parol yeniləndi. İndi yeni parolla daxil olun.');
+        }).catch(function() {
+            btn.disabled = false;
+            showError('resetError', 'Serverə qoşulmaq mümkün olmadı');
         });
     });
     </script>

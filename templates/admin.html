@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#4c1d95">
     <title>İstifadəçilər — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/admin.css?v=idda84">
+    <link rel="stylesheet" href="/static/css/admin.css?v=idda86">
 </head>
 <body class="admin-page">
     <div class="admin-shell">
@@ -25,20 +25,29 @@
         </header>
 
         <section class="admin-panel admin-token hidden" id="tokenPanel">
-            <h2>Jira tokeni</h2>
-            <p class="admin-kicker">Bir dəfə yazın. Bütün əməkdaşlar bu tokenlə işləyir. Onlar token görmür və daxil olanda yazmırlar.</p>
-            <p class="admin-status" id="tokenStatus">Yoxlanılır…</p>
-            <p class="admin-error" id="tokenError"></p>
-            <form id="tokenForm">
-                <label class="admin-field">
-                    <span>Ümumi Jira token (PAT)</span>
-                    <input id="sharedPat" type="password" autocomplete="off" placeholder="Jira Personal Access Token">
-                </label>
-                <div class="admin-actions">
-                    <button type="submit" class="admin-btn admin-btn--primary" id="saveTokenBtn">Tokeni yadda saxla</button>
-                    <button type="button" class="admin-btn admin-btn--quiet hidden" id="clearTokenBtn">Ümumi tokeni sil</button>
+            <details class="admin-fold" id="tokenFold">
+                <summary class="admin-fold-head">
+                    <span class="admin-fold-copy">
+                        <strong>Jira tokeni</strong>
+                        <em id="tokenFoldHint">Bağlıdır</em>
+                    </span>
+                </summary>
+                <div class="admin-fold-body">
+                    <p class="admin-kicker">Bir dəfə yazın. Bütün əməkdaşlar bu tokenlə işləyir. Onlar token görmür və daxil olanda yazmırlar.</p>
+                    <p class="admin-status" id="tokenStatus">Yoxlanılır…</p>
+                    <p class="admin-error" id="tokenError"></p>
+                    <form id="tokenForm">
+                        <label class="admin-field">
+                            <span>Ümumi Jira token (PAT)</span>
+                            <input id="sharedPat" type="password" autocomplete="off" placeholder="Jira Personal Access Token">
+                        </label>
+                        <div class="admin-actions">
+                            <button type="submit" class="admin-btn admin-btn--primary" id="saveTokenBtn">Tokeni yadda saxla</button>
+                            <button type="button" class="admin-btn admin-btn--quiet hidden" id="clearTokenBtn">Ümumi tokeni sil</button>
+                        </div>
+                    </form>
                 </div>
-            </form>
+            </details>
         </section>
 
         <div class="admin-grid">
@@ -137,15 +146,18 @@
     }
     function setTokenStatus(hasToken, hasStoreToken) {
         var status = document.getElementById('tokenStatus');
+        var hint = document.getElementById('tokenFoldHint');
         var clearBtn = document.getElementById('clearTokenBtn');
         if (hasToken) {
             status.textContent = 'Token aktivdir. İstifadəçilər daxil olanda PAT yazmayacaqlar.';
             status.className = 'admin-status is-ok';
+            if (hint) hint.textContent = 'Aktiv';
         } else {
             status.textContent = 'Token yoxdur. Bir dəfə yazın ki, hər kəs rahat daxil olsun.';
             status.className = 'admin-status is-warn';
+            if (hint) hint.textContent = 'Yoxdur';
         }
-        clearBtn.classList.toggle('hidden', !hasStoreToken);
+        if (clearBtn) clearBtn.classList.toggle('hidden', !hasStoreToken);
     }
     function loadTokenStatus() {
         return api('/api/jira/token').then(function(res) {
@@ -319,6 +331,14 @@
         loadPeople();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
+    function startPasswordReset(user) {
+        fillEdit(user);
+        document.getElementById('formTitle').textContent = 'Parolu yenilə';
+        document.getElementById('saveBtn').textContent = 'Parolu yadda saxla';
+        document.getElementById('password').required = true;
+        document.getElementById('password').placeholder = 'Yeni parol, ən azı 6 simvol';
+        document.getElementById('password').focus();
+    }
     function renderRows(users) {
         var box = document.getElementById('userRows');
         box.innerHTML = '';
@@ -344,6 +364,12 @@
                 (jira ? '<span class="admin-badge is-jira">' + esc(jira) + '</span>' : '') +
                 '</div></div><div class="admin-person-actions"></div>';
             var actions = row.querySelector('.admin-person-actions');
+            var resetBtn = document.createElement('button');
+            resetBtn.type = 'button';
+            resetBtn.className = 'admin-btn admin-btn--ghost';
+            resetBtn.textContent = 'Parolu yenilə';
+            resetBtn.addEventListener('click', function() { startPasswordReset(user); });
+            actions.appendChild(resetBtn);
             var editBtn = document.createElement('button');
             editBtn.type = 'button';
             editBtn.className = 'admin-btn admin-btn--ghost';

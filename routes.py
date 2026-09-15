@@ -35,6 +35,8 @@ from users import (
     update_user,
     username_from_display_name,
     verify_login,
+    change_password_with_current,
+    reset_password_with_admin,
 )
 
 api = Blueprint('api', __name__)
@@ -317,6 +319,53 @@ def auth_login():
         return jsonify({'error': 'İstifadəçi adı və ya parol səhvdir'}), 401
     bind_session(user, wants_remember(data))
     return jsonify(login_payload(user)), 200
+
+
+@api.route('/api/auth/reset-password', methods=['POST', 'OPTIONS'])
+def auth_reset_password():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    user, err = reset_password_with_admin(
+        data.get('username'),
+        data.get('password'),
+        data.get('confirmPassword'),
+        data.get('adminUsername'),
+        data.get('adminPassword')
+    )
+    if err:
+        status = 401 if 'Admin adı' in err else 400
+        return jsonify({'error': err}), status
+    return jsonify({
+        'ok': True,
+        'username': (user or {}).get('username') or ''
+    }), 200
+
+
+@api.route('/api/auth/change-password', methods=['POST', 'OPTIONS'])
+def auth_change_password():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    user_id = session_user_id() if is_logged_in() else None
+    user, err = change_password_with_current(
+        data.get('username'),
+        data.get('currentPassword'),
+        data.get('password'),
+        data.get('confirmPassword'),
+        user_id=user_id
+    )
+    if err:
+        status = 401 if 'səhvdir' in err else 400
+        return jsonify({'error': err}), status
+    return jsonify({
+        'ok': True,
+        'username': (user or {}).get('username') or ''
+    }), 200
 
 
 @api.route('/api/auth/logout', methods=['POST', 'OPTIONS'])

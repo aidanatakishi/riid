@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
 import { filterSprintComparison } from './filters.js';
 import { duePeriodLabel } from './report.js';
 
@@ -58,6 +58,18 @@ export function renderStats(tasks) {
     animateValue('doneTasks', 0, done, kpiMs);
     animateValue('plannedTasks', 0, planned, kpiMs);
     animateValue('sprintTasks', 0, sprintT, kpiMs);
+    var esdN = validTasks.filter(function(t) {
+        return getStatusGroup(t.fields.status.name || '') === 'esd' && !hasDiff(t);
+    }).length;
+    var reviewN = validTasks.filter(function(t) {
+        return getStatusGroup(t.fields.status.name || '') === 'review' && !hasDiff(t);
+    }).length;
+    var mixHint = document.getElementById('sprintMixHint');
+    if (mixHint) {
+        mixHint.textContent = (esdN || reviewN)
+            ? (esdN + ' ESD · ' + reviewN + ' Rəy')
+            : 'ESD & Rəy';
+    }
     animateValue('blockedTasks', 0, blocked, kpiMs);
     animateValue('rejectedTasks', 0, rejected, kpiMs);
     animateValue('otherTasks', 0, other, kpiMs);
@@ -149,6 +161,11 @@ export function getDifficultyCardHtml(t, type) {
     var statusBadgeHtml = '';
     if (type === 'reject' || statusGroup === 'rejected') {
         statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-rose-50 text-rose-700 border border-rose-100 px-2 py-1 rounded">Status: İmtina</span>';
+    } else if (statusGroup === 'esd') {
+        var esdInner = getEsdInnerStatus(t);
+        statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-1 rounded">ESD'
+            + (esdInner && esdInner.id !== 'none' ? ': ' + escapeTaskListHtml(esdInner.label) : '')
+            + '</span>';
     } else if (statusGroup === 'blocked') {
         statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded">Status: Bloklanıb</span>';
     }
@@ -193,9 +210,20 @@ function taskMatchesListSearch(t, query) {
         t.fields.summary,
         t.fields.status && t.fields.status.name,
         t.fields.assignee && t.fields.assignee.displayName,
-        t.fields.issuetype && t.fields.issuetype.name
+        t.fields.issuetype && t.fields.issuetype.name,
+        (function() {
+            var inner = getEsdInnerStatus(t);
+            return inner ? inner.label : '';
+        })()
     ].map(function(v) { return normalizeStr(v || ''); }).join(' ');
     return hay.indexOf(q) !== -1;
+}
+
+function esdInnerBadgeHtml(t) {
+    var inner = getEsdInnerStatus(t);
+    if (!inner) return '';
+    return '<span class="assess-status assess-status--esd-inner" title="ESD Statusu">'
+        + escapeTaskListHtml(inner.label) + '</span>';
 }
 
 function taskListStatusClass(name) {
@@ -333,6 +361,7 @@ function nestedChildItemHtml(issue, isSub, relLabel) {
         + taskRoleBadgeHtml(!!isSub)
         + '<span class="tl-key">' + escapeTaskListHtml(full.key) + '</span>'
         + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
+        + esdInnerBadgeHtml(full)
         + '<span class="tl-nested-summary">' + escapeTaskListHtml(summary) + '</span>'
         + (assigneeName ? '<span class="tl-nested-who">' + escapeTaskListHtml(assigneeName) + '</span>' : '')
         + (relLabel ? '<span class="tl-nested-rel">' + escapeTaskListHtml(relLabel) + '</span>' : '')
@@ -547,6 +576,7 @@ export function renderTaskList(tasks, title, opts) {
             + '<div class="tl-topline">' + taskRoleBadgeHtml(isSubtask)
             + '<span class="tl-key">' + escapeTaskListHtml(t.key) + '</span>'
             + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
+            + esdInnerBadgeHtml(t)
             + (showType ? '<span class="tl-type">' + escapeTaskListHtml(issueTypeName) + '</span>' : '')
             + parentHint
             + '</div>'

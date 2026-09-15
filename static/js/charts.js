@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getEsdInnerStatus, ESD_INNER_STAGES, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, filterQurumList, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 
@@ -64,9 +64,170 @@ export function renderStatusChart(tasks) {
     debounceChartRebuild('statusChart', function() { drawStatusChart(tasks); });
 }
 
+function esdInnerStageMeta(id) {
+    var i;
+    for (i = 0; i < (ESD_INNER_STAGES || []).length; i++) {
+        if (ESD_INNER_STAGES[i].id === id) return ESD_INNER_STAGES[i];
+    }
+    return null;
+}
+
+function escapeEsdChip(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+var STATUS_GROUP_NAMES = { 'done': 'İcra edilib', 'progress': 'İcradadır', 'review': 'Rəy gözlənilir', 'esd': 'ESD', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
+var STATUS_GROUP_COLORS = { 'done': '#10b981', 'progress': '#3b82f6', 'review': '#06b6d4', 'esd': '#6366f1', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
+
+var esdPopupOpen = false;
+var esdPopupBound = false;
+var esdIgnoreUntil = 0;
+
+function syncEsdLegendOpen() {
+    var el = document.getElementById('statusChartLegend');
+    if (!el) return;
+    Array.prototype.forEach.call(el.querySelectorAll('.icra-legend-row'), function(btn) {
+        btn.classList.toggle('is-esd-open', esdPopupOpen && btn.getAttribute('data-status') === 'esd');
+    });
+}
+
+export function closeEsdStagePopup() {
+    esdPopupOpen = false;
+    var panel = document.getElementById('esdStatusPanel');
+    if (panel) {
+        panel.classList.add('hidden');
+        panel.setAttribute('hidden', '');
+        panel.setAttribute('aria-hidden', 'true');
+    }
+    syncEsdLegendOpen();
+}
+
+function openEsdStagePopup() {
+    var panel = document.getElementById('esdStatusPanel');
+    var chips = document.getElementById('esdStatusChips');
+    if (!panel || !chips || !chips.innerHTML) return;
+    esdPopupOpen = true;
+    esdIgnoreUntil = Date.now() + 350;
+    panel.classList.remove('hidden');
+    panel.removeAttribute('hidden');
+    panel.setAttribute('aria-hidden', 'false');
+    syncEsdLegendOpen();
+    bindEsdPopupDismiss();
+}
+
+function toggleEsdStagePopup() {
+    if (esdPopupOpen) closeEsdStagePopup();
+    else openEsdStagePopup();
+}
+
+function bindEsdPopupDismiss() {
+    if (esdPopupBound) return;
+    esdPopupBound = true;
+    document.addEventListener('click', function(ev) {
+        if (!esdPopupOpen) return;
+        if (Date.now() < esdIgnoreUntil) return;
+        var panel = document.getElementById('esdStatusPanel');
+        var t = ev && ev.target;
+        if (panel && panel.contains(t)) return;
+        if (t && t.closest && t.closest('.icra-legend-row[data-status="esd"]')) return;
+        closeEsdStagePopup();
+    });
+    document.addEventListener('keydown', function(ev) {
+        if ((ev.key === 'Escape' || ev.key === 'Esc') && esdPopupOpen) closeEsdStagePopup();
+    });
+}
+
+function openStatusGroup(k, ev) {
+    if (!k) return;
+    if (k === 'esd') {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        toggleEsdStagePopup();
+        return;
+    }
+    closeEsdStagePopup();
+    if (k === 'blocked') {
+        rememberListAction({ kind: 'difficulties' });
+        showDifficulties();
+        return;
+    }
+    var list = k === 'other'
+        ? collectOtherDashboardUnits(state.filteredTasks)
+        : countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
+    rememberListAction({ kind: 'chartStatus', group: k });
+    renderTaskList(list, (STATUS_GROUP_NAMES[k] || k) + ' - Tapşırıqları', { keepNested: true });
+    openTaskListSection();
+}
+
+function renderStatusLegend(keys, data, colors, total) {
+    var el = document.getElementById('statusChartLegend');
+    if (!el) return;
+    el.innerHTML = keys.map(function(k, i) {
+        var n = data[i] || 0;
+        var pct = total ? Math.round((n / total) * 100) : 0;
+        return '<button type="button" class="icra-legend-row" data-status="' + k + '">'
+            + '<span class="icra-legend-dot" style="background:' + colors[i] + '"></span>'
+            + '<span class="icra-legend-name">' + escapeEsdChip(STATUS_GROUP_NAMES[k] || k) + '</span>'
+            + '<span class="icra-legend-meta"><b>' + n + '</b><em>' + pct + '%</em></span>'
+            + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.icra-legend-row'), function(btn) {
+        btn.addEventListener('click', function(ev) { openStatusGroup(btn.getAttribute('data-status'), ev); });
+    });
+    syncEsdLegendOpen();
+}
+
+export function renderEsdStatusBreakdown(tasks) {
+    var panel = document.getElementById('esdStatusPanel');
+    var chips = document.getElementById('esdStatusChips');
+    if (!panel || !chips) return;
+    var esdTasks = countableWorkUnits(tasks).filter(function(t) {
+        return getStatusGroup(t.fields.status.name) === 'esd';
+    });
+    if (!esdTasks.length) {
+        chips.innerHTML = '';
+        closeEsdStagePopup();
+        return;
+    }
+    var counts = {};
+    esdTasks.forEach(function(t) {
+        var inner = getEsdInnerStatus(t) || { id: 'none', label: 'Seçilməyib' };
+        if (!counts[inner.id]) counts[inner.id] = { id: inner.id, label: inner.label, n: 0 };
+        counts[inner.id].n += 1;
+        if (inner.label) counts[inner.id].label = inner.label;
+    });
+    var order = (ESD_INNER_STAGES || []).map(function(s) { return s.id; });
+    var extras = Object.keys(counts).filter(function(id) { return order.indexOf(id) === -1; }).sort();
+    var ids = order.concat(extras).filter(function(id) { return counts[id] && counts[id].n > 0; });
+    var html = '<button type="button" class="esd-status-row is-all" onclick="filterEsdInnerStatus(\'all\')" title="Bütün ESD tapşırıqları">'
+        + '<span class="esd-status-dot"></span><span>Hamısı</span><b>' + esdTasks.length + '</b></button>';
+    html += ids.map(function(id) {
+        var row = counts[id];
+        var meta = esdInnerStageMeta(id);
+        var label = (meta && meta.label) || row.label || id;
+        var arg = String(id).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
+        var slug = escapeEsdChip(String(id).replace(/[^a-z0-9]+/gi, '-'));
+        return '<button type="button" class="esd-status-row is-' + slug + '"'
+            + ' onclick="filterEsdInnerStatus(\'' + arg + '\')"'
+            + ' title="ESD Statusu: ' + escapeEsdChip(label) + '">'
+            + '<span class="esd-status-dot"></span>'
+            + '<span>' + escapeEsdChip(label) + '</span><b>' + row.n + '</b></button>';
+    }).join('');
+    chips.innerHTML = html;
+    if (!panel._esdStopBound) {
+        panel._esdStopBound = true;
+        panel.addEventListener('click', function(ev) { ev.stopPropagation(); });
+    }
+    if (esdPopupOpen) openEsdStagePopup();
+    else closeEsdStagePopup();
+}
+
 function drawStatusChart(tasks) {
-    var gN = { 'done': 'İcra edilib', 'progress': 'İcradadır', 'review': 'Rəy gözlənilir', 'esd': 'ESD', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
-    var gC = { 'done': '#10b981', 'progress': '#3b82f6', 'review': '#06b6d4', 'esd': '#6366f1', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
+    var gN = STATUS_GROUP_NAMES;
+    var gC = STATUS_GROUP_COLORS;
     var order = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'rejected', 'paused', 'other'];
     var counts = {};
     var units = countableWorkUnits(tasks);
@@ -85,6 +246,7 @@ function drawStatusChart(tasks) {
     var ctx = canvas.getContext('2d');
     var ex = Chart.getChart(ctx); if (ex) ex.destroy();
     var total = data.reduce(function(a, b) { return a + b; }, 0);
+    renderStatusLegend(keys, data, colors, total);
     var centerTextPlugin = {
         id: 'statusCenterText',
         afterDraw: function(chart) {
@@ -104,17 +266,14 @@ function drawStatusChart(tasks) {
     };
     state.statusChart = new Chart(ctx, {
         type: 'doughnut',
-        data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 2, borderColor: '#ffffff', hoverOffset: 3 }] },
+        data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 3, borderColor: '#ffffff', hoverOffset: 4 }] },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            cutout: '68%',
-            layout: { padding: { top: 4, bottom: 4, left: 2, right: 8 } },
+            cutout: '72%',
+            layout: { padding: 2 },
             plugins: {
-                legend: {
-                    position: 'right',
-                    labels: { usePointStyle: true, padding: 12, font: { family: 'Inter', size: 12 }, boxWidth: 8, color: '#475569' }
-                },
+                legend: { display: false },
                 tooltip: {
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
                     padding: 10,
@@ -133,18 +292,9 @@ function drawStatusChart(tasks) {
             onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
             onClick: function(e, c) {
                 if (!c.length) return;
-                var k = keys[c[0].index];
-                if (k === 'blocked') {
-                    rememberListAction({ kind: 'difficulties' });
-                    showDifficulties();
-                    return;
-                }
-                var list = k === 'other'
-                    ? collectOtherDashboardUnits(state.filteredTasks)
-                    : countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
-                rememberListAction({ kind: 'chartStatus', group: k });
-                renderTaskList(list, gN[k] + ' - Tapşırıqları', { keepNested: true });
-                openTaskListSection();
+                var native = e && e.native;
+                if (native && native.stopPropagation) native.stopPropagation();
+                openStatusGroup(keys[c[0].index], native);
             }
         },
         plugins: [centerTextPlugin]

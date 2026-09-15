@@ -286,7 +286,7 @@ body.admin-page {
     width: 1rem;
     height: 1rem;
 }
-.admin-person-actions { display: flex; gap: 0.35rem; }
+.admin-person-actions { display: flex; gap: 0.35rem; flex-wrap: wrap; justify-content: flex-end; }
 .admin-empty {
     margin: 0;
     padding: 1.1rem 0.2rem;

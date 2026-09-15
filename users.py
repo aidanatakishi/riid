@@ -477,6 +477,59 @@ def verify_login(username, password):
     return None
 
 
+def _validate_new_password(new_password, confirm_password, current_password=None):
+    pwd = str(new_password or '').strip()
+    confirm = str(confirm_password or '').strip()
+    if len(pwd) < 6:
+        return None, 'Parol ən azı 6 simvol olmalıdır'
+    if pwd != confirm:
+        return None, 'Yeni parollar eyni deyil'
+    if current_password is not None and pwd == str(current_password or '').strip():
+        return None, 'Yeni parol köhnə paroldan fərqli olmalıdır'
+    return pwd, None
+
+
+def change_password_with_current(username, current_password, new_password, confirm_password, user_id=None):
+    current = str(current_password or '').strip()
+    if not current:
+        return None, 'Cari parol lazımdır'
+    pwd, err = _validate_new_password(new_password, confirm_password, current)
+    if err:
+        return None, err
+    if user_id:
+        target = find_user_by_id(user_id)
+        if not target:
+            return None, 'İstifadəçi tapılmadı'
+        if not check_password_hash(target.get('password_hash') or '', current):
+            return None, 'Cari parol səhvdir'
+        return update_user(target.get('id'), password=pwd)
+    target = verify_login(username, current)
+    if not target:
+        hits = find_login_candidates(username)
+        if len(hits) > 1:
+            return None, 'Bu ad bir neçə hesaba uyğun gəlir. Tam istifadəçi adını yazın.'
+        return None, 'İstifadəçi adı və ya cari parol səhvdir'
+    return update_user(target.get('id'), password=pwd)
+
+
+def reset_password_with_admin(target_username, new_password, confirm_password, admin_username, admin_password):
+    pwd, err = _validate_new_password(new_password, confirm_password)
+    if err:
+        return None, err
+    admin = verify_login(admin_username, admin_password)
+    if not admin or not can_manage_users(admin):
+        return None, 'Admin adı və ya parolu səhvdir'
+    hits = find_login_candidates(target_username)
+    if not hits:
+        return None, 'İstifadəçi tapılmadı'
+    if len(hits) > 1:
+        return None, 'Bu ad bir neçə hesaba uyğun gəlir. Tam istifadəçi adını yazın.'
+    target = hits[0]
+    if target.get('role') == 'superadmin' and admin.get('role') != 'superadmin':
+        return None, 'Superadmin parolunu yalnız superadmin yeniləyə bilər'
+    return update_user(target.get('id'), password=pwd)
+
+
 def bootstrap_users(admin_username, admin_password, dept_username='', dept_password='', dept_display='', home_project='DGD'):
     if has_users():
         return

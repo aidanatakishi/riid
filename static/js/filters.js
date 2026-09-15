@@ -1,10 +1,10 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
-import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart } from './charts.js';
+import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
+import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, closeEsdStagePopup } from './charts.js?v=idda19';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
-import { renderAssessmentSections } from './assessments.js?v=idda29';
+import { renderAssessmentSections } from './assessments.js?v=idda30';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -672,6 +672,7 @@ function replayListViewAction(action) {
         if (action.kind === 'sprintCompare') { filterSprintComparison(action.sprintName, action.type); return true; }
         if (action.kind === 'difficulties') { showDifficulties(); return true; }
         if (action.kind === 'dailyUser') { selectDailyUser(action.userName); return true; }
+        if (action.kind === 'esdInner') { filterEsdInnerStatus(action.stageId); return true; }
         if (action.kind === 'chartStatus') {
             var k = action.group;
             if (k === 'blocked') { showDifficulties(); return true; }
@@ -748,6 +749,7 @@ function scheduleFilterPaint() {
     filterPaintRaf = requestAnimationFrame(function() {
         filterPaintRaf = 0;
         renderStatusChart(state.filteredTasks);
+        renderEsdStatusBreakdown(state.filteredTasks);
         renderAssigneeChart(state.filteredTasks);
         renderEpicChart(state.epicChartTasks);
         var runLazy = function() {
@@ -1092,6 +1094,28 @@ export function showDueThisWeekTasks() {
     }
     rememberListAction({ kind: 'dueWeek', mode: 'all' });
     renderTaskList(dueTasks, label + ' — bütün tapşırıqlar (' + dueTasks.length + ')', { keepNested: true });
+    openTaskListSection();
+}
+
+export function filterEsdInnerStatus(stageId) {
+    closeEsdStagePopup();
+    var units = countableWorkUnits(state.filteredTasks).filter(function(t) {
+        return getStatusGroup(t.fields.status.name) === 'esd';
+    });
+    var stage = String(stageId || 'all');
+    var list = units;
+    var title = 'ESD tapşırıqları';
+    if (stage && stage !== 'all') {
+        list = units.filter(function(t) {
+            var inner = getEsdInnerStatus(t);
+            return inner && inner.id === stage;
+        });
+        var meta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === stage; })[0];
+        var label = (meta && meta.label) || (list[0] && getEsdInnerStatus(list[0]) && getEsdInnerStatus(list[0]).label) || stage;
+        title = 'ESD · ' + label;
+    }
+    rememberListAction({ kind: 'esdInner', stageId: stage });
+    renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
     openTaskListSection();
 }
 

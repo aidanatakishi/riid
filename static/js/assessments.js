@@ -3947,12 +3947,7 @@ function diagModalBodyHtml(r) {
 function isqModalBodyHtml(r) {
     var t = r && r.task;
     var info = getIsqInfo(t);
-    var qurum = (r && r.qurum) || getAssessmentQurumLabel(t) || '—';
     var parts = [];
-    parts.push('<dl class="assess-isq-meta">'
-        + '<div><dt>Qurumun adı</dt><dd>' + escapeHtml(qurum) + '</dd></div>'
-        + '<div><dt>Fəaliyyət istiqaməti</dt><dd>İSQ</dd></div>'
-        + '</dl>');
     var overallScore = info && info.overall && info.overall.score && info.overall.score !== '—'
         && !isJiraTableHeaderDump(info.overall.score) ? info.overall.score : '';
     var overallText = (info && info.overall && info.overall.text) || '';
