@@ -96,6 +96,42 @@ body.auth-page {
     outline: 2px solid #c4b5fd;
     border-color: #7c3aed;
 }
+.auth-pass {
+    position: relative;
+}
+.auth-pass input {
+    width: 100%;
+    padding-right: 2.7rem;
+}
+.auth-pass-toggle {
+    position: absolute;
+    top: 50%;
+    right: 0.28rem;
+    transform: translateY(-50%);
+    width: 2rem;
+    height: 2rem;
+    border: 0;
+    background: transparent;
+    color: #7c3aed;
+    border-radius: 8px;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.auth-pass-toggle:hover,
+.auth-pass-toggle[aria-pressed="true"] {
+    background: #f5f3ff;
+    color: #5b21b6;
+}
+.auth-pass-toggle:focus-visible {
+    outline: 2px solid #c4b5fd;
+}
+.auth-pass-toggle svg {
+    width: 1.15rem;
+    height: 1.15rem;
+}
 .auth-check {
     display: flex;
     align-items: center;
