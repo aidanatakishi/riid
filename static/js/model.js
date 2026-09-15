@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr } from './utils.js';
+import { normalizeStr } from './utils.js?v=idda70';
 
 function getIssueTypeName(t) {
     if (!t || !t.fields || !t.fields.issuetype) return '';
@@ -1621,10 +1621,19 @@ function looksLikeActivityDirectionName(name) {
     return folded.indexOf('fealiyyet') !== -1 && folded.indexOf('istiqamet') !== -1;
 }
 
+function looksLikeActivityNovuName(name) {
+    var folded = foldAz(name);
+    if (!folded) return false;
+    if (folded.indexOf('meqseduygun') !== -1 || folded.indexOf('muraciet') !== -1) return false;
+    if (folded.indexOf('activity type') !== -1) return true;
+    return folded.indexOf('fealiyyet') !== -1 && folded.indexOf('nov') !== -1;
+}
+
+function isActivityClassFieldName(name) {
+    return looksLikeActivityNovuName(name) || looksLikeActivityDirectionName(name);
+}
+
 var activityDirectionFieldId = null;
-var ACTIVITY_DIR_CANDIDATE_IDS = [
-    'customfield_17315', 'customfield_17318', 'customfield_17320'
-];
 
 export function collectActivityDirectionFieldIds() {
     var ids = [];
@@ -1638,13 +1647,10 @@ export function collectActivityDirectionFieldIds() {
     var key;
     for (key in names) {
         if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
-        if (looksLikeActivityDirectionName(names[key])) add(key);
+        if (isActivityClassFieldName(names[key])) add(key);
     }
     if (activityDirectionFieldId) add(activityDirectionFieldId);
-    for (var i = 0; i < ACTIVITY_DIR_CANDIDATE_IDS.length; i++) add(ACTIVITY_DIR_CANDIDATE_IDS[i]);
-    if (ids[0] && looksLikeActivityDirectionName(names[ids[0]] || '')) {
-        activityDirectionFieldId = ids[0];
-    }
+    if (ids[0]) activityDirectionFieldId = ids[0];
     return ids;
 }
 
@@ -1685,36 +1691,36 @@ function mapActivityDirectionToCategory(val) {
     return null;
 }
 
-function readActivityDirectionValue(t) {
+function readActivityFieldValue(t, pred) {
     var fields = (t && t.fields) || {};
-    var ids = collectActivityDirectionFieldIds();
-    var i;
-    for (i = 0; i < ids.length; i++) {
-        var id = ids[i];
-        if (!Object.prototype.hasOwnProperty.call(fields, id)) continue;
-        var val = fields[id];
-        if (val == null || val === '') continue;
-        var names = state.jiraFieldNames || {};
-        if (names[id]) {
-            if (looksLikeActivityDirectionName(names[id])) return val;
-            continue;
-        }
-        if (mapActivityDirectionToCategory(val) != null) return val;
-        var texts = [];
-        collectJiraOptionTexts(val, texts);
-        var recognized = false;
-        for (var ti = 0; ti < texts.length; ti++) {
-            if (matchesMaqsadHay(foldAz(texts[ti]))) { recognized = true; break; }
-        }
-        if (recognized) return val;
-    }
-    for (var key in fields) {
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (ASSESS_RESERVED_IDS[key]) continue;
+        if (!pred(names[key])) continue;
         if (!Object.prototype.hasOwnProperty.call(fields, key)) continue;
-        if (looksLikeActivityDirectionName((state.jiraFieldNames || {})[key])) {
-            if (fields[key] != null && fields[key] !== '') return fields[key];
-        }
+        if (!isEmptyJiraValue(fields[key])) return fields[key];
+    }
+    for (key in fields) {
+        if (!Object.prototype.hasOwnProperty.call(fields, key)) continue;
+        if (ASSESS_RESERVED_IDS[key]) continue;
+        if (!pred(names[key] || '')) continue;
+        if (!isEmptyJiraValue(fields[key])) return fields[key];
     }
     return null;
+}
+
+function readActivityNovuValue(t) {
+    return readActivityFieldValue(t, looksLikeActivityNovuName);
+}
+
+function readActivityDirectionValue(t) {
+    return readActivityFieldValue(t, looksLikeActivityDirectionName);
+}
+
+function categoryFromActivityValue(val) {
+    return val == null ? null : mapActivityDirectionToCategory(val);
 }
 
 function isMeqsedNovuFieldName(folded) {
@@ -2021,7 +2027,29 @@ function listedDirectionByKey(key) {
 
 export function classifyAssessmentNode(node) {
     if (hasSelfLabel(node)) return 'self';
-    return mapActivityDirectionToCategory(readActivityDirectionValue(node));
+    return classifyActivityOnIssue(node);
+}
+
+function classifyActivityOnIssue(t) {
+    var cat = categoryFromActivityValue(readActivityNovuValue(t));
+    if (cat) return cat;
+    var cur = getParentIssue(t);
+    var depth = 0;
+    var seen = {};
+    if (t && t.key) seen[t.key] = true;
+    while (cur && depth < 10) {
+        if (cur.key) {
+            if (seen[cur.key]) break;
+            seen[cur.key] = true;
+        }
+        cat = categoryFromActivityValue(readActivityDirectionValue(cur));
+        if (cat) return cat;
+        cat = categoryFromActivityValue(readActivityNovuValue(cur));
+        if (cat) return cat;
+        cur = getParentIssue(cur);
+        depth++;
+    }
+    return categoryFromActivityValue(readActivityDirectionValue(t));
 }
 
 var assessChildIndex = null;
@@ -2095,7 +2123,8 @@ function qurumFromDescendants(t) {
 
 export function classifyAssessmentCategory(t) {
     if (!t || !isTaskOrSubtaskType(t)) return null;
-    return mapActivityDirectionToCategory(readActivityDirectionValue(t));
+    if (hasSelfLabel(t)) return 'self';
+    return classifyActivityOnIssue(t);
 }
 
 var ASSESS_YEAR_RE = /\b(20(?:1[5-9]|2[0-9]|3[0-5]))\b/g;

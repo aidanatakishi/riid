@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr } from './utils.js';
+import { normalizeStr } from './utils.js?v=idda70';
 import {
     isTaskType,
     isTaskOrSubtaskType,
@@ -30,7 +30,7 @@ import {
     isActiveExecutionGroup,
     getBlockReason,
     getTaskDueDate
-} from './model.js';
+} from './model.js?v=idda70';
 import { exportTasksToWord } from './report.js';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];

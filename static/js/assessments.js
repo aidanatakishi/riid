@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js';
+import { normalizeStr, showToast } from './utils.js?v=idda70';
 import {
     classifyAssessmentCategory,
     formatAssessmentFieldText,
@@ -38,7 +38,7 @@ import {
     isTaskOrSubtaskType,
     isDiagOverallLabel,
     parseDiagUmumiNetice
-} from './model.js';
+} from './model.js?v=idda70';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
 var searchState = { diag: '', isq: '', self: '', exq: '', meqsed: '' };

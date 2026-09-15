@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda27';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda28';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -16,10 +16,10 @@ import {
     exqStarFromPercent,
     exqStarColor,
     exqStarLabel
-} from './model.js';
-import { normalizeStr, showToast } from './utils.js';
+} from './model.js?v=idda70';
+import { normalizeStr, showToast } from './utils.js?v=idda70';
 import { state } from './state.js';
-import { apiFetch, canSeeDiagnostics } from './session.js';
+import { apiFetch, canSeeDiagnostics } from './session.js?v=idda4';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
@@ -1038,11 +1038,6 @@ function pageHeadHtml(model) {
                 + (ui.orgKey ? '' : '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>')
                 + '<label class="nk303-field"><span>Qurum</span><select onchange="nk303Call(\'org\', this.value)">' + orgOpts + '</select></label>'
                 + '</div>'
-                + (isAdmin()
-                    ? '<div class="nk303-admin-row">'
-                        + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'logout\')">Çıx</button>'
-                        + '</div>'
-                    : '')
                 + '</div>')
         + '</div>'
         + hubNavHtml();
