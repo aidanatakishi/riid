@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { getStatusGroup } from './model.js?v=idda70';
+import { getStatusGroup } from './model.js';
 
 export function showToast(message, type) {
     if (state.restoreQuiet) return;

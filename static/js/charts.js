@@ -1,6 +1,6 @@
 import { state } from './state.js';
-import { getInitials, normalizeStr, showToast } from './utils.js?v=idda70';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda70';
+import { getInitials, normalizeStr, showToast } from './utils.js';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, filterQurumList, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
 

@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { currentTeamId, normalizeTeamId } from './model.js?v=idda70';
+import { currentTeamId, normalizeTeamId } from './model.js';
 
 export function loginPath() {
     var host = String(location.hostname || '');
