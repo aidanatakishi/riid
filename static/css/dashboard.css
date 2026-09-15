@@ -4217,6 +4217,12 @@ body.settings-open { overflow: hidden; }
 .app-settings .app-userbox span {
     color: #7c3aed;
 }
+.app-settings .app-userbox #appUserJira {
+    text-transform: none;
+    letter-spacing: 0;
+    color: #64748b;
+    font-weight: 500;
+}
 .app-settings-grid {
     display: grid;
     grid-template-columns: 1fr;
@@ -5376,3 +5382,4 @@ body.settings-open { overflow: hidden; }
     .dash-chat-panel { width: 100%; height: min(78vh, 640px); }
     .dash-chat-split { grid-template-columns: 1fr; }
 }
+#patFieldWrap { display: none !important; }

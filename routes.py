@@ -13,18 +13,27 @@ from chat_llm import answer_chat, chat_llm_ready
 import chat_llm
 from diag_excel import parse_diag_excel
 from report_pptx import parse_report_pptx
-from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql
+from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
-    admin_count,
+    TEAM_LABELS,
+    can_manage_tech,
+    can_manage_users,
+    component_matches_team,
     create_user,
     delete_user,
+    effective_jira_pat,
     find_user_by_id,
+    first_name,
+    get_shared_jira_pat,
     has_users,
     list_users,
     normalize_team,
     public_user,
+    set_shared_jira_pat,
+    unique_username,
     update_user,
+    username_from_display_name,
     verify_login,
 )
 
@@ -55,7 +64,11 @@ def is_logged_in():
 
 
 def is_app_admin():
-    return session.get('role') == 'admin'
+    return can_manage_users(find_user_by_id(session_user_id()) if is_logged_in() else None)
+
+
+def is_superadmin():
+    return can_manage_tech(find_user_by_id(session_user_id()) if is_logged_in() else None)
 
 
 def current_project_key():
@@ -72,6 +85,19 @@ def current_team():
 
 def can_see_diagnostics():
     return is_logged_in() and current_project_key() == home_project_key() and current_team() == 'komplayns'
+
+
+TOKEN_MISSING = 'Jira tokeni yoxdur. Superadmin /admin səhifəsində bir dəfə yazmalıdır.'
+
+
+def viewer_jira_pat(user=None):
+    if user is None and is_logged_in():
+        user = find_user_by_id(session_user_id())
+    return effective_jira_pat(user) or str(JIRA_PAT or '').strip()
+
+
+def has_jira_token(user=None):
+    return bool(viewer_jira_pat(user))
 
 
 def remember_project_key(data):
@@ -93,7 +119,28 @@ def login_payload(user):
         'currentProjectKey': current_project_key(),
         'currentTeam': current_team(),
         'canSeeDiagnostics': can_see_diagnostics(),
-        'hasToken': bool(JIRA_PAT)
+        'hasToken': has_jira_token(user),
+        'canManageUsers': can_manage_users(user),
+        'canManageTech': can_manage_tech(user)
+    }
+
+
+def session_viewer():
+    user = find_user_by_id(session_user_id())
+    pub = public_user(user)
+    if not pub:
+        return None
+    jira_name = pub.get('jiraDisplayName') or ''
+    display = pub.get('displayName') or pub.get('username') or ''
+    return {
+        'id': pub.get('id'),
+        'username': pub.get('username'),
+        'displayName': display,
+        'firstName': pub.get('firstName') or first_name(jira_name or display),
+        'role': pub.get('role'),
+        'jiraAccountId': pub.get('jiraAccountId') or '',
+        'jiraDisplayName': jira_name,
+        'linked': bool(pub.get('jiraAccountId') or jira_name)
     }
 
 
@@ -131,7 +178,7 @@ def bind_session(user, remember=False):
     session['team'] = normalize_team(user.get('team'))
     session['current_team'] = session['team']
     session['remember'] = bool(remember)
-    if session['role'] == 'admin':
+    if session['role'] in ('admin', 'superadmin'):
         session['diag_admin'] = True
 
 
@@ -146,6 +193,19 @@ def login_required(fn):
             return options_ok()
         if not is_logged_in():
             return jsonify({'error': 'Giriş lazımdır'}), 401
+        return fn(*args, **kwargs)
+    return wrapper
+
+
+def superadmin_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if request.method == 'OPTIONS':
+            return options_ok()
+        if not is_logged_in():
+            return jsonify({'error': 'Giriş lazımdır'}), 401
+        if not is_superadmin():
+            return jsonify({'error': 'Yalnız superadmin texniki ayarlara baxa bilər'}), 403
         return fn(*args, **kwargs)
     return wrapper
 
@@ -251,8 +311,9 @@ def auth_setup():
         data.get('username'),
         data.get('password'),
         data.get('displayName') or 'Admin',
-        'admin',
-        home_project_key()
+        'superadmin',
+        home_project_key(),
+        allow_superadmin=True
     )
     if err:
         return jsonify({'error': err}), 400
@@ -311,7 +372,9 @@ def auth_me():
         'currentProjectKey': current_project_key(),
         'currentTeam': current_team(),
         'canSeeDiagnostics': can_see_diagnostics(),
-        'hasToken': bool(JIRA_PAT)
+        'hasToken': has_jira_token(user),
+        'canManageUsers': can_manage_users(user),
+        'canManageTech': can_manage_tech(user)
     }), 200
 
 
@@ -333,7 +396,10 @@ def auth_set_project():
 def api_users():
     if request.method == 'GET':
         rows = [public_user(u) for u in list_users()]
-        return jsonify({'users': rows, 'homeProjectKey': home_project_key()}), 200
+        return jsonify({
+            'users': rows,
+            'homeProjectKey': home_project_key()
+        }), 200
     data = request_json()
     if not isinstance(data, dict):
         data = {}
@@ -343,7 +409,10 @@ def api_users():
         data.get('displayName') or '',
         data.get('role') or 'user',
         data.get('projectKey') or home_project_key(),
-        data.get('team') or 'komplayns'
+        data.get('team') or 'komplayns',
+        data.get('jiraAccountId') or '',
+        data.get('jiraDisplayName') or '',
+        data.get('jiraPat') if is_superadmin() else ''
     )
     if err:
         return jsonify({'error': err}), 400
@@ -361,24 +430,137 @@ def api_user_item(user_id):
     data = request_json()
     if not isinstance(data, dict):
         data = {}
-    user, err = update_user(
-        user_id,
-        username=data.get('username'),
-        display_name=data.get('displayName'),
-        role=data.get('role'),
-        project_key=data.get('projectKey'),
-        team=data.get('team'),
-        password=data.get('password')
-    )
+    fields = {
+        'username': data.get('username'),
+        'display_name': data.get('displayName'),
+        'role': data.get('role'),
+        'project_key': data.get('projectKey'),
+        'team': data.get('team'),
+        'password': data.get('password')
+    }
+    if 'jiraAccountId' in data or 'jiraDisplayName' in data:
+        fields['jira_account_id'] = data.get('jiraAccountId') or ''
+        fields['jira_display_name'] = data.get('jiraDisplayName') or ''
+    if is_superadmin():
+        if data.get('clearPat'):
+            fields['clear_pat'] = True
+        elif str(data.get('jiraPat') or '').strip():
+            fields['jira_pat'] = data.get('jiraPat')
+    user, err = update_user(user_id, **fields)
     if err:
         return jsonify({'error': err}), 400
     return jsonify({'user': public_user(user)}), 200
 
 
+@api.route('/api/jira/token', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
+@superadmin_required
+def api_shared_jira_token():
+    if request.method == 'GET':
+        return jsonify({
+            'hasSharedToken': bool(get_shared_jira_pat()),
+            'hasEnvToken': bool(str(JIRA_PAT or '').strip()),
+            'hasToken': has_jira_token()
+        }), 200
+    if request.method == 'DELETE':
+        set_shared_jira_pat('')
+        return jsonify({
+            'ok': True,
+            'hasSharedToken': False,
+            'hasToken': has_jira_token()
+        }), 200
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    token = str(data.get('pat') or data.get('jiraPat') or data.get('token') or '').strip()
+    if not token:
+        return jsonify({'error': 'Token boş ola bilməz'}), 400
+    set_shared_jira_pat(token)
+    return jsonify({
+        'ok': True,
+        'hasSharedToken': True,
+        'hasToken': True
+    }), 200
+
+
+@api.route('/api/jira/people', methods=['GET', 'OPTIONS'])
+@app_admin_required
+def api_jira_people():
+    q = (request.args.get('q') or request.args.get('query') or '').strip()
+    base_url, pat = resolve_credentials({})
+    if not base_url or not pat:
+        return jsonify({'error': TOKEN_MISSING}), 503
+    people, err, status = search_jira_users(base_url, pat, q)
+    if err:
+        return jsonify(err), status
+    rows = []
+    existing = list_users()
+    for person in people or []:
+        row = dict(person)
+        row['suggestedUsername'] = unique_username(
+            username_from_display_name(person.get('displayName')),
+            existing
+        )
+        rows.append(row)
+    return jsonify({'people': rows}), 200
+
+
+@api.route('/api/jira/component-people', methods=['GET', 'OPTIONS'])
+@app_admin_required
+def api_jira_component_people():
+    team = normalize_team(request.args.get('team') or 'komplayns')
+    project = str(request.args.get('project') or home_project_key()).strip().upper()
+    base_url, pat = resolve_credentials({})
+    if not base_url or not pat:
+        return jsonify({'error': TOKEN_MISSING}), 503
+    comps, err, status = fetch_project_components(base_url, pat, project)
+    if err:
+        return jsonify(err), status
+    matched = [row for row in (comps or []) if component_matches_team(row.get('name'), team)]
+    if not matched:
+        label = TEAM_LABELS.get(team) or 'Komplayns'
+        return jsonify({
+            'team': team,
+            'teamLabel': label,
+            'projectKey': project,
+            'components': [],
+            'people': []
+        }), 200
+    people, err, status = collect_component_people(base_url, pat, project, matched)
+    if err:
+        return jsonify(err), status
+    existing = list_users()
+    linked = {
+        str(user.get('jira_account_id') or '').strip(): user
+        for user in existing
+        if str(user.get('jira_account_id') or '').strip()
+    }
+    rows = []
+    for person in people or []:
+        row = dict(person)
+        account = str(person.get('accountId') or '').strip()
+        taken = linked.get(account)
+        row['suggestedUsername'] = unique_username(
+            username_from_display_name(person.get('displayName')),
+            existing
+        )
+        row['linkedUserId'] = taken.get('id') if taken else ''
+        row['linkedUsername'] = taken.get('username') if taken else ''
+        rows.append(row)
+    return jsonify({
+        'team': team,
+        'teamLabel': TEAM_LABELS.get(team) or 'Komplayns',
+        'projectKey': project,
+        'components': [row.get('name') for row in matched],
+        'people': rows
+    }), 200
+
+
 def resolve_credentials(data):
-    base_url = (data.get('baseUrl') or JIRA_BASE_URL or '').rstrip('/')
-    pat = data.get('pat') or JIRA_PAT
-    return base_url, pat
+    data = data if isinstance(data, dict) else {}
+    base_url = (JIRA_BASE_URL or '').rstrip('/')
+    if is_superadmin() and str(data.get('baseUrl') or '').strip():
+        base_url = str(data.get('baseUrl') or '').rstrip('/')
+    return base_url, viewer_jira_pat()
 
 
 @api.route('/api/config', methods=['GET'])
@@ -391,10 +573,12 @@ def get_client_config():
         'projectKey': current_project_key(),
         'currentTeam': current_team(),
         'homeProjectKey': home_project_key(),
-        'hasToken': bool(JIRA_PAT),
+        'hasToken': has_jira_token(user),
         'hasChatLlm': chat_llm_ready(),
         'user': pub,
-        'canSeeDiagnostics': can_see_diagnostics()
+        'canSeeDiagnostics': can_see_diagnostics(),
+        'canManageUsers': can_manage_users(user),
+        'canManageTech': can_manage_tech(user)
     })
 
 
@@ -411,6 +595,9 @@ def api_chat():
     facts = data.get('facts') if isinstance(data.get('facts'), dict) else {}
     history = data.get('history') if isinstance(data.get('history'), list) else []
     llm_key = str(data.get('llmKey') or '').strip()
+    viewer = session_viewer()
+    if viewer:
+        facts['viewer'] = viewer
     if not question:
         return jsonify({'error': 'Sual boşdur'}), 400
     if not chat_llm_ready(llm_key):

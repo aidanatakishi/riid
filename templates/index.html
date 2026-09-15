@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda75">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda83">
     <link rel="stylesheet" href="/static/css/nk303.css?v=idda68">
 </head>
 <body class="app-page">
@@ -669,6 +669,7 @@
                     <div class="app-userbox" id="appUserBox">
                         <strong id="appUserName">—</strong>
                         <span id="appUserRole">İstifadəçi</span>
+                        <span id="appUserJira" class="hidden"></span>
                     </div>
                     <div class="app-settings-account-actions">
                         <a id="adminUsersLink" href="/admin" class="app-btn app-btn--ghost hidden">İstifadəçilər</a>
@@ -677,7 +678,7 @@
                 </div>
             </section>
 
-            <section class="app-settings-block" aria-labelledby="settingsScopeTitle">
+            <section class="app-settings-block hidden" id="settingsScopeBlock" aria-labelledby="settingsScopeTitle">
                 <h3 id="settingsScopeTitle">Layihə və komanda</h3>
                 <div class="app-settings-grid">
                     <label class="app-field">
@@ -696,16 +697,16 @@
                 <p class="app-settings-note">Layihə Jira KEY-dir. Komanda Jira <span>Component/s</span> sahəsidir. Komanda dərhal tətbiq olunur; başqa KEY üçün <span>Məlumatları yüklə</span> və ya <span>Yenilə</span> basın.</p>
             </section>
 
-            <section class="app-settings-block" aria-labelledby="settingsJiraTitle">
+            <section class="app-settings-block hidden" id="settingsJiraBlock" aria-labelledby="settingsJiraTitle">
                 <h3 id="settingsJiraTitle">Jira bağlantısı</h3>
                 <div class="app-settings-grid">
                     <label class="app-field">
                         <span>Jira URL</span>
                         <input id="baseUrl" type="text" value="https://jira.idda.az" placeholder="https://jira.idda.az">
                     </label>
-                    <label class="app-field">
+                    <label class="app-field hidden" id="patFieldWrap">
                         <span>PAT token</span>
-                        <input id="pat" type="password" placeholder="Öz PAT tokeninizi yazın">
+                        <input id="pat" type="password" autocomplete="off" tabindex="-1">
                     </label>
                     <label class="app-field">
                         <span>Chatbot AI açarı</span>
@@ -716,7 +717,7 @@
             </section>
         </div>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda78"></script>
+    <script type="module" src="/static/js/main.js?v=idda83"></script>
 
 </body>
 </html>

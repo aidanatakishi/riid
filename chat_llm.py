@@ -78,15 +78,22 @@ def _build_prompt(question, facts, draft, history):
             hist.append(role + ': ' + text[:800])
     hist_block = '\n'.join(hist) if hist else '(yoxdur)'
     kind = ''
+    viewer = None
     if isinstance(facts, dict):
         kind = str(facts.get('kind') or facts.get('localKind') or '')
+        viewer = facts.get('viewer') if isinstance(facts.get('viewer'), dict) else None
+    viewer_name = ''
+    jira_name = ''
+    if viewer:
+        viewer_name = str(viewer.get('firstName') or viewer.get('displayName') or '').strip()
+        jira_name = str(viewer.get('jiraDisplayName') or viewer.get('displayName') or '').strip()
     tone = (
         'Sən AI Done-san — DGD Rəqəmsal İdarəetmə Panelinin köməkçisi.\n'
         'Bir insanla danışdığın kimi yaz: səmimi, sakit, peşəkar. Robot və ya şablon kimi səslənmə.\n'
         'Yalnız rəsmi Azərbaycan dilində danış. «Dashboard» yazma, əvəzinə «idarəetmə paneli» de.\n'
         'Özünü AI Done kimi tanı.\n'
         'Salam və ya qısa nəzakət varsa, eyni cümləni hər dəfə təkrarlama. '
-        'Günün vaxtına uyğun, təbii salamla. Məsələn: «Salam, gününüz xoş keçsin, sizə necə kömək edə bilərəm?»\n'
+        'Günün vaxtına uyğun, təbii salamla.\n'
         'Təşəkkürə qısa və isti cavab ver, KPI tökme.\n'
         'Sualı oxu, nə istədiyini başa düş, sonra düşünüb cavab ver.\n'
         'Analizdə əvvəl birbaşa nəticəni de, sonra sübut gətir: ad, tapşırıq açarı, rəqəm, istiqamət.\n'
@@ -95,8 +102,21 @@ def _build_prompt(question, facts, draft, history):
         'Heç vaxt «bağlaya bilmədim», «kömək yazın» demə.\n'
         'HTML yazma. Lazım olsa qısa siyahı işlət.\n'
     )
+    if viewer_name:
+        tone += (
+            'Söhbət edən şəxs: ' + viewer_name
+            + ((' (Jira-da «' + jira_name + '»)') if jira_name else '')
+            + '.\n'
+            'Ona ikinci şəxsdə müraciət et: adını işlət, «sizin işləriniz», «sizin tapşırıqlarınız».\n'
+            '«Mənim işlərim», «mənim tapşırıqlarım», «mənim vəziyyətim» deyəndə yalnız bu icraçını nəzərdə tut.\n'
+            'Onun tapşırıqları facts.mine içindədir (late, blocked, dueOpen, stats). Oradan konkret açar və ad gətir.\n'
+            'Başqa icraçı haqqında soruşmayıbsa, onu üçüncü şəxsdə təsvir etmə.\n'
+        )
     if kind in ('greet', 'thanks', 'identity'):
-        tone += 'Bu qısa söhbətdir. 1–3 cümlə kifayətdir, panel rəqəmlərini tökme.\n'
+        if viewer_name:
+            tone += 'Bu qısa söhbətdir. 1–3 cümlə kifayətdir. Salamlamaq üçün adını işlət, panel rəqəmlərini tökme.\n'
+        else:
+            tone += 'Bu qısa söhbətdir. 1–3 cümlə kifayətdir, panel rəqəmlərini tökme.\n'
     else:
         tone += (
             'Bu analizdir: əvvəl birbaşa nəticə, sonra sübut (ad, açar, rəqəm). '

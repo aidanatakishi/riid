@@ -41,6 +41,22 @@ export function applyDiagnosticsVisibility() {
     }
 }
 
+export function roleLabel(role) {
+    if (role === 'superadmin') return 'Superadmin';
+    if (role === 'admin') return 'Admin';
+    return 'İstifadəçi';
+}
+
+export function canManageUsers(user) {
+    user = user || state.currentUser;
+    return !!(user && (user.canManageUsers || user.role === 'admin' || user.role === 'superadmin'));
+}
+
+export function canManageTech(user) {
+    user = user || state.currentUser;
+    return !!(user && (user.canManageTech || user.role === 'superadmin'));
+}
+
 export function applySessionChrome(cfg) {
     cfg = cfg || {};
     if (cfg.user) state.currentUser = cfg.user;
@@ -56,17 +72,31 @@ export function applySessionChrome(cfg) {
     var nameEl = document.getElementById('appUserName');
     var roleEl = document.getElementById('appUserRole');
     var adminLink = document.getElementById('adminUsersLink');
+    var tech = canManageTech(user);
+    var manage = canManageUsers(user);
     if (nameEl) nameEl.textContent = (user && (user.displayName || user.username)) || '—';
-    if (roleEl) roleEl.textContent = user && user.role === 'admin' ? 'Admin' : 'İstifadəçi';
-    if (adminLink) {
-        if (user && user.role === 'admin') adminLink.classList.remove('hidden');
-        else adminLink.classList.add('hidden');
+    if (roleEl) roleEl.textContent = roleLabel(user && user.role);
+    var jiraEl = document.getElementById('appUserJira');
+    if (jiraEl) {
+        if (user && user.jiraDisplayName) {
+            jiraEl.textContent = 'Jira: ' + user.jiraDisplayName;
+            jiraEl.classList.remove('hidden');
+        } else {
+            jiraEl.textContent = '';
+            jiraEl.classList.add('hidden');
+        }
     }
+    if (adminLink) adminLink.classList.toggle('hidden', !manage);
+    var jiraBlock = document.getElementById('settingsJiraBlock');
+    if (jiraBlock) jiraBlock.classList.toggle('hidden', !tech);
+    var scopeBlock = document.getElementById('settingsScopeBlock');
+    if (scopeBlock) scopeBlock.classList.toggle('hidden', !manage);
+    try { localStorage.removeItem('jiraPat'); } catch (e) {}
     var pat = document.getElementById('pat');
+    if (pat) pat.value = '';
     var settingsBtn = document.getElementById('settingsBtn');
-    if (state.hasServerToken) {
-        if (pat) pat.placeholder = 'Server token aktivdir — boş saxlaya bilərsiniz';
-        if (settingsBtn) settingsBtn.title = 'Serverdə Jira tokeni var. Öz tokeninizi yazmaq istəyə bağlıdır.';
+    if (settingsBtn) {
+        settingsBtn.title = tech ? 'Texniki ayarlar' : 'Hesab';
     }
     applyDiagnosticsVisibility();
 }

@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import threading
 import uuid
 from datetime import datetime, timezone
@@ -45,6 +46,38 @@ def list_users():
     return list(load_store().get('users') or [])
 
 
+def get_shared_jira_pat():
+    return str(load_store().get('jira_pat') or '').strip()
+
+
+def set_shared_jira_pat(token):
+    with _lock:
+        store = load_store()
+        value = str(token or '').strip()
+        if value:
+            store['jira_pat'] = value
+        else:
+            store.pop('jira_pat', None)
+        save_store(store)
+        return bool(value)
+
+
+def user_jira_pat(user):
+    if not user:
+        return ''
+    return str(user.get('jira_pat') or '').strip()
+
+
+def effective_jira_pat(user=None):
+    own = user_jira_pat(user)
+    if own:
+        return own
+    shared = get_shared_jira_pat()
+    if shared:
+        return shared
+    return ''
+
+
 def has_users():
     return len(list_users()) > 0
 
@@ -81,6 +114,43 @@ TEAM_LABELS = {
     'koordinasiya': 'Koordinasiya',
     'servis-dizayn': 'Servis dizayn',
 }
+PRIVILEGED_ROLES = ('admin', 'superadmin')
+ROLE_LABELS = {
+    'superadmin': 'Superadmin',
+    'admin': 'Admin',
+    'user': 'İstifadəçi',
+}
+
+
+def normalize_role(raw, allow_superadmin=False):
+    n = str(raw or '').strip().lower()
+    if n == 'superadmin' and allow_superadmin:
+        return 'superadmin'
+    if n == 'admin':
+        return 'admin'
+    return 'user'
+
+
+def can_manage_users(user):
+    return (user or {}).get('role') in PRIVILEGED_ROLES
+
+
+def can_manage_tech(user):
+    return (user or {}).get('role') == 'superadmin'
+
+
+def ensure_superadmin():
+    with _lock:
+        store = load_store()
+        users = store.get('users') or []
+        if any(str(u.get('role') or '') == 'superadmin' for u in users):
+            return
+        admins = [u for u in users if str(u.get('role') or '') == 'admin']
+        if not admins:
+            return
+        admins.sort(key=lambda u: str(u.get('created_at') or ''))
+        admins[0]['role'] = 'superadmin'
+        save_store(store)
 
 
 def normalize_team(raw):
@@ -102,28 +172,126 @@ def normalize_team(raw):
     return 'komplayns'
 
 
+def fold_latin(text):
+    n = str(text or '').strip().lower().replace('i̇', 'i')
+    for src, dst in (
+        ('ı', 'i'), ('ə', 'e'), ('ö', 'o'), ('ü', 'u'),
+        ('ğ', 'g'), ('ş', 's'), ('ç', 'c'),
+    ):
+        n = n.replace(src, dst)
+    return n
+
+
+def first_name(name):
+    parts = str(name or '').strip().split()
+    return parts[0] if parts else ''
+
+
+def username_from_display_name(name):
+    folded = fold_latin(name)
+    parts = [chunk for chunk in re.split(r'[^a-z0-9]+', folded) if chunk]
+    if not parts:
+        return ''
+    base = '.'.join(parts)[:32]
+    if len(base) < 3:
+        base = (base + 'user')[:8]
+    return base
+
+
+def unique_username(desired, users=None, exclude_id=None):
+    base = normalize_username(desired) or 'user'
+    if len(base) < 3:
+        base = (base + 'user')[:8]
+    rows = users if users is not None else list_users()
+    taken = {
+        normalize_username(u.get('username'))
+        for u in rows
+        if not exclude_id or str(u.get('id')) != str(exclude_id)
+    }
+    if base not in taken:
+        return base
+    i = 2
+    while True:
+        candidate = (base[:28] + str(i))[:32]
+        if candidate not in taken:
+            return candidate
+        i += 1
+
+
+def find_user_by_display_name(name):
+    key = fold_latin(name)
+    if len(key) < 3:
+        return None
+    hits = []
+    seen = set()
+    for user in list_users():
+        uid = str(user.get('id') or '')
+        labels = (
+            fold_latin(user.get('display_name')),
+            fold_latin(user.get('jira_display_name')),
+        )
+        if key in labels and uid not in seen:
+            seen.add(uid)
+            hits.append(user)
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
+def component_matches_team(raw, team_id):
+    n = fold_latin(raw).replace(' ', '').replace('-', '').replace('_', '')
+    team = normalize_team(team_id)
+    if team == 'komplayns':
+        return any(token in n for token in ('komplayn', 'komplanys', 'komplain', 'compliance', 'komplan'))
+    if team == 'koordinasiya':
+        return 'koordinasiya' in n or 'koordinasiy' in n
+    if team == 'servis-dizayn':
+        return 'servisdizayn' in n
+    return False
+
+
+def jira_id_taken(account_id, users, exclude_id=None):
+    key = str(account_id or '').strip()
+    if not key:
+        return False
+    for user in users:
+        if exclude_id and str(user.get('id')) == str(exclude_id):
+            continue
+        if str(user.get('jira_account_id') or '').strip() == key:
+            return True
+    return False
+
+
 def public_user(user):
     if not user:
         return None
     team = normalize_team(user.get('team'))
+    display = user.get('display_name') or user.get('username')
+    jira_name = (user.get('jira_display_name') or '').strip()
     return {
         'id': user.get('id'),
         'username': user.get('username'),
-        'displayName': user.get('display_name') or user.get('username'),
+        'displayName': display,
+        'firstName': first_name(jira_name or display),
         'role': user.get('role') or 'user',
+        'roleLabel': ROLE_LABELS.get(user.get('role') or 'user') or 'İstifadəçi',
         'projectKey': normalize_project_key(user.get('project_key')) or 'DGD',
         'team': team,
         'teamLabel': TEAM_LABELS.get(team) or TEAM_LABELS['komplayns'],
-        'hasPat': bool(str(user.get('jira_pat') or '').strip())
+        'jiraAccountId': (user.get('jira_account_id') or '').strip(),
+        'jiraDisplayName': jira_name,
+        'hasPat': bool(str(user.get('jira_pat') or '').strip()),
+        'canManageUsers': can_manage_users(user),
+        'canManageTech': can_manage_tech(user)
     }
 
 
 def admin_count(users=None):
     rows = users if users is not None else list_users()
-    return sum(1 for user in rows if user.get('role') == 'admin')
+    return sum(1 for user in rows if user.get('role') in PRIVILEGED_ROLES)
 
 
-def create_user(username, password, display_name='', role='user', project_key='DGD', team='komplayns'):
+def create_user(username, password, display_name='', role='user', project_key='DGD', team='komplayns', jira_account_id='', jira_display_name='', jira_pat='', allow_superadmin=False):
     name = normalize_username(username)
     if not name:
         return None, 'İstifadəçi adı boş ola bilməz'
@@ -132,24 +300,34 @@ def create_user(username, password, display_name='', role='user', project_key='D
     pwd = str(password or '')
     if len(pwd) < 6:
         return None, 'Parol ən azı 6 simvol olmalıdır'
-    role_name = 'admin' if str(role or '').strip().lower() == 'admin' else 'user'
+    role_name = normalize_role(role, allow_superadmin=allow_superadmin)
     project = normalize_project_key(project_key) or 'DGD'
     team_id = normalize_team(team)
+    jira_id = str(jira_account_id or '').strip()
+    jira_name = str(jira_display_name or '').strip()
     with _lock:
         store = load_store()
         users = store['users']
         if any(normalize_username(u.get('username')) == name for u in users):
             return None, 'Bu istifadəçi adı artıq var'
+        if jira_id_taken(jira_id, users):
+            return None, 'Bu Jira şəxsi artıq başqa hesaba bağlıdır'
         user = {
             'id': str(uuid.uuid4()),
             'username': name,
-            'display_name': (display_name or name).strip(),
+            'display_name': (display_name or jira_name or name).strip(),
             'password_hash': generate_password_hash(pwd),
             'role': role_name,
             'project_key': project,
             'team': team_id,
             'created_at': _now()
         }
+        if jira_id:
+            user['jira_account_id'] = jira_id
+            user['jira_display_name'] = jira_name or user['display_name']
+        own_pat = str(jira_pat or '').strip()
+        if own_pat:
+            user['jira_pat'] = own_pat
         users.append(user)
         save_store(store)
         return user, None
@@ -177,14 +355,29 @@ def update_user(user_id, **fields):
         if 'display_name' in fields and fields['display_name'] is not None:
             target['display_name'] = str(fields['display_name'] or target.get('username')).strip()
         if 'role' in fields and fields['role'] is not None:
-            new_role = 'admin' if str(fields['role']).strip().lower() == 'admin' else 'user'
-            if target.get('role') == 'admin' and new_role != 'admin' and admin_count(users) <= 1:
-                return None, 'Son admin hesabını adi istifadəçiyə çevirmək olmaz'
-            target['role'] = new_role
+            if target.get('role') == 'superadmin':
+                pass
+            else:
+                new_role = normalize_role(fields['role'])
+                if target.get('role') in PRIVILEGED_ROLES and new_role == 'user' and admin_count(users) <= 1:
+                    return None, 'Son admin hesabını adi istifadəçiyə çevirmək olmaz'
+                target['role'] = new_role
         if 'project_key' in fields and fields['project_key'] is not None:
             target['project_key'] = normalize_project_key(fields['project_key']) or target.get('project_key') or 'DGD'
         if 'team' in fields and fields['team'] is not None:
             target['team'] = normalize_team(fields['team'])
+        if 'jira_account_id' in fields:
+            jira_id = str(fields.get('jira_account_id') or '').strip()
+            jira_name = str(fields.get('jira_display_name') or '').strip()
+            if not jira_id:
+                target.pop('jira_account_id', None)
+                target.pop('jira_display_name', None)
+            elif jira_id_taken(jira_id, users, target.get('id')):
+                return None, 'Bu Jira şəxsi artıq başqa hesaba bağlıdır'
+            else:
+                target['jira_account_id'] = jira_id
+                if jira_name:
+                    target['jira_display_name'] = jira_name
         if 'jira_pat' in fields and fields['jira_pat'] is not None:
             token = str(fields.get('jira_pat') or '').strip()
             if token:
@@ -214,7 +407,9 @@ def delete_user(user_id, actor_id=None):
             return False, 'İstifadəçi tapılmadı'
         if actor_id and str(target.get('id')) == str(actor_id):
             return False, 'Öz hesabınızı silmək olmaz'
-        if target.get('role') == 'admin' and admin_count(users) <= 1:
+        if target.get('role') == 'superadmin':
+            return False, 'Superadmin hesabını silmək olmaz'
+        if target.get('role') in PRIVILEGED_ROLES and admin_count(users) <= 1:
             return False, 'Son admin hesabını silmək olmaz'
         store['users'] = [user for user in users if user is not target]
         save_store(store)
@@ -223,6 +418,8 @@ def delete_user(user_id, actor_id=None):
 
 def verify_login(username, password):
     user = find_user_by_username(username)
+    if not user:
+        user = find_user_by_display_name(username)
     if not user:
         return None
     if not check_password_hash(user.get('password_hash') or '', str(password or '')):
@@ -236,7 +433,7 @@ def bootstrap_users(admin_username, admin_password, dept_username='', dept_passw
     admin_name = normalize_username(admin_username) or 'admin'
     admin_pwd = str(admin_password or '')
     if admin_pwd:
-        create_user(admin_name, admin_pwd, 'Admin', 'admin', home_project)
+        create_user(admin_name, admin_pwd, 'Admin', 'superadmin', home_project, allow_superadmin=True)
     dept_name = normalize_username(dept_username)
     dept_pwd = str(dept_password or '')
     if dept_name and dept_pwd:

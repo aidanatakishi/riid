@@ -94,6 +94,75 @@ function fold(str) {
         .trim();
 }
 
+function viewerUser() {
+    return state.currentUser || null;
+}
+
+function firstNameOf(name) {
+    var parts = String(name || '').trim().split(/\s+/);
+    return parts[0] || '';
+}
+
+function viewerFirstName() {
+    var u = viewerUser();
+    if (!u) return '';
+    return u.firstName || firstNameOf(u.jiraDisplayName || u.displayName || u.username);
+}
+
+function samePerson(a, b) {
+    var fa = fold(a);
+    var fb = fold(b);
+    return !!(fa && fb && fa === fb);
+}
+
+function viewerAssigneeName() {
+    var u = viewerUser();
+    if (!u) return '';
+    var account = String(u.jiraAccountId || '').trim();
+    var labels = [u.jiraDisplayName, u.displayName].filter(Boolean);
+    var matched = '';
+    (state.allTasks || []).forEach(function(t) {
+        var asg = t && t.fields ? t.fields.assignee : null;
+        if (!asg) return;
+        var name = asg.displayName || '';
+        var aid = String(asg.accountId || asg.key || asg.name || '').trim();
+        if (account && aid && account === aid) matched = name || matched;
+        else if (!matched && name && labels.some(function(label) { return samePerson(label, name); })) {
+            matched = name;
+        }
+    });
+    return matched || u.jiraDisplayName || '';
+}
+
+function isViewerPerson(name) {
+    if (!name) return false;
+    var self = viewerAssigneeName();
+    var u = viewerUser();
+    if (self && samePerson(name, self)) return true;
+    return !!(u && (samePerson(name, u.jiraDisplayName) || samePerson(name, u.displayName)));
+}
+
+function isFirstPerson(qFold) {
+    return /(?:^| )(menim|mene|menimki|oz islerim|menim is|menim tapsiriq|menim veziyyet|menim sprint|menim gecik|menim blok)(?: |$)/.test(qFold)
+        || /^(menim|mene|ozum)\b/.test(qFold);
+}
+
+function viewerFact() {
+    var u = viewerUser();
+    if (!u) return null;
+    var jiraName = viewerAssigneeName() || u.jiraDisplayName || '';
+    return {
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName || u.username,
+        firstName: viewerFirstName(),
+        role: u.role,
+        jiraAccountId: u.jiraAccountId || '',
+        jiraDisplayName: jiraName,
+        linked: !!(u.jiraAccountId || jiraName)
+    };
+}
+
 function esc(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;')
@@ -418,6 +487,10 @@ function parseQuestion(raw) {
     var named = namedSprint(qFold, names);
     var entities = findEntities(qFold);
     var who = findPerson(qFold);
+    if (isFirstPerson(qFold)) {
+        var selfName = viewerAssigneeName() || (viewerUser() && (viewerUser().jiraDisplayName || viewerUser().displayName)) || '';
+        if (selfName && (!who || isViewerPerson(who))) who = selfName;
+    }
     var qurum = findQurum(qFold);
     var focus = findKpiFocus(qFold);
     var issueKey = findIssueKey(raw);
@@ -549,10 +622,12 @@ function dayWish() {
 
 function greetingLine() {
     var wish = dayWish();
+    var name = viewerFirstName();
+    var named = name ? (name + ', ') : '';
     var opts = [
-        'Salam, ' + wish + ', sizə necə kömək edə bilərəm?',
-        'Salam. ' + wish.charAt(0).toUpperCase() + wish.slice(1) + '. Sizə necə kömək edə bilərəm?',
-        'Salam, ' + wish + '. Panel üzrə nəyə baxaq?'
+        'Salam, ' + named + wish + ', sizə necə kömək edə bilərəm?',
+        'Salam, ' + named + wish.charAt(0).toUpperCase() + wish.slice(1) + '. Sizə necə kömək edə bilərəm?',
+        'Salam' + (name ? (', ' + name) : '') + ', ' + wish + '. Panel üzrə nəyə baxaq?'
     ];
     greetTick += 1;
     return opts[(greetTick + wish.length) % opts.length];
@@ -1077,8 +1152,17 @@ function formatThanks() {
 }
 
 function formatIdentity() {
-    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
-        + pLead('Gününüz xoş keçsin! Mən süni intellekt köməkçiniz AI Done-am. Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.');
+    var name = viewerFirstName();
+    var jira = viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName) || '';
+    var lead = 'Gününüz xoş keçsin! Mən süni intellekt köməkçiniz AI Done-am.';
+    if (name && jira) {
+        lead += ' Sizi Jira-da «' + jira + '» kimi tanıyıram — «mənim işlərim» deyəndə sizin tapşırıqlarınıza baxıram.';
+    } else if (name) {
+        lead += ' Sizi ' + name + ' kimi tanıyıram. Admin sizi Jira şəxsi ilə bağlayanda mənim işlərinizə də baxa bilərəm.';
+    } else {
+        lead += ' Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.';
+    }
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>' + pLead(lead);
 }
 
 function formatReport(kpis, ev) {
@@ -1281,21 +1365,44 @@ function writeKpiAttn(kpis, focus, n, ev) {
 function formatPeople(kpis, person, ev) {
     ev = ev || collectEvidence();
     if (person) {
-        var d = (kpis.view.people || {})[person] || { total: 0, done: 0, blocked: 0, late: 0, progress: 0 };
-        var mine = [].concat(ev.late, ev.blocked, ev.dueOpen).filter(function(it) { return it.who === person; });
+        var canon = person;
+        (ev.people || []).forEach(function(p) {
+            if (samePerson(p.name, person)) canon = p.name;
+        });
+        var d = (kpis.view.people || {})[canon] || (kpis.view.people || {})[person] || { total: 0, done: 0, blocked: 0, late: 0, progress: 0 };
+        if (!d.total && kpis.view.people) {
+            Object.keys(kpis.view.people).forEach(function(key) {
+                if (samePerson(key, person)) {
+                    d = kpis.view.people[key];
+                    canon = key;
+                }
+            });
+        }
+        var self = isViewerPerson(canon);
+        var mine = [].concat(ev.late, ev.blocked, ev.dueOpen).filter(function(it) { return samePerson(it.who, canon); });
         var seen = {};
         mine = mine.filter(function(it) {
             if (seen[it.key]) return false;
             seen[it.key] = true;
             return true;
         });
-        var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(person) + '</h4>'
-            + pLead(d.total
-                ? (person + ' bu kəsikdə ' + d.total + ' iş daşıyır — ümumi həcmin ' + pct(d.total, kpis.view.total) + '%-i. Yekunlaşma ' + pct(d.done, d.total) + '%-dir, aktiv icrada ' + d.progress + ' iş var.'
-                    + (d.late || d.blocked ? ' Risk: ' + (d.late ? d.late + ' gecikir' : '') + (d.late && d.blocked ? ', ' : '') + (d.blocked ? d.blocked + ' blokdadır' : '') + '.' : ''))
-                : (person + ' bu filterdə tapşırıqda görünmür. Sprint və ya istiqamət filterini yoxlayın.'));
-        if (mine.length) html += '<p class="dash-chat-sub">Onun açıq/riskli işləri</p>' + itemList(mine.slice(0, 6));
-        html += pAttn(d.late || d.blocked ? 'Bu icraçı üzrə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.' : '');
+        var title = self ? 'Sizin işləriniz' : canon;
+        var lead;
+        if (d.total) {
+            lead = self
+                ? ('Bu kəsikdə sizin üzərinizdə ' + d.total + ' iş var — ümumi həcmin ' + pct(d.total, kpis.view.total) + '%-i. Yekunlaşma ' + pct(d.done, d.total) + '%-dir, aktiv icrada ' + d.progress + ' işiniz qalır.'
+                    + (d.late || d.blocked ? ' Risk: ' + (d.late ? d.late + ' işiniz gecikir' : '') + (d.late && d.blocked ? ', ' : '') + (d.blocked ? d.blocked + ' blokdadır' : '') + '.' : ''))
+                : (canon + ' bu kəsikdə ' + d.total + ' iş daşıyır — ümumi həcmin ' + pct(d.total, kpis.view.total) + '%-i. Yekunlaşma ' + pct(d.done, d.total) + '%-dir, aktiv icrada ' + d.progress + ' iş var.'
+                    + (d.late || d.blocked ? ' Risk: ' + (d.late ? d.late + ' gecikir' : '') + (d.late && d.blocked ? ', ' : '') + (d.blocked ? d.blocked + ' blokdadır' : '') + '.' : ''));
+        } else if (self && !(viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName))) {
+            lead = 'Sizi panel hesabı kimi tanıyıram, amma Jira şəxsi hələ bağlanmayıb. Admin İstifadəçilər səhifəsindən sizi Jira-dakı adınızla bağlasın — sonra «mənim işlərim»ə baxa bilərəm.';
+        } else {
+            lead = (self ? 'Bu filterdə sizin tapşırığınız görünmür.' : (canon + ' bu filterdə tapşırıqda görünmür.'))
+                + ' Sprint və ya istiqamət filterini yoxlayın.';
+        }
+        var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(title) + '</h4>' + pLead(lead);
+        if (mine.length) html += '<p class="dash-chat-sub">' + (self ? 'Açıq/riskli işləriniz' : 'Onun açıq/riskli işləri') + '</p>' + itemList(mine.slice(0, 6));
+        html += pAttn(d.late || d.blocked ? (self ? 'Sizin üzərinizdə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.' : 'Bu icraçı üzrə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.') : '');
         return html;
     }
     var people = ev.people.length ? ev.people : peopleRank(kpis.view.people, 8);
@@ -1377,6 +1484,7 @@ function helpHtml(parsed) {
         + '<h4>Necə kömək edə bilərəm</h4>'
         + pLead('Mən AI Done-am. Sualı oxuyuram, idarəetmə panelindəki rəqəmlərlə düşünürəm və aydın cavab verirəm. Uydurma rəqəm yazmıram.')
         + '<ul class="dash-chat-help">'
+        + (viewerAssigneeName() ? '<li>Mənim işlərim necə gedir?</li>' : '')
         + '<li>Cari həftə üzrə icra vəziyyəti necədir?</li>'
         + '<li>Bloklanan və gecikən tapşırıqların sayı nə qədərdir?</li>'
         + '<li>İcraçılar üzrə iş yükü necə bölünüb?</li>'
@@ -1674,9 +1782,23 @@ function packChatFacts(local) {
     }
     var names = [];
     try { names = sprintList().slice(0, 12); } catch (e) { names = []; }
+    var viewer = viewerFact();
+    var mine = null;
+    if (viewer && ev) {
+        var selfName = viewer.jiraDisplayName || viewerAssigneeName();
+        mine = {
+            name: selfName,
+            stats: (ev.people || []).filter(function(p) { return samePerson(p.name, selfName); })[0] || null,
+            late: (ev.late || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 8),
+            blocked: (ev.blocked || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 8),
+            dueOpen: (ev.dueOpen || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 8)
+        };
+    }
     return {
         kind: (local.facts && local.facts.kind) || 'open',
         question: local.question || '',
+        viewer: viewer,
+        mine: mine,
         scope: ev && ev.kpis ? scopeNote(ev.kpis) : '',
         numbers: ev && ev.kpis ? compactKpis(ev.kpis) : ((local.facts && local.facts.kpis) || {}),
         people: ev ? ev.people : [],
@@ -1835,7 +1957,13 @@ function ensureUi() {
 }
 
 function welcomeHtml() {
-    return '<p>Gününüz xoş keçsin! Mən süni intellekt köməkçiniz <strong>AI Done</strong>-am. Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.</p>';
+    var name = viewerFirstName();
+    var jira = viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName) || '';
+    var hello = name ? ('Gününüz xoş keçsin, ' + esc(name) + '!') : 'Gününüz xoş keçsin!';
+    var extra = jira
+        ? ' Sizi Jira-da «' + esc(jira) + '» kimi tanıyıram. «Mənim işlərim» yazın — sizin tapşırıqlarınıza baxaram.'
+        : ' Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.';
+    return '<p>' + hello + ' Mən süni intellekt köməkçiniz <strong>AI Done</strong>-am.' + extra + '</p>';
 }
 
 function onChatAction(e) {
@@ -1879,9 +2007,13 @@ async function downloadChatReport() {
 function renderHints() {
     var box = document.getElementById('dashChatHints');
     if (!box) return;
+    var hints = SUGGESTIONS.slice();
+    if (viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName)) {
+        hints = ['Mənim işlərim necə gedir?'].concat(hints);
+    }
     box.innerHTML = '<p class="dash-chat-hints-label">Sürətli sorğular</p>'
         + '<div class="dash-chat-hints-grid">'
-        + SUGGESTIONS.map(function(s) {
+        + hints.map(function(s) {
             return '<button type="button" class="dash-chat-hint" data-q="' + esc(s) + '">' + esc(s) + '</button>';
         }).join('')
         + '</div>';

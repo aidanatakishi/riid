@@ -6,96 +6,122 @@
     <meta name="theme-color" content="#4c1d95">
     <title>İstifadəçilər — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/auth.css?v=idda57">
+    <link rel="stylesheet" href="/static/css/admin.css?v=idda83">
 </head>
-<body class="auth-page">
-    <div class="auth-wrap auth-wrap--wide">
-        <header class="auth-head">
-            <div>
-                <p class="auth-kicker">Admin panel</p>
-                <h1>İstifadəçilər</h1>
-                <p class="auth-sub">Hesab əlavə edin; layihə açarı və komandanı təyin edin</p>
+<body class="admin-page">
+    <div class="admin-shell">
+        <header class="admin-top">
+            <div class="admin-brand">
+                <span class="admin-mark" aria-hidden="true">Rİ</span>
+                <div>
+                    <h1>İstifadəçilər</h1>
+                    <p>Hesabları admin yaradır. Token yalnız superadmindədir</p>
+                </div>
             </div>
-            <div class="auth-head-actions">
-                <a class="auth-btn auth-btn--ghost" href="/">Dashboard</a>
-                <button type="button" class="auth-btn auth-btn--ghost" id="logoutBtn">Çıxış</button>
+            <div class="admin-top-actions">
+                <a class="admin-btn admin-btn--ghost" href="/">Panel</a>
+                <button type="button" class="admin-btn admin-btn--ghost" id="logoutBtn">Çıxış</button>
             </div>
         </header>
 
-        <div class="auth-card">
-            <h2 id="formTitle">Yeni istifadəçi</h2>
-            <p class="auth-error" id="formError"></p>
-            <form id="userForm">
-                <input type="hidden" id="userId" value="">
-                <div class="auth-grid">
-                    <div class="auth-field">
-                        <span>İstifadəçi adı</span>
-                        <input id="username" required minlength="3" autocomplete="off">
-                    </div>
-                    <div class="auth-field">
-                        <span>Göstərilən ad</span>
-                        <input id="displayName" autocomplete="off">
-                    </div>
-                    <div class="auth-field">
-                        <span>Parol</span>
-                        <input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="Ən azı 6 simvol">
-                    </div>
-                    <div class="auth-field">
-                        <span>Layihə açarı</span>
-                        <input id="projectKey" class="uppercase" value="DGD" placeholder="DGD" style="text-transform:uppercase">
-                    </div>
-                    <div class="auth-field">
-                        <span>Komanda</span>
-                        <select id="team">
-                            <option value="komplayns">Komplayns</option>
-                            <option value="koordinasiya">Koordinasiya</option>
-                            <option value="servis-dizayn">Servis dizayn</option>
-                        </select>
-                    </div>
-                    <div class="auth-field">
-                        <span>Rol</span>
-                        <select id="role">
-                            <option value="user">İstifadəçi</option>
-                            <option value="admin">Admin</option>
-                        </select>
-                    </div>
-                </div>
-                <p class="auth-hint">Layihə açarı Jira layihəsini, komanda isə Jira Component/s sahəsini seçir (Komplayns, Koordinasiya, Servis dizayn). Dashboard həmin komponentin tapşırıqlarını göstərir. Diaqnostika analitikası yalnız əsas layihədə (adətən DGD) və Komplayns komandasında görünür.</p>
-                <div class="auth-actions">
-                    <button type="submit" class="auth-btn auth-btn--primary" id="saveBtn">Əlavə et</button>
-                    <button type="button" class="auth-btn auth-btn--light hidden" id="cancelEditBtn">Ləğv et</button>
+        <section class="admin-panel admin-token hidden" id="tokenPanel">
+            <h2>Jira tokeni</h2>
+            <p class="admin-kicker">Bir dəfə yazın. Bütün əməkdaşlar bu tokenlə işləyir. Onlar token görmür və daxil olanda yazmırlar.</p>
+            <p class="admin-status" id="tokenStatus">Yoxlanılır…</p>
+            <p class="admin-error" id="tokenError"></p>
+            <form id="tokenForm">
+                <label class="admin-field">
+                    <span>Ümumi Jira token (PAT)</span>
+                    <input id="sharedPat" type="password" autocomplete="off" placeholder="Jira Personal Access Token">
+                </label>
+                <div class="admin-actions">
+                    <button type="submit" class="admin-btn admin-btn--primary" id="saveTokenBtn">Tokeni yadda saxla</button>
+                    <button type="button" class="admin-btn admin-btn--quiet hidden" id="clearTokenBtn">Ümumi tokeni sil</button>
                 </div>
             </form>
-        </div>
+        </section>
 
-        <div class="auth-card" style="margin-top:1rem;">
-            <h2>Mövcud hesablar</h2>
-            <p class="auth-error" id="listError"></p>
-            <div class="auth-table-wrap">
-                <table class="auth-table">
-                    <thead>
-                        <tr>
-                            <th>İstifadəçi</th>
-                            <th>Ad</th>
-                            <th>Rol</th>
-                            <th>Layihə</th>
-                            <th>Komanda</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody id="userRows"></tbody>
-                </table>
-            </div>
+        <div class="admin-grid">
+            <section class="admin-panel">
+                <h2 id="formTitle">Yeni hesab</h2>
+                <p class="admin-kicker" id="formHint">Komplayns seçəndə Jira-dakı həmin komponentin adları açılır. Siyahıda yoxdursa yalnız istifadəçi adı və parol yazılır.</p>
+                <p class="admin-error" id="formError"></p>
+                <form id="userForm">
+                    <input type="hidden" id="userId" value="">
+                    <input type="hidden" id="projectKey" value="DGD">
+                    <input type="hidden" id="jiraAccountId" value="">
+                    <input type="hidden" id="jiraDisplayName" value="">
+                    <div class="admin-fields">
+                        <div class="admin-row">
+                            <label class="admin-field">
+                                <span>Komanda</span>
+                                <select id="team">
+                                    <option value="komplayns">Komplayns</option>
+                                    <option value="koordinasiya">Koordinasiya</option>
+                                    <option value="servis-dizayn">Servis dizayn</option>
+                                </select>
+                            </label>
+                            <label class="admin-field">
+                                <span>Rol</span>
+                                <select id="role">
+                                    <option value="user">İstifadəçi</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </label>
+                        </div>
+                        <label class="admin-field" id="jiraFieldWrap">
+                            <span>Jira istifadəçisi</span>
+                            <select id="jiraPerson">
+                                <option value="">Yüklənir…</option>
+                            </select>
+                        </label>
+                        <p class="admin-note" id="modeNote"></p>
+                        <p class="admin-chip hidden" id="jiraChip"></p>
+                        <label class="admin-field">
+                            <span>İstifadəçi adı</span>
+                            <input id="username" required minlength="3" autocomplete="off">
+                        </label>
+                        <label class="admin-field">
+                            <span>Parol</span>
+                            <input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="Ən azı 6 simvol">
+                        </label>
+                        <div class="admin-actions">
+                            <button type="submit" class="admin-btn admin-btn--primary" id="saveBtn">Əlavə et</button>
+                            <button type="button" class="admin-btn admin-btn--quiet hidden" id="cancelEditBtn">Ləğv et</button>
+                        </div>
+                    </div>
+                </form>
+            </section>
+
+            <section class="admin-panel">
+                <h2>Mövcud hesablar</h2>
+                <p class="admin-kicker">Jira adı bağlıdırsa chatbot həmin şəxslə danışır.</p>
+                <p class="admin-error" id="listError"></p>
+                <div class="admin-list" id="userRows"></div>
+            </section>
         </div>
     </div>
     <script>
     var editingId = '';
     var homeProjectKey = 'DGD';
+    var peopleCache = {};
+    var peopleLoading = false;
+
     function showError(id, msg) {
         var el = document.getElementById(id);
         if (!el) return;
         el.textContent = msg || '';
         el.classList.toggle('is-on', !!msg);
+    }
+    function esc(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function initials(name) {
+        var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return 'U';
+        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
     function api(url, opts) {
         opts = opts || {};
@@ -109,70 +135,229 @@
             });
         });
     }
+    function setTokenStatus(hasToken, hasStoreToken) {
+        var status = document.getElementById('tokenStatus');
+        var clearBtn = document.getElementById('clearTokenBtn');
+        if (hasToken) {
+            status.textContent = 'Token aktivdir. İstifadəçilər daxil olanda PAT yazmayacaqlar.';
+            status.className = 'admin-status is-ok';
+        } else {
+            status.textContent = 'Token yoxdur. Bir dəfə yazın ki, hər kəs rahat daxil olsun.';
+            status.className = 'admin-status is-warn';
+        }
+        clearBtn.classList.toggle('hidden', !hasStoreToken);
+    }
+    function loadTokenStatus() {
+        return api('/api/jira/token').then(function(res) {
+            if (!res.ok) return;
+            setTokenStatus(!!res.data.hasToken, !!res.data.hasSharedToken);
+        });
+    }
+    function isKomplayns() {
+        return document.getElementById('team').value === 'komplayns';
+    }
+    function cacheKey() {
+        var project = String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase();
+        return project + ':komplayns';
+    }
+    function personById(accountId) {
+        if (!accountId) return null;
+        var list = (peopleCache[cacheKey()] || []).slice();
+        if (peopleCache._extra) list.push(peopleCache._extra);
+        var i;
+        for (i = 0; i < list.length; i++) {
+            if (String(list[i].accountId || '') === String(accountId)) return list[i];
+        }
+        return null;
+    }
+    function selectedPerson() {
+        var sel = document.getElementById('jiraPerson');
+        return personById(sel ? sel.value : '');
+    }
+    function setJiraHidden(accountId, displayName) {
+        document.getElementById('jiraAccountId').value = accountId || '';
+        document.getElementById('jiraDisplayName').value = displayName || '';
+        var chip = document.getElementById('jiraChip');
+        if (accountId && displayName) {
+            chip.textContent = 'Jira: ' + displayName;
+            chip.classList.remove('hidden');
+        } else {
+            chip.textContent = '';
+            chip.classList.add('hidden');
+        }
+    }
+    function applyMode() {
+        var komplayns = isKomplayns();
+        var person = selectedPerson();
+        var jiraWrap = document.getElementById('jiraFieldWrap');
+        var note = document.getElementById('modeNote');
+        var username = document.getElementById('username');
+        jiraWrap.classList.toggle('hidden', !komplayns);
+        if (!komplayns) {
+            document.getElementById('jiraPerson').value = '';
+            setJiraHidden('', '');
+            note.textContent = 'Bu komanda üçün Jira siyahısı yoxdur. Yalnız istifadəçi adı və parol təyin olunur.';
+            return;
+        }
+        if (person && person.accountId) {
+            if (!editingId && person.suggestedUsername && !username.dataset.locked) {
+                username.value = person.suggestedUsername;
+            }
+            setJiraHidden(person.accountId, person.displayName || '');
+            if (person.linkedUserId && person.linkedUserId !== editingId) {
+                note.textContent = 'Bu Jira şəxsinin artıq hesabı var (' + (person.linkedUsername || '') + '). Başqasını seçin və ya mövcud hesabı redaktə edin.';
+            } else {
+                note.textContent = 'Hesab Jira-dakı «' + (person.displayName || '') + '» ilə bağlanacaq. Chatbot onu bu adla tanıyacaq.';
+            }
+        } else {
+            setJiraHidden('', '');
+            note.textContent = 'Siyahıda yoxdursa yalnız istifadəçi adı və parol yazın. Jira ilə bağlanmayacaq.';
+        }
+    }
+    function fillPeopleOptions(people, selectedId) {
+        var sel = document.getElementById('jiraPerson');
+        sel.innerHTML = '';
+        var empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = 'Siyahıda yoxdur — statik hesab';
+        sel.appendChild(empty);
+        var found = false;
+        (people || []).forEach(function(person) {
+            var opt = document.createElement('option');
+            opt.value = person.accountId || '';
+            opt.textContent = (person.displayName || person.accountId || '')
+                + (person.linkedUsername ? ' — hesab var' : '');
+            if (selectedId && String(person.accountId) === String(selectedId)) {
+                opt.selected = true;
+                found = true;
+            }
+            sel.appendChild(opt);
+        });
+        if (selectedId && !found) {
+            peopleCache._extra = {
+                accountId: selectedId,
+                displayName: document.getElementById('jiraDisplayName').value || selectedId,
+                suggestedUsername: '',
+                linkedUserId: editingId,
+                linkedUsername: ''
+            };
+            var extra = document.createElement('option');
+            extra.value = selectedId;
+            extra.selected = true;
+            extra.textContent = peopleCache._extra.displayName;
+            sel.appendChild(extra);
+        } else {
+            peopleCache._extra = null;
+        }
+        applyMode();
+    }
+    function loadPeople() {
+        if (!isKomplayns()) {
+            applyMode();
+            return Promise.resolve();
+        }
+        var project = String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase();
+        var key = cacheKey();
+        if (peopleCache[key]) {
+            fillPeopleOptions(peopleCache[key], document.getElementById('jiraAccountId').value);
+            return Promise.resolve();
+        }
+        var sel = document.getElementById('jiraPerson');
+        sel.innerHTML = '<option value="">Yüklənir…</option>';
+        peopleLoading = true;
+        return api('/api/jira/component-people?team=komplayns&project=' + encodeURIComponent(project)).then(function(res) {
+            peopleLoading = false;
+            if (!res.ok) {
+                sel.innerHTML = '<option value="">Siyahıda yoxdur — statik hesab</option>';
+                showError('formError', (res.data && res.data.error) || 'Jira istifadəçiləri yüklənmədi');
+                applyMode();
+                return;
+            }
+            peopleCache[key] = res.data.people || [];
+            fillPeopleOptions(peopleCache[key], document.getElementById('jiraAccountId').value);
+        }).catch(function() {
+            peopleLoading = false;
+            sel.innerHTML = '<option value="">Siyahıda yoxdur — statik hesab</option>';
+            applyMode();
+        });
+    }
     function resetForm() {
         editingId = '';
         document.getElementById('userId').value = '';
         document.getElementById('username').value = '';
-        document.getElementById('displayName').value = '';
+        document.getElementById('username').dataset.locked = '';
         document.getElementById('password').value = '';
         document.getElementById('password').placeholder = 'Ən azı 6 simvol';
         document.getElementById('password').required = true;
         document.getElementById('projectKey').value = homeProjectKey;
         document.getElementById('team').value = 'komplayns';
         document.getElementById('role').value = 'user';
-        document.getElementById('formTitle').textContent = 'Yeni istifadəçi';
+        document.getElementById('role').disabled = false;
+        setJiraHidden('', '');
+        document.getElementById('formTitle').textContent = 'Yeni hesab';
         document.getElementById('saveBtn').textContent = 'Əlavə et';
         document.getElementById('cancelEditBtn').classList.add('hidden');
         showError('formError', '');
+        loadPeople();
     }
     function fillEdit(user) {
         editingId = user.id;
         document.getElementById('username').value = user.username || '';
-        document.getElementById('displayName').value = user.displayName || '';
+        document.getElementById('username').dataset.locked = '1';
         document.getElementById('password').value = '';
         document.getElementById('password').required = false;
         document.getElementById('password').placeholder = 'Boş saxlasanız dəyişməz';
         document.getElementById('projectKey').value = user.projectKey || homeProjectKey;
         document.getElementById('team').value = user.team || 'komplayns';
         document.getElementById('role').value = user.role === 'admin' ? 'admin' : 'user';
-        document.getElementById('formTitle').textContent = 'İstifadəçini redaktə et';
+        document.getElementById('role').disabled = user.role === 'superadmin';
+        setJiraHidden(user.jiraAccountId || '', user.jiraDisplayName || '');
+        document.getElementById('formTitle').textContent = 'Hesabı redaktə et';
         document.getElementById('saveBtn').textContent = 'Yadda saxla';
         document.getElementById('cancelEditBtn').classList.remove('hidden');
         showError('formError', '');
+        loadPeople();
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     function renderRows(users) {
-        var tbody = document.getElementById('userRows');
-        tbody.innerHTML = '';
+        var box = document.getElementById('userRows');
+        box.innerHTML = '';
+        if (!(users || []).length) {
+            box.innerHTML = '<p class="admin-empty">Hələ hesab yoxdur</p>';
+            return;
+        }
         (users || []).forEach(function(user) {
-            var tr = document.createElement('tr');
-            var roleClass = user.role === 'admin' ? 'auth-badge' : 'auth-badge is-user';
-            tr.innerHTML =
-                '<td>' + esc(user.username) + '</td>' +
-                '<td>' + esc(user.displayName || '') + '</td>' +
-                '<td><span class="' + roleClass + '">' + (user.role === 'admin' ? 'Admin' : 'İstifadəçi') + '</span></td>' +
-                '<td>' + esc(user.projectKey || '') + '</td>' +
-                '<td>' + esc(user.teamLabel || user.team || '') + '</td>' +
-                '<td class="auth-row-actions"></td>';
-            var actions = tr.querySelector('.auth-row-actions');
+            var row = document.createElement('article');
+            var privileged = user.role === 'admin' || user.role === 'superadmin';
+            row.className = 'admin-person' + (privileged ? ' is-admin' : '');
+            var jira = user.jiraDisplayName || '';
+            var name = user.username || user.displayName || '';
+            var roleText = user.roleLabel || (user.role === 'superadmin' ? 'Superadmin' : (user.role === 'admin' ? 'Admin' : 'İstifadəçi'));
+            row.innerHTML =
+                '<span class="admin-avatar">' + esc(initials(name)) + '</span>' +
+                '<div><h3>' + esc(name) + '</h3>' +
+                '<div class="admin-meta">' +
+                '<span class="admin-badge' + (privileged ? ' is-admin' : '') + '">' + esc(roleText) + '</span>' +
+                '<span class="admin-badge">' + esc(user.teamLabel || user.team || '') + '</span>' +
+                (jira ? '<span class="admin-badge is-jira">' + esc(jira) + '</span>' : '') +
+                '</div></div><div class="admin-person-actions"></div>';
+            var actions = row.querySelector('.admin-person-actions');
             var editBtn = document.createElement('button');
             editBtn.type = 'button';
-            editBtn.className = 'auth-btn auth-btn--light';
+            editBtn.className = 'admin-btn admin-btn--ghost';
             editBtn.textContent = 'Redaktə';
             editBtn.addEventListener('click', function() { fillEdit(user); });
-            var delBtn = document.createElement('button');
-            delBtn.type = 'button';
-            delBtn.className = 'auth-btn auth-btn--danger';
-            delBtn.textContent = 'Sil';
-            delBtn.addEventListener('click', function() { removeUser(user); });
             actions.appendChild(editBtn);
-            actions.appendChild(delBtn);
-            tbody.appendChild(tr);
+            if (user.role !== 'superadmin') {
+                var delBtn = document.createElement('button');
+                delBtn.type = 'button';
+                delBtn.className = 'admin-btn admin-btn--danger';
+                delBtn.textContent = 'Sil';
+                delBtn.addEventListener('click', function() { removeUser(user); });
+                actions.appendChild(delBtn);
+            }
+            box.appendChild(row);
         });
-    }
-    function esc(s) {
-        return String(s == null ? '' : s)
-            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
     function loadUsers() {
         return api('/api/users').then(function(res) {
@@ -180,14 +365,16 @@
                 showError('listError', (res.data && res.data.error) || 'Siyahı yüklənmədi');
                 return;
             }
-            if (res.data.homeProjectKey) homeProjectKey = res.data.homeProjectKey;
-            if (!editingId) document.getElementById('projectKey').value = homeProjectKey;
+            if (res.data.homeProjectKey) {
+                homeProjectKey = res.data.homeProjectKey;
+                if (!editingId) document.getElementById('projectKey').value = homeProjectKey;
+            }
             renderRows(res.data.users || []);
         });
     }
     function removeUser(user) {
         if (!user || !user.id) return;
-        if (!confirm(user.username + ' hesabı silinsin?')) return;
+        if (!confirm((user.username || user.displayName) + ' hesabı silinsin?')) return;
         api('/api/users/' + encodeURIComponent(user.id), { method: 'DELETE' }).then(function(res) {
             if (!res.ok) {
                 showError('listError', (res.data && res.data.error) || 'Silinmədi');
@@ -197,6 +384,14 @@
             loadUsers();
         });
     }
+    document.getElementById('team').addEventListener('change', function() {
+        showError('formError', '');
+        loadPeople();
+    });
+    document.getElementById('jiraPerson').addEventListener('change', applyMode);
+    document.getElementById('username').addEventListener('input', function() {
+        document.getElementById('username').dataset.locked = '1';
+    });
     document.getElementById('cancelEditBtn').addEventListener('click', resetForm);
     document.getElementById('logoutBtn').addEventListener('click', function() {
         api('/api/auth/logout', { method: 'POST' }).finally(function() {
@@ -208,12 +403,21 @@
         var btn = document.getElementById('saveBtn');
         btn.disabled = true;
         showError('formError', '');
+        var person = isKomplayns() ? selectedPerson() : null;
+        if (person && person.linkedUserId && person.linkedUserId !== editingId) {
+            btn.disabled = false;
+            showError('formError', 'Bu Jira şəxsinin artıq hesabı var.');
+            return;
+        }
+        var username = document.getElementById('username').value;
         var payload = {
-            username: document.getElementById('username').value,
-            displayName: document.getElementById('displayName').value,
-            projectKey: String(document.getElementById('projectKey').value || '').toUpperCase(),
+            username: username,
+            displayName: username,
+            projectKey: String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase(),
             team: document.getElementById('team').value || 'komplayns',
-            role: document.getElementById('role').value
+            role: document.getElementById('role').value,
+            jiraAccountId: person && person.accountId ? person.accountId : '',
+            jiraDisplayName: person && person.displayName ? person.displayName : ''
         };
         var password = document.getElementById('password').value;
         if (password) payload.password = password;
@@ -242,6 +446,7 @@
                 showError('formError', (res.data && res.data.error) || 'Yadda saxlanılmadı');
                 return;
             }
+            peopleCache = {};
             resetForm();
             loadUsers();
         }).catch(function() {
@@ -249,12 +454,55 @@
             showError('formError', 'Serverə qoşulmaq mümkün olmadı');
         });
     });
+    document.getElementById('tokenForm').addEventListener('submit', function(ev) {
+        ev.preventDefault();
+        var btn = document.getElementById('saveTokenBtn');
+        var token = document.getElementById('sharedPat').value;
+        btn.disabled = true;
+        showError('tokenError', '');
+        api('/api/jira/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pat: token })
+        }).then(function(res) {
+            btn.disabled = false;
+            if (!res.ok) {
+                showError('tokenError', (res.data && res.data.error) || 'Token yadda saxlanılmadı');
+                return;
+            }
+            document.getElementById('sharedPat').value = '';
+            setTokenStatus(true, true);
+            peopleCache = {};
+            loadPeople();
+        }).catch(function() {
+            btn.disabled = false;
+            showError('tokenError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    });
+    document.getElementById('clearTokenBtn').addEventListener('click', function() {
+        if (!confirm('Ümumi Jira tokeni silinsin? İstifadəçilər yenidən token yazmalı ola bilər.')) return;
+        api('/api/jira/token', { method: 'DELETE' }).then(function(res) {
+            if (!res.ok) {
+                showError('tokenError', (res.data && res.data.error) || 'Silinmədi');
+                return;
+            }
+            setTokenStatus(!!res.data.hasToken, false);
+            peopleCache = {};
+            loadPeople();
+        });
+    });
     api('/api/auth/me').then(function(res) {
         if (!res.ok || !res.data.authenticated) { window.location.href = '/login'; return; }
-        if (!res.data.user || res.data.user.role !== 'admin') { window.location.href = '/'; return; }
+        var me = res.data.user || {};
+        if (!(me.canManageUsers || me.role === 'admin' || me.role === 'superadmin')) { window.location.href = '/'; return; }
         if (res.data.homeProjectKey) homeProjectKey = res.data.homeProjectKey;
-        resetForm();
+        document.getElementById('projectKey').value = homeProjectKey;
+        var tech = !!(me.canManageTech || me.role === 'superadmin');
+        var tokenPanel = document.getElementById('tokenPanel');
+        if (tokenPanel) tokenPanel.classList.toggle('hidden', !tech);
+        if (tech) loadTokenStatus();
         loadUsers();
+        loadPeople();
     });
     </script>
 </body>

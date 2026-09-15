@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js';
-import { normalizeStr, showToast, showSettings, hideSettings } from './utils.js';
+import { normalizeStr, showToast, hideSettings } from './utils.js';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, hasTeamComponent } from './model.js';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js';
 
@@ -42,8 +42,8 @@ function readProxyInput() {
 
 function saveClientCredentials(baseUrl, pat, projectKey) {
     if (baseUrl) localStorage.setItem('jiraBaseUrl', baseUrl);
-    if (pat) localStorage.setItem('jiraPat', pat);
     if (projectKey) localStorage.setItem('jiraProjectKey', projectKey);
+    localStorage.removeItem('jiraPat');
     var proxy = readProxyInput();
     if (proxy) localStorage.setItem('jiraProxyUrl', proxy);
     else localStorage.removeItem('jiraProxyUrl');
@@ -269,7 +269,7 @@ var jqlInflight = {};
 var lastJqlCache = { key: '', data: null };
 
 export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
-    if (!hasJiraAuth(pat)) throw new Error('Ayarlardan PAT daxil edin.');
+    if (!hasJiraAuth(pat)) throw new Error('Jira hələ qurulmayıb.');
     var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + searchFieldsList();
     if (jqlInflight[cacheKey]) return jqlInflight[cacheKey];
     if (!expandChangelog && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
@@ -621,13 +621,11 @@ function readDashboardCredentials() {
 export async function loadAssessmentCreatedRange(startIso, endIso) {
     var creds = readDashboardCredentials();
     if (!creds.baseUrl || !creds.projectKey) {
-        showSettings();
-        showToast('Zəhmət olmasa Jira URL və layihə kodunu daxil edin!', 'error');
+        showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error');
         return false;
     }
     if (!hasJiraAuth(creds.pat)) {
-        showSettings();
-        showToast('Ayarlardan PAT daxil edin.', 'error');
+        showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error');
         return false;
     }
     saveClientCredentials(creds.baseUrl, creds.pat, creds.projectKey);
@@ -661,8 +659,8 @@ export async function fetchDashboardData(opts) {
      var baseUrl = document.getElementById('baseUrl').value;
      var pat = document.getElementById('pat').value;
      var projectKey = document.getElementById('projectKey').value.toUpperCase();
-     if (!baseUrl || !projectKey) { showSettings(); showToast('Zəhmət olmasa Jira URL və layihə kodunu daxil edin!', 'error'); return; }
-     if (!hasJiraAuth(pat)) { showSettings(); showToast('Ayarlardan PAT daxil edin.', 'error'); return; }
+     if (!baseUrl || !projectKey) { showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error'); return; }
+     if (!hasJiraAuth(pat)) { showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error'); return; }
      saveClientCredentials(baseUrl, pat, projectKey);
      await rememberCurrentProject();
      state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;

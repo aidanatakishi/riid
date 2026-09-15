@@ -126,6 +126,45 @@ body.auth-page {
     grid-template-columns: 1fr 1fr;
     gap: 0 0.85rem;
 }
+.auth-field--full { grid-column: 1 / -1; }
+.auth-jira-picked {
+    margin: 0.35rem 0 0;
+    font-size: 0.8rem;
+    color: #5b21b6;
+    font-weight: 600;
+}
+.auth-jira-picked button {
+    margin-left: 0.5rem;
+    border: 0;
+    background: transparent;
+    color: #9f1239;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 600;
+}
+.auth-jira-results {
+    margin-top: 0.4rem;
+    border: 1px solid #ede9fe;
+    border-radius: 12px;
+    background: #fff;
+    max-height: 220px;
+    overflow: auto;
+}
+.auth-jira-hit {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid #f5f3ff;
+    background: transparent;
+    padding: 0.65rem 0.75rem;
+    cursor: pointer;
+    font: inherit;
+}
+.auth-jira-hit:last-child { border-bottom: 0; }
+.auth-jira-hit:hover { background: #f5f3ff; }
+.auth-jira-hit strong { display: block; color: #4c1d95; font-size: 0.88rem; }
+.auth-jira-hit span { color: #64748b; font-size: 0.75rem; }
 .auth-actions {
     display: flex;
     gap: 0.6rem;

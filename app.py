@@ -53,8 +53,8 @@ from config import (
     DEPT_DISPLAY_NAME,
     JIRA_PROJECT_KEY,
 )
-from routes import api, can_see_diagnostics
-from users import bootstrap_users
+from routes import api, can_see_diagnostics, is_app_admin
+from users import bootstrap_users, ensure_superadmin
 
 app = Flask(__name__)
 
@@ -91,6 +91,7 @@ bootstrap_users(
     DEPT_DISPLAY_NAME,
     JIRA_PROJECT_KEY or 'DGD',
 )
+ensure_superadmin()
 
 OPEN_PATHS = {
     '/login',
@@ -153,7 +154,7 @@ def serve_login():
 
 @app.route('/admin')
 def serve_admin_users():
-    if session.get('role') != 'admin':
+    if not is_app_admin():
         return redirect('/')
     return render_template('admin.html')
 
