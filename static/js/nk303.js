@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda34';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda35';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -3414,10 +3414,10 @@ function exqBarChartHeightRem(qurums) {
     var rows = qurums || [];
     var lines = 1;
     rows.forEach(function(q) {
-        lines = Math.max(lines, wrapAxisLabel(exqQurumLabel(q), 22).length);
+        lines = Math.max(lines, wrapAxisLabel(exqQurumLabel(q), 26).length);
     });
     var n = Math.max(rows.length, 1);
-    return Math.max(18, n * (1.2 + lines * 0.82) + 3.2);
+    return Math.max(12.2, n * (0.92 + lines * 0.58) + 2.2);
 }
 
 function collapseExqHubRows(list, keepUnevaluated) {
@@ -3739,19 +3739,28 @@ function meqsedHubExtraHtml(st) {
     var orgs = st.topQurums || [];
     var max = orgs.length ? (orgs[0].n || 1) : 1;
     var orgHtml = orgs.length
-        ? '<ul class="nk303-orgshare">' + orgs.map(function(row) {
+        ? '<ul class="nk303-orgshare">' + orgs.map(function(row, i) {
             var w = max ? Math.round((row.n / max) * 100) : 0;
             return '<li><button type="button" onclick="nk303Call(\'hubSearch\',\'' + qarg(row.name || '') + '\')">'
+                + '<em>' + (i + 1) + '</em>'
                 + '<span title="' + esc(row.name) + '">' + esc(row.name) + '</span>'
                 + '<div class="trk" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
                 + '<b>' + esc(String(row.n || 0)) + '</b>'
                 + '</button></li>';
         }).join('') + '</ul>'
         : '<p class="nk303-empty">' + esc(NA) + '</p>';
-    return '<div class="nk303-mid nk303-mid--two">'
-        + '<section class="nk303-card"><h3>Aylıq axın</h3>'
+    return '<div class="nk303-mid nk303-mid--two nk303-mid--meqsed-extra">'
+        + '<section class="nk303-card">'
+        + '<div class="nk303-extra-head">'
+        + '<h3>Aylıq axın</h3>'
+        + '<ul class="nk303-mini-legend" aria-label="Rəy rəngləri">'
+        + '<li><i style="background:#5b21b6"></i>Müsbət</li>'
+        + '<li><i style="background:#dc2626"></i>Mənfi</li>'
+        + '<li><i style="background:#d97706"></i>Düzəliş</li>'
+        + '<li><i style="background:#64748b"></i>İcradadır</li>'
+        + '</ul></div>'
         + (hasMonth
-            ? '<div class="nk303-chart nk303-chart--trend" style="height:13rem"><canvas id="meqsedMonthChart" aria-label="Aylıq müraciət axını"></canvas></div>'
+            ? '<div class="nk303-chart nk303-chart--trend nk303-chart--month"><canvas id="meqsedMonthChart" aria-label="Aylıq müraciət axını"></canvas></div>'
             : '<p class="nk303-empty">' + esc(NA) + '</p>')
         + '</section>'
         + '<section class="nk303-card"><h3>Ən çox müraciət edən qurumlar</h3>'
@@ -3851,7 +3860,7 @@ function hubBodyHtml(view) {
                 ? hubExqGaugeHtml(avg, isqFormula)
                 : hubGaugeHtml(avg, isRadar)));
     return hubKpisHtml(view)
-        + '<div class="nk303-mid">'
+        + '<div class="nk303-mid' + (view.section === 'exq' ? ' nk303-mid--exq' : '') + (view.section === 'meqsed' ? ' nk303-mid--meqsed' : '') + '">'
         + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
         + gaugeHtml
         + '</section>'
@@ -3861,7 +3870,7 @@ function hubBodyHtml(view) {
         + '<section class="nk303-card nk303-card--status"><h3>' + esc(statusTitle) + '</h3>'
         + (view.section === 'meqsed'
             ? '<p class="nk303-hint" style="margin-top:0">Yeni / mövcud və sistem / xidmət kəsimi</p>'
-                + '<div class="nk303-chart nk303-chart--trend" style="height:13rem"><canvas id="nkHubLife"></canvas></div>'
+                + '<div class="nk303-chart nk303-chart--trend" style="height:9.2rem"><canvas id="nkHubLife"></canvas></div>'
             : '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>')
         + legend
         + (view.section === 'meqsed' ? '' : ('<div class="nk303-complete is-click" onclick="nk303Call(\'hubFilter\',\'done\')" title="Tamamlanmış qiymətləndirmələrə bax">'
@@ -4046,7 +4055,7 @@ function drawHubCharts(view) {
             makeHubChart('nkHubBars', {
                 type: 'bar',
                 data: {
-                    labels: qurums.map(function(q) { return wrapAxisLabel(exqQurumLabel(q), 22); }),
+                    labels: qurums.map(function(q) { return wrapAxisLabel(exqQurumLabel(q), 26); }),
                     datasets: [{
                         data: qurums.map(function(q) {
                             return q.score != null && isFinite(q.score) ? q.score : 0;
@@ -4056,7 +4065,7 @@ function drawHubCharts(view) {
                         }),
                         borderRadius: 6,
                         borderSkipped: false,
-                        maxBarThickness: 18,
+                        maxBarThickness: 14,
                         clip: false
                     }]
                 },

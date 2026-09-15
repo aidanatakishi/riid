@@ -4,7 +4,7 @@ import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueTh
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, closeEsdStagePopup } from './charts.js?v=idda19';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js';
-import { renderAssessmentSections } from './assessments.js?v=idda34';
+import { renderAssessmentSections } from './assessments.js?v=idda35';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;

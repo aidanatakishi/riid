@@ -3563,10 +3563,11 @@ function drawMeqsedMonthChart(stats) {
                     label: it.label,
                     data: months.map(function(m) { return (m && m[it.key]) || 0; }),
                     backgroundColor: it.color,
-                    borderRadius: 3,
+                    borderRadius: 5,
                     borderSkipped: false,
-                    barPercentage: 0.72,
-                    categoryPercentage: 0.86,
+                    barPercentage: 0.78,
+                    categoryPercentage: 0.78,
+                    maxBarThickness: 28,
                     _filter: it.filter
                 };
             })
@@ -3576,6 +3577,8 @@ function drawMeqsedMonthChart(stats) {
             animations: false,
             responsive: true,
             maintainAspectRatio: false,
+            clip: false,
+            layout: { padding: { top: 12, right: 6, left: 2 } },
             plugins: {
                 legend: { display: false },
                 tooltip: {
@@ -3599,8 +3602,9 @@ function drawMeqsedMonthChart(stats) {
                 y: {
                     stacked: true,
                     beginAtZero: true,
+                    grace: '18%',
                     ticks: { precision: 0, color: '#94a3b8', font: { size: 10 } },
-                    grid: { color: 'rgba(148, 163, 184, 0.18)' },
+                    grid: { color: 'rgba(148, 163, 184, 0.14)' },
                     border: { display: false }
                 }
             },
