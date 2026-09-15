@@ -9,7 +9,7 @@ import { loadDocxLib, exportTasksToWord } from './report.js';
 import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda27';
 import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda69';
 import { initChat } from './chat.js?v=idda17';
-import { applySessionChrome, logoutApp, rememberCurrentProject } from './session.js?v=idda2';
+import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda3';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 state.onViewChange = persistViewState;
@@ -160,6 +160,8 @@ Object.defineProperty(window, 'filteredTasks', {
 });
 
 window.onload = async function() {
+    var authed = await requireSession();
+    if (!authed) return;
     var u = localStorage.getItem('jiraBaseUrl');
     if (u) document.getElementById('baseUrl').value = u;
     try { localStorage.removeItem('jiraPat'); } catch (e) {}

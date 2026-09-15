@@ -1,6 +1,10 @@
-# Statik dashboard. Jira sorğuları brauzerdən gedir (hər kəs öz tokenini yazır).
-# Server-də JIRA_PAT lazım deyil.
+# Statik site. Giriş səhifəsi də yığılır; hesab yoxlaması Flask-dadır (python app.py).
 
 [build]
   command = "python netlify/build.py"
   publish = "site"
+
+[[redirects]]
+  from = "/login"
+  to = "/login.html"
+  status = 200

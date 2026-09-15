@@ -77,6 +77,7 @@ def _persist_secret_key():
 
 app.secret_key = _persist_secret_key()
 app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '').lower() in ('1', 'true', 'yes')
@@ -137,6 +138,11 @@ def add_cors_headers(resp):
     resp.headers['Access-Control-Allow-Private-Network'] = 'true'
     resp.headers['Access-Control-Max-Age'] = '600'
     resp.headers['Vary'] = 'Origin'
+    ctype = str(resp.content_type or '')
+    if 'text/html' in ctype:
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
     return resp
 
 

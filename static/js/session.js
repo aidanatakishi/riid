@@ -1,6 +1,12 @@
 import { state } from './state.js';
 import { currentTeamId, normalizeTeamId } from './model.js';
 
+export function loginPath() {
+    var host = String(location.hostname || '');
+    if (/netlify\.app$/i.test(host)) return '/login.html';
+    return '/login';
+}
+
 export function apiFetch(url, opts) {
     opts = opts || {};
     if (!opts.credentials) opts.credentials = 'same-origin';
@@ -12,11 +18,28 @@ export function apiFetch(url, opts) {
                 && path.indexOf('/api/auth/status') === -1
                 && path.indexOf('/api/auth/setup') === -1
             ) {
-                window.location.href = '/login';
+                window.location.href = loginPath();
             }
         }
         return res;
     });
+}
+
+export async function requireSession() {
+    var host = String(location.hostname || '');
+    if (/netlify\.app$/i.test(host)) {
+        if (String(location.pathname || '').indexOf('login') === -1) {
+            window.location.replace(loginPath());
+        }
+        return false;
+    }
+    try {
+        var res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+        var data = await res.json();
+        if (data && data.authenticated) return true;
+    } catch (e) { /* fall through to login */ }
+    window.location.replace(loginPath());
+    return false;
 }
 
 export function currentProjectKey() {
@@ -128,5 +151,5 @@ export async function logoutApp() {
     try {
         await apiFetch('/api/auth/logout', { method: 'POST' });
     } catch (e) { /* still leave the page */ }
-    window.location.href = '/login';
+    window.location.href = loginPath();
 }
