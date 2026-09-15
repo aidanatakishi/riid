@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#4c1d95">
     <title>İstifadəçilər — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/admin.css?v=idda83">
+    <link rel="stylesheet" href="/static/css/admin.css?v=idda84">
 </head>
 <body class="admin-page">
     <div class="admin-shell">
@@ -331,11 +331,13 @@
             var privileged = user.role === 'admin' || user.role === 'superadmin';
             row.className = 'admin-person' + (privileged ? ' is-admin' : '');
             var jira = user.jiraDisplayName || '';
-            var name = user.username || user.displayName || '';
+            var name = jira || user.displayName || user.username || '';
+            var loginName = user.username || '';
             var roleText = user.roleLabel || (user.role === 'superadmin' ? 'Superadmin' : (user.role === 'admin' ? 'Admin' : 'İstifadəçi'));
             row.innerHTML =
                 '<span class="admin-avatar">' + esc(initials(name)) + '</span>' +
                 '<div><h3>' + esc(name) + '</h3>' +
+                (loginName ? '<p>Giriş: ' + esc(loginName) + '</p>' : '') +
                 '<div class="admin-meta">' +
                 '<span class="admin-badge' + (privileged ? ' is-admin' : '') + '">' + esc(roleText) + '</span>' +
                 '<span class="admin-badge">' + esc(user.teamLabel || user.team || '') + '</span>' +
@@ -409,15 +411,17 @@
             showError('formError', 'Bu Jira şəxsinin artıq hesabı var.');
             return;
         }
-        var username = document.getElementById('username').value;
+        var username = document.getElementById('username').value.trim();
+        var jiraId = (person && person.accountId) || document.getElementById('jiraAccountId').value || '';
+        var jiraName = (person && person.displayName) || document.getElementById('jiraDisplayName').value || '';
         var payload = {
             username: username,
-            displayName: username,
+            displayName: jiraName || username,
             projectKey: String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase(),
             team: document.getElementById('team').value || 'komplayns',
             role: document.getElementById('role').value,
-            jiraAccountId: person && person.accountId ? person.accountId : '',
-            jiraDisplayName: person && person.displayName ? person.displayName : ''
+            jiraAccountId: jiraId,
+            jiraDisplayName: jiraName
         };
         var password = document.getElementById('password').value;
         if (password) payload.password = password;

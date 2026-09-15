@@ -153,6 +153,21 @@ def ensure_superadmin():
         save_store(store)
 
 
+def sync_display_names():
+    with _lock:
+        store = load_store()
+        changed = False
+        for user in store.get('users') or []:
+            jira = str(user.get('jira_display_name') or '').strip()
+            display = str(user.get('display_name') or '').strip()
+            uname = str(user.get('username') or '').strip()
+            if jira and (not display or display == uname):
+                user['display_name'] = jira
+                changed = True
+        if changed:
+            save_store(store)
+
+
 def normalize_team(raw):
     n = str(raw or '').strip().lower().replace('i̇', 'i')
     for src, dst in (
@@ -218,21 +233,54 @@ def unique_username(desired, users=None, exclude_id=None):
         i += 1
 
 
-def find_user_by_display_name(name):
-    key = fold_latin(name)
-    if len(key) < 3:
-        return None
+def fold_login(text):
+    return re.sub(r'\s+', ' ', fold_latin(text))
+
+
+def login_identity_keys(user):
+    keys = set()
+    uname = normalize_username(user.get('username'))
+    if uname:
+        keys.add(uname)
+        keys.add(fold_login(uname.replace('.', ' ').replace('_', ' ')))
+        keys.add(uname.replace('.', '').replace('_', ''))
+        head = re.split(r'[._]', uname)[0]
+        if len(head) >= 3:
+            keys.add(head)
+    for raw in (user.get('display_name'), user.get('jira_display_name')):
+        folded = fold_login(raw)
+        if not folded:
+            continue
+        keys.add(folded)
+        keys.add(folded.replace(' ', ''))
+        fn = first_name(folded)
+        if len(fn) >= 3:
+            keys.add(fn)
+    return {key for key in keys if key and len(key) >= 3}
+
+
+def find_login_candidates(username):
+    raw = str(username or '').strip()
+    if len(raw) < 3:
+        return []
+    needles = {
+        normalize_username(raw),
+        fold_login(raw),
+        fold_login(raw).replace(' ', ''),
+    }
+    needles.discard('')
     hits = []
     seen = set()
     for user in list_users():
         uid = str(user.get('id') or '')
-        labels = (
-            fold_latin(user.get('display_name')),
-            fold_latin(user.get('jira_display_name')),
-        )
-        if key in labels and uid not in seen:
+        if needles & login_identity_keys(user) and uid not in seen:
             seen.add(uid)
             hits.append(user)
+    return hits
+
+
+def find_user_by_display_name(name):
+    hits = find_login_candidates(name)
     if len(hits) == 1:
         return hits[0]
     return None
@@ -297,7 +345,7 @@ def create_user(username, password, display_name='', role='user', project_key='D
         return None, 'İstifadəçi adı boş ola bilməz'
     if len(name) < 3:
         return None, 'İstifadəçi adı ən azı 3 simvol olmalıdır'
-    pwd = str(password or '')
+    pwd = str(password or '').strip()
     if len(pwd) < 6:
         return None, 'Parol ən azı 6 simvol olmalıdır'
     role_name = normalize_role(role, allow_superadmin=allow_superadmin)
@@ -315,7 +363,7 @@ def create_user(username, password, display_name='', role='user', project_key='D
         user = {
             'id': str(uuid.uuid4()),
             'username': name,
-            'display_name': (display_name or jira_name or name).strip(),
+            'display_name': (jira_name or display_name or name).strip(),
             'password_hash': generate_password_hash(pwd),
             'role': role_name,
             'project_key': project,
@@ -385,7 +433,7 @@ def update_user(user_id, **fields):
         if fields.get('clear_pat'):
             target.pop('jira_pat', None)
         if fields.get('password'):
-            pwd = str(fields.get('password') or '')
+            pwd = str(fields.get('password') or '').strip()
             if len(pwd) < 6:
                 return None, 'Parol ən azı 6 simvol olmalıdır'
             target['password_hash'] = generate_password_hash(pwd)
@@ -417,14 +465,16 @@ def delete_user(user_id, actor_id=None):
 
 
 def verify_login(username, password):
-    user = find_user_by_username(username)
-    if not user:
-        user = find_user_by_display_name(username)
-    if not user:
+    pwd = str(password or '').strip()
+    if not pwd:
         return None
-    if not check_password_hash(user.get('password_hash') or '', str(password or '')):
-        return None
-    return user
+    matched = [
+        user for user in find_login_candidates(username)
+        if check_password_hash(user.get('password_hash') or '', pwd)
+    ]
+    if len(matched) == 1:
+        return matched[0]
+    return None
 
 
 def bootstrap_users(admin_username, admin_password, dept_username='', dept_password='', dept_display='', home_project='DGD'):

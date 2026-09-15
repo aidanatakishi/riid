@@ -7,7 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
     <title>Giriş — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/auth.css?v=idda86">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda87">
 </head>
 <body class="auth-page">
     <div class="auth-wrap">
@@ -22,10 +22,11 @@
         <div class="auth-card" id="loginCard">
             <h2 id="formTitle">Daxil ol</h2>
             <p class="auth-error" id="authError"></p>
+            <p class="auth-hint">Adınız, Jira-dakı tam ad və ya istifadəçi adı olar. Parol Jira parolu deyil — hesab yaradılarkən qoyulan paroldur.</p>
 
             <form id="loginForm">
                 <div class="auth-field">
-                    <span>İstifadəçi adı və ya Jira-dakı adınız</span>
+                    <span>Ad, Jira adı və ya istifadəçi adı</span>
                     <input id="username" name="username" autocomplete="username" required minlength="3">
                 </div>
                 <div class="auth-field">
@@ -97,7 +98,7 @@
             credentials: 'same-origin',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                username: document.getElementById('username').value,
+                username: document.getElementById('username').value.trim(),
                 password: document.getElementById('password').value,
                 remember: document.getElementById('rememberMe').checked
             })

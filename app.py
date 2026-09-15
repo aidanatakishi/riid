@@ -54,7 +54,7 @@ from config import (
     JIRA_PROJECT_KEY,
 )
 from routes import api, can_see_diagnostics, is_app_admin
-from users import bootstrap_users, ensure_superadmin
+from users import bootstrap_users, ensure_superadmin, sync_display_names
 
 app = Flask(__name__)
 
@@ -93,6 +93,7 @@ bootstrap_users(
     JIRA_PROJECT_KEY or 'DGD',
 )
 ensure_superadmin()
+sync_display_names()
 
 OPEN_PATHS = {
     '/login',
