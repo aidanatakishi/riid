@@ -22,6 +22,31 @@ DIR_TITLES = {
     'emeliyyat': 'Əməliyyat modelləri',
 }
 
+ISQ_PILLARS = (
+    ('strategy', 'Strateji və idarəçilik sənədləri', 'Strateji',
+     ('strateji ve idarecilik', 'idarecilik sened', 'strateji sened')),
+    ('procedure', 'Prosedurlar və təlimatlar', 'Prosedur',
+     ('prosedurlar ve telimat', 'prosedur ve telimat')),
+    ('ops', 'Əməliyyatlar', 'Əməliyyat',
+     ('emeliyyatlar',)),
+    ('lifecycle', 'Proqram təminatının həyat dövrü', 'Həyat dövrü',
+     ('hayat dovru', 'proqram teminatinin hayat')),
+    ('quality', 'Proqram təminatının keyfiyyətinə nəzarət', 'Keyfiyyət',
+     ('keyfiyyetine nezeret', 'proqram teminatinin keyfiyyet')),
+    ('integ', 'İnteqrasiya', 'İnteqrasiya',
+     ('inteqrasiya',)),
+    ('info', 'İnformasiya ehtiyatı sistemi', 'Ehtiyat',
+     ('informasiya ehtiyati', 'ehtiyati sistemi')),
+    ('network', 'Şəbəkə', 'Şəbəkə',
+     ('sebeke',)),
+    ('data', 'Məlumatların idarəedilməsi', 'Məlumat',
+     ('melumatlarin idareedilmesi', 'melumatlarin idare')),
+    ('infra', 'Fiziki və virtual infrastruktur', 'İnfrastruktur',
+     ('fiziki ve virtual', 'virtual infrastruktur')),
+)
+
+EXQ_STAR_WEIGHTS = (0.2, 0.4, 0.6, 0.8, 1.0)
+
 THEMES = (
     ('strategiya', 'Strateji idarəetmə', ('strategiya', 'yol xeritesi', 'hedef', 'baxis', 'kpi', 'elaqelendir')),
     ('e_xidmet', 'Elektron xidmətlər', ('e xidmet', 'elektron xidmet', 'portal', 'onlayn', 'g2c', 'g2b')),
@@ -260,6 +285,31 @@ def extract_pptx_zip(path):
             title = clean_slide_title(texts[0]) if texts else ('Slayd %s' % i)
             slides.append({'n': i, 'title': title, 'text': body})
     return slides
+
+
+def extract_pdf_pages(path):
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise RuntimeError('PDF oxumaq üçün pypdf paketi lazımdır.')
+    try:
+        reader = PdfReader(path)
+    except Exception as e:
+        raise RuntimeError('PDF oxunmadı: %s' % e)
+    pages = []
+    for i, page in enumerate(reader.pages, start=1):
+        try:
+            raw = page.extract_text() or ''
+        except Exception:
+            raw = ''
+        raw = raw.replace('\xa0', ' ')
+        title = clean_slide_title(raw)
+        pages.append({
+            'n': i,
+            'title': title or ('Səhifə %s' % i),
+            'text': cell_text(raw),
+        })
+    return pages
 
 
 _OFFICIAL_LABELS = {
@@ -603,34 +653,408 @@ def build_summary(org, overall, dirs, findings, strengths):
 
 def name_from_file(filename):
     stem = os.path.splitext(os.path.basename(filename or ''))[0]
-    cleaned = re.sub(r'(?i)diaqnostika|hesabat|reqemsallasma|pptx|prezentasiya', ' ', stem)
+    cleaned = re.sub(
+        r'(?i)diaqnostika|hesabat|reqemsallasma|pptx|pptm|pdf|prezentasiya|\bisq\b|\bexq\b',
+        ' ',
+        stem,
+    )
     cleaned = re.sub(r'[_-]+', ' ', cleaned)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ._-')
     return cleaned or stem or 'Hesabat'
 
 
-def analyze_slides(slides, filename=''):
+def isq_id_from_label(label):
+    f = fold(label)
+    if not f:
+        return ''
+    if 'emeliyyat model' in f:
+        return ''
+    for pid, title, short, needles in ISQ_PILLARS:
+        tf = fold(title)
+        sf = fold(short)
+        if f == tf or f == sf or (tf and tf in f) or any(n in f for n in needles):
+            if pid == 'ops' and 'model' in f:
+                continue
+            if pid == 'infra' and 'texniki texnoloji' in f:
+                continue
+            return pid
+    return ''
+
+
+def detect_report_kind(filename, text):
+    name = fold(filename or '')
+    blob = fold((text or '')[:14000])
+    hay = (name + ' ' + blob).strip()
+    isq = exq = diag = 0
+    if re.search(r'(^| )isq( |$)', name) or 'informasiya sistemlerinin qiymet' in name:
+        isq += 14
+    if re.search(r'(^| )exq( |$)', name) or 'elektron xidmetlerin qiymet' in name:
+        exq += 14
+    if 'diaqnostika' in name:
+        diag += 14
+    if 'diaqnostika' in blob:
+        diag += 4
+    if 'informasiya sistem' in blob:
+        isq += 3
+    if 'elektron xidmet' in blob and 'qiymet' in blob:
+        exq += 4
+    elif 'elektron xidmet' in blob:
+        exq += 2
+    if 'qerar 380' in hay or '4.14' in hay:
+        exq += 3
+        isq += 2
+    if re.search(r'\b[1-5]\s*ulduz\b', blob) or 'ulduz sistemi' in blob:
+        exq += 4
+    isq_hits = 0
+    for _pid, title, _short, needles in ISQ_PILLARS:
+        if fold(title) in blob or any(n in blob for n in needles):
+            isq_hits += 1
+    if isq_hits >= 5:
+        isq += 8
+    elif isq_hits >= 3:
+        isq += 4
+    dir_hits = 0
+    for did, needles in DIR_NEEDLES:
+        if any(n in blob for n in needles):
+            dir_hits += 1
+    if dir_hits >= 3:
+        diag += 5
+    if 'reqemsal yetkinlik' in blob or 'reqemsallasma seviyyesi' in blob:
+        diag += 6
+    if 'movcud reqemsallasma' in blob:
+        diag += 4
+    ranked = sorted(
+        (('diag', diag), ('isq', isq), ('exq', exq)),
+        key=lambda x: x[1],
+        reverse=True,
+    )
+    if ranked[0][1] <= 0:
+        return 'diag'
+    if ranked[0][1] == ranked[1][1]:
+        if isq_hits >= 5:
+            return 'isq'
+        if dir_hits >= 3:
+            return 'diag'
+    return ranked[0][0]
+
+
+def collect_overall_votes(lines):
+    votes = []
+    for i, line in enumerate(lines):
+        folded = fold(line)
+        label_f, label_num = split_label_score(line)
+        if folded in _OVERALL_LABELS or 'yekun netice' in folded or 'umumi netice' in folded:
+            if label_num is not None:
+                votes.append(label_num)
+            elif i + 1 < len(lines) and standalone_num(lines[i + 1]) is not None:
+                votes.append(standalone_num(lines[i + 1]))
+        m = re.search(r'(\d{1,3}(?:[.,]\d+)?)\s*/\s*100', line)
+        if m and ('yekun' in folded or 'umumi' in folded or 'indeks' in folded or 'netice' in folded):
+            n = parse_num(m.group(1))
+            if n is not None:
+                votes.append(n)
+    return votes
+
+
+def collect_isq_scores(pages):
+    votes = {pid: [] for pid, _t, _s, _n in ISQ_PILLARS}
+    overall_votes = []
+    for sl in pages or []:
+        lines = normalize_slide_lines((sl.get('title') or '') + '\n' + (sl.get('text') or ''))
+        overall_votes.extend(collect_overall_votes(lines))
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            folded = fold(line)
+            label_f, label_num = split_label_score(line)
+            pid = isq_id_from_label(label_f or folded)
+            if pid and label_num is not None:
+                votes[pid].append(label_num)
+            elif pid and i + 1 < len(lines) and standalone_num(lines[i + 1]) is not None:
+                votes[pid].append(standalone_num(lines[i + 1]))
+                i += 2
+                continue
+            i += 1
+    dirs = {pid: pick_unique_score(nums) for pid, nums in votes.items()}
+    yekun = pick_unique_score(overall_votes)
+    scored = [v for v in dirs.values() if v is not None]
+    if yekun is None and scored:
+        yekun = round(sum(scored) / len(scored), 1)
+    pillars = []
+    for pid, title, short, _n in ISQ_PILLARS:
+        pillars.append({
+            'id': pid,
+            'title': title,
+            'short': short,
+            'score': dirs.get(pid),
+        })
+    return yekun, dirs, pillars
+
+
+def normalize_exq_mark(raw):
+    if raw in (1, True, '1'):
+        return 1
+    if raw in (0, False, '0'):
+        return 0
+    s = str(raw or '').strip().upper().replace(' ', '')
+    if s in ('NA', 'N/A', 'N\\A'):
+        return 'NA'
+    f = fold(raw)
+    if 'shamil edilmir' in f or f in ('n a', 'na'):
+        return 'NA'
+    if 'temin edilir' in f:
+        return 1
+    if 'temin edilmir' in f or 'qismen' in f:
+        return 0
+    return None
+
+
+def parse_exq_criteria(text):
+    items = []
+    seen = set()
+    for m in re.finditer(
+        r'(\d+\.\d+\.\d+)(?:\s*[|\t;:,\-]\s*|\s+)(?:([1-5])(?:\s*[|\t;:,\-]\s*|\s+))?(1|0|N/A|NA|n/a)\b',
+        text or '',
+        re.I,
+    ):
+        mark = normalize_exq_mark(m.group(3))
+        star = int(m.group(2) or 0) or None
+        if star is None:
+            around = (text or '')[max(0, m.start()):min(len(text or ''), m.end() + 28)]
+            sm = re.search(r'([1-5])\s*ulduz', fold(around))
+            if sm:
+                star = int(sm.group(1))
+        key = (m.group(1), star, mark)
+        if key in seen or mark is None:
+            continue
+        seen.add(key)
+        items.append({'code': m.group(1), 'star': star, 'value': mark})
+    for m in re.finditer(
+        r'(\d+\.\d+\.\d+)[^\n]{0,80}?\b([1-5])\s*ulduz\b[^\n]{0,40}?\b(1|0|N/A|NA)\b',
+        text or '',
+        re.I,
+    ):
+        mark = normalize_exq_mark(m.group(3))
+        key = (m.group(1), int(m.group(2)), mark)
+        if key in seen or mark is None:
+            continue
+        seen.add(key)
+        items.append({'code': m.group(1), 'star': int(m.group(2)), 'value': mark})
+    return items
+
+
+def compute_exq_yekun(items):
+    collected = [0, 0, 0, 0, 0]
+    possible = [0, 0, 0, 0, 0]
+    applicable = 0
+    for it in items or []:
+        try:
+            star = int(it.get('star'))
+        except (TypeError, ValueError):
+            continue
+        if star < 1 or star > 5:
+            continue
+        val = it.get('value')
+        if val in ('NA', 'N/A'):
+            continue
+        met = val in (1, '1', True)
+        missed = val in (0, '0', False)
+        if not met and not missed:
+            continue
+        applicable += 1
+        for k in range(1, 6):
+            if star < k:
+                continue
+            possible[k - 1] += 1
+            if met:
+                collected[k - 1] += 1
+    tot_c = tot_p = 0.0
+    by_star = []
+    for i in range(5):
+        tot_c += collected[i] * EXQ_STAR_WEIGHTS[i]
+        tot_p += possible[i] * EXQ_STAR_WEIGHTS[i]
+        by_star.append({
+            'star': i + 1,
+            'weight': EXQ_STAR_WEIGHTS[i],
+            'collected': collected[i],
+            'possible': possible[i],
+        })
+    if tot_p <= 0:
+        return {'percent': None, 'star': None, 'applicable': applicable, 'byStar': by_star}
+    percent = round((tot_c / tot_p) * 100, 1)
+    if percent < 21:
+        star = 1
+    elif percent < 41:
+        star = 2
+    elif percent < 61:
+        star = 3
+    elif percent < 81:
+        star = 4
+    else:
+        star = 5
+    return {'percent': percent, 'star': star, 'applicable': applicable, 'byStar': by_star}
+
+
+def collect_exq_scores(pages):
+    full = '\n'.join((p.get('title') or '') + '\n' + (p.get('text') or '') for p in (pages or []))
+    items = parse_exq_criteria(full)
+    computed = compute_exq_yekun(items)
+    overall_votes = []
+    star_votes = []
+    for sl in pages or []:
+        lines = normalize_slide_lines((sl.get('title') or '') + '\n' + (sl.get('text') or ''))
+        overall_votes.extend(collect_overall_votes(lines))
+        for line in lines:
+            f = fold(line)
+            sm = re.search(r'\b([1-5])\s*ulduz\b', f)
+            if sm and ('yekun' in f or 'netice' in f or 'seviyye' in f):
+                star_votes.append(int(sm.group(1)))
+            m = re.search(r'(\d{1,3}(?:[.,]\d+)?)\s*%', line)
+            if m and ('yekun' in f or 'umumi' in f):
+                n = parse_num(m.group(1))
+                if n is not None:
+                    overall_votes.append(n)
+    yekun = pick_unique_score(overall_votes)
+    if yekun is None:
+        yekun = computed.get('percent')
+    star = pick_unique_score(star_votes)
+    if star is None:
+        star = computed.get('star')
+    elif yekun is None:
+        bands = ((1, 10), (2, 30), (3, 50), (4, 70), (5, 90))
+        yekun = dict(bands).get(int(star))
+    return yekun, star, items, computed.get('byStar') or []
+
+
+def dir_id_for_kind(text, kind):
+    if kind == 'isq':
+        return isq_id_from_label(text) or dir_id_from_text(text)
+    return dir_id_from_text(text)
+
+
+def classify_bits_kind(slides, kind):
+    findings, strengths, actions = [], [], []
+    for sl in slides:
+        for sent in sentences((sl.get('title') or '') + '. ' + (sl.get('text') or '')):
+            pol = polarity(sent)
+            row = {
+                'text': sent,
+                'dirId': dir_id_for_kind(sent, kind),
+                'slide': sl.get('n'),
+            }
+            if pol == 'finding':
+                findings.append(row)
+            elif pol == 'strength':
+                strengths.append(row)
+            elif pol == 'action':
+                actions.append(row)
+    return (
+        pick_unique(findings, 12),
+        pick_unique(strengths, 10),
+        pick_unique(actions, 10),
+    )
+
+
+def build_kind_summary(kind, org, overall, dirs, findings, strengths, star=None):
+    name = org or 'Qurum'
+    if kind == 'isq':
+        weak = None
+        scored = [(pid, dirs.get(pid), title) for pid, title, _s, _n in ISQ_PILLARS if dirs.get(pid) is not None]
+        if scored:
+            weak = min(scored, key=lambda x: x[1])
+        parts = [
+            '%s üzrə İSQ hesabatı yekun nəticəni %s qiymətləndirir.'
+            % (name, ('—' if overall is None else ('%s/100' % overall)))
+        ]
+        if weak:
+            parts.append('Ən zəif sütun %s (%.1f).' % (weak[2], weak[1]))
+    elif kind == 'exq':
+        star_lb = ('%s ulduz' % star) if star else 'ulduz şkalası'
+        parts = [
+            '%s üzrə EXQ hesabatı yekun nəticəni %s (%s) göstərir.'
+            % (name, ('—' if overall is None else ('%s%%' % overall)), star_lb)
+        ]
+    else:
+        return build_summary(org, overall, dirs, findings, strengths)
+    if findings:
+        parts.append('Hesabatda %d əsas çatışmazlıq qeyd olunub.' % len(findings))
+    if strengths:
+        parts.append('%d güclü tərəf təsbit edilib.' % len(strengths))
+    return ' '.join(parts)
+
+
+def empty_kind_fields():
+    return {
+        'pillars': [],
+        'star': None,
+        'byStar': [],
+        'criteria': [],
+    }
+
+
+def normalize_report_kind(kind):
+    k = fold(kind)
+    if k in ('isq',):
+        return 'isq'
+    if k in ('exq',):
+        return 'exq'
+    if k in ('diag', 'diaqnostika', 'diagnostika'):
+        return 'diag'
+    return ''
+
+
+def analyze_slides(slides, filename='', kind=None):
     blobs = [(s.get('title') or '') + '\n' + (s.get('text') or '') for s in slides]
     full = '\n'.join(blobs)
     org = org_from_text(blobs) or name_from_file(filename)
     year = year_from_text(full)
-    yekun, explicit_dirs, targets, criteria = collect_scores(slides)
-    dirs = {}
+    kind = normalize_report_kind(kind) or detect_report_kind(filename, full)
+    extra = empty_kind_fields()
     inferred_any = False
-    for did in DIR_TITLES:
-        related = '\n'.join(
-            b for b in blobs
-            if dir_id_from_text(b) == did or any(n in fold(b) for n in dict(DIR_NEEDLES)[did])
+    targets = {did: None for did in DIR_TITLES}
+    crit_rows = []
+    star = None
+
+    if kind == 'isq':
+        yekun, dirs, pillars = collect_isq_scores(slides)
+        extra['pillars'] = pillars
+        findings, strengths, actions = classify_bits_kind(slides, 'isq')
+        summary = build_kind_summary('isq', org, yekun, dirs, findings, strengths)
+        themes = theme_scores(full)
+        if yekun is None:
+            inferred_any = False
+    elif kind == 'exq':
+        yekun, star, items, by_star = collect_exq_scores(slides)
+        extra['star'] = star
+        extra['byStar'] = by_star
+        extra['criteria'] = items
+        dirs = {}
+        findings, strengths, actions = classify_bits_kind(slides, 'exq')
+        summary = build_kind_summary('exq', org, yekun, dirs, findings, strengths, star=star)
+        themes = theme_scores(full)
+    else:
+        kind = 'diag'
+        yekun, explicit_dirs, targets, crit_rows = collect_scores(slides)
+        dirs = {}
+        for did in DIR_TITLES:
+            related = '\n'.join(
+                b for b in blobs
+                if dir_id_from_text(b) == did or any(n in fold(b) for n in dict(DIR_NEEDLES)[did])
+            )
+            score, inferred = infer_dir_score(related or full, explicit_dirs.get(did))
+            dirs[did] = score
+            inferred_any = inferred_any or inferred
+        scored = [v for v in dirs.values() if v is not None]
+        if yekun is None and scored:
+            yekun = round(sum(scored) / len(scored), 1)
+            inferred_any = True
+        findings, strengths, actions = classify_bits(slides)
+        themes = theme_scores(full, crit_rows)
+        summary = build_summary(org, yekun, dirs, findings, strengths)
+        inferred_any = inferred_any and yekun is not None and all(
+            explicit_dirs.get(d) is None for d in DIR_TITLES
         )
-        score, inferred = infer_dir_score(related or full, explicit_dirs.get(did))
-        dirs[did] = score
-        inferred_any = inferred_any or inferred
-    scored = [v for v in dirs.values() if v is not None]
-    if yekun is None and scored:
-        yekun = round(sum(scored) / len(scored), 1)
-        inferred_any = True
-    findings, strengths, actions = classify_bits(slides)
-    themes = theme_scores(full, criteria)
+
     outline = []
     for s in slides:
         title = clean_slide_title(s.get('title') or '')
@@ -641,37 +1065,58 @@ def analyze_slides(slides, filename=''):
     if not actions and findings:
         for row in findings[:4]:
             did = row.get('dirId') or ''
-            title = DIR_TITLES.get(did, 'rəqəmsallaşma')
+            if kind == 'isq':
+                title = next((t for pid, t, _s, _n in ISQ_PILLARS if pid == did), 'İSQ')
+            elif kind == 'exq':
+                title = 'elektron xidmət'
+            else:
+                title = DIR_TITLES.get(did, 'rəqəmsallaşma')
             actions.append({
                 'text': '%s üzrə növbəti rəsmi səviyyəyə çatmaq üçün tədbirlər planı hazırlanıb icra edilsin.' % title,
                 'dirId': did,
                 'slide': row.get('slide'),
             })
-    return {
+    out = {
+        'kind': kind,
         'org': org,
         'year': year,
         'slideCount': len(slides),
+        'pageCount': len(slides),
         'overall': yekun,
-        'inferred': inferred_any and yekun is not None and all(explicit_dirs.get(d) is None for d in DIR_TITLES),
+        'inferred': bool(inferred_any),
         'maturity': maturity_of(yekun),
         'dirs': dirs,
-        'targets': {did: targets.get(did) for did in DIR_TITLES},
-        'summary': build_summary(org, yekun, dirs, findings, strengths),
+        'targets': {did: (targets or {}).get(did) for did in DIR_TITLES},
+        'summary': summary,
         'findings': findings,
         'strengths': strengths,
         'actions': actions,
         'themes': themes,
         'slides': outline,
     }
+    out.update(extra)
+    return out
+
+
+def parse_report_file(path, filename=None, kind=None):
+    filename = filename or os.path.basename(path)
+    ext = os.path.splitext(filename)[1].lower()
+    if ext in ('.pptx', '.pptm'):
+        pages = extract_pptx_slides(path)
+        fmt = 'pptx'
+        empty_msg = 'Təqdimatda oxunaqlı mətn tapılmadı.'
+    elif ext == '.pdf':
+        pages = extract_pdf_pages(path)
+        fmt = 'pdf'
+        empty_msg = 'PDF-də oxunaqlı mətn tapılmadı. Skan olunmuş səhifələr tanınmır.'
+    else:
+        raise RuntimeError('Yalnız .pptx, .pptm və .pdf qəbul olunur.')
+    if not pages or not any((s.get('text') or '').strip() for s in pages):
+        return {'report': None, 'warnings': [empty_msg]}
+    report = analyze_slides(pages, filename, kind=kind)
+    report['format'] = fmt
+    return {'report': report, 'warnings': []}
 
 
 def parse_report_pptx(path, filename=None):
-    filename = filename or os.path.basename(path)
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in ('.pptx', '.pptm'):
-        raise RuntimeError('Yalnız .pptx / .pptm qəbul olunur.')
-    slides = extract_pptx_slides(path)
-    if not slides or not any((s.get('text') or '').strip() for s in slides):
-        return {'report': None, 'warnings': ['Təqdimatda oxunaqlı mətn tapılmadı.']}
-    report = analyze_slides(slides, filename)
-    return {'report': report, 'warnings': []}
+    return parse_report_file(path, filename)

@@ -66,7 +66,7 @@ var PAGE_HEADS = {
     },
     report: {
         title: 'Hesabat analizi',
-        sub: 'Yüklənmiş PPTX hesabatların təhlili'
+        sub: 'PPTX və PDF hesabatların növünə görə təhlili'
     }
 };
 var HUB_STATUS_COLORS = {
@@ -97,6 +97,23 @@ var DIRS = [
     { id: 'xidmetler', name: 'Xidmətlər', needles: ['xidmet'] },
     { id: 'texniki', name: 'Texniki-texnoloji infrastruktur', needles: ['texniki', 'infrastruktur', 'texnoloj'] },
     { id: 'emeliyyat', name: 'Əməliyyat modelləri', needles: ['emeliyyat', 'meliyyat'] }
+];
+var REPORT_KINDS = [
+    { id: 'diag', label: 'Diaqnostika', color: '#7c3aed' },
+    { id: 'isq', label: 'İSQ', color: '#2563eb' },
+    { id: 'exq', label: 'EXQ', color: '#d97706' }
+];
+var ISQ_PILLARS = [
+    { id: 'strategy', name: 'Strateji və idarəçilik sənədləri', short: 'Strateji' },
+    { id: 'procedure', name: 'Prosedurlar və təlimatlar', short: 'Prosedur' },
+    { id: 'ops', name: 'Əməliyyatlar', short: 'Əməliyyat' },
+    { id: 'lifecycle', name: 'Proqram təminatının həyat dövrü', short: 'Həyat dövrü' },
+    { id: 'quality', name: 'Proqram təminatının keyfiyyətinə nəzarət', short: 'Keyfiyyət' },
+    { id: 'integ', name: 'İnteqrasiya', short: 'İnteqrasiya' },
+    { id: 'info', name: 'İnformasiya ehtiyatı sistemi', short: 'Ehtiyat' },
+    { id: 'network', name: 'Şəbəkə', short: 'Şəbəkə' },
+    { id: 'data', name: 'Məlumatların idarəedilməsi', short: 'Məlumat' },
+    { id: 'infra', name: 'Fiziki və virtual infrastruktur', short: 'İnfrastruktur' }
 ];
 
 var MATS = [
@@ -181,6 +198,9 @@ var ui = {
     hubFilter: '',
     hubSort: 'desc',
     reportId: '',
+    reportKind: '',
+    reportPickKind: false,
+    reportUploadKind: '',
     reportFocus: '',
     reportPin: false
 };
@@ -2290,8 +2310,83 @@ function reportsBody(model) {
         + '<pre class="nk303-report">' + esc(reportText(model)) + '</pre></section>';
 }
 
+function reportKindOf(r) {
+    var k = r && r.kind;
+    if (k === 'isq' || k === 'exq' || k === 'diag') return k;
+    return 'diag';
+}
+
+function reportKindMeta(id) {
+    return REPORT_KINDS.filter(function(k) { return k.id === id; })[0] || REPORT_KINDS[0];
+}
+
+function reportsOfKind(kind) {
+    return (reportStore.reports || []).filter(function(r) { return reportKindOf(r) === kind; });
+}
+
+function presentReportKinds() {
+    var seen = {};
+    (reportStore.reports || []).forEach(function(r) { seen[reportKindOf(r)] = true; });
+    return REPORT_KINDS.filter(function(k) { return seen[k.id]; });
+}
+
+function activeReportKind() {
+    var present = presentReportKinds();
+    if (!present.length) return ui.reportKind || 'diag';
+    if (ui.reportKind && present.some(function(k) { return k.id === ui.reportKind; })) return ui.reportKind;
+    var byId = (reportStore.reports || []).filter(function(r) { return r.id === ui.reportId; })[0];
+    if (byId) return reportKindOf(byId);
+    return present[0].id;
+}
+
+function visibleReports() {
+    return reportsOfKind(activeReportKind());
+}
+
+function reportAxes(kind) {
+    if (kind === 'isq') return ISQ_PILLARS;
+    if (kind === 'exq') {
+        return [1, 2, 3, 4, 5].map(function(s) {
+            return { id: 'star' + s, name: s + ' ulduz', short: s + '★', star: s };
+        });
+    }
+    return DIRS;
+}
+
+function reportAxisScore(sel, axis, kind) {
+    if (!sel || !axis) return null;
+    if (kind === 'exq') {
+        var row = (sel.byStar || []).filter(function(b) { return Number(b.star) === axis.star; })[0];
+        if (row && row.possible) return Math.round((row.collected / row.possible) * 1000) / 10;
+        return null;
+    }
+    if (sel.dirs && sel.dirs[axis.id] != null) return sel.dirs[axis.id];
+    var p = (sel.pillars || []).filter(function(x) { return x.id === axis.id; })[0];
+    return p && p.score != null ? p.score : null;
+}
+
+function reportExtLabel(r) {
+    var fmt = String((r && r.format) || '').toLowerCase();
+    if (!fmt) {
+        var n = String((r && r.name) || '').toLowerCase();
+        fmt = n.indexOf('.pdf') !== -1 ? 'pdf' : 'pptx';
+    }
+    return fmt === 'pdf' ? 'PDF' : 'PPTX';
+}
+
+function reportPageWord(r) {
+    return reportExtLabel(r) === 'PDF' ? 'səhifə' : 'slayd';
+}
+
+function reportAxisName(dirId, kind) {
+    var axis = reportAxes(kind || activeReportKind()).filter(function(d) { return d.id === dirId; })[0];
+    if (axis) return axis.name;
+    var d = DIRS.filter(function(x) { return x.id === dirId; })[0];
+    return d ? d.name : '';
+}
+
 function selectedReport() {
-    var list = reportStore.reports || [];
+    var list = visibleReports();
     if (!list.length) return null;
     var id = ui.reportId;
     var found = list.filter(function(r) { return r.id === id; })[0];
@@ -2299,67 +2394,126 @@ function selectedReport() {
 }
 
 function reportAgg() {
-    var list = reportStore.reports || [];
+    var kind = activeReportKind();
+    var axes = reportAxes(kind);
+    var list = visibleReports();
     var overalls = [];
-    var dirs = { strategiya: [], xidmetler: [], texniki: [], emeliyyat: [] };
-    var targets = { strategiya: [], xidmetler: [], texniki: [], emeliyyat: [] };
+    var dirMap = {};
+    var targets = {};
     var findings = 0;
+    var stars = [];
+    axes.forEach(function(d) {
+        dirMap[d.id] = [];
+        targets[d.id] = [];
+    });
     list.forEach(function(r) {
         if (r.overall != null) overalls.push(r.overall);
-        DIRS.forEach(function(d) {
-            var v = r.dirs && r.dirs[d.id];
-            if (v != null) dirs[d.id].push(v);
-            var g = r.targets && r.targets[d.id];
-            if (g != null) targets[d.id].push(g);
+        if (r.star != null) stars.push(Number(r.star));
+        axes.forEach(function(d) {
+            var v = reportAxisScore(r, d, kind);
+            if (v != null) dirMap[d.id].push(v);
+            if (kind === 'diag' && r.targets && r.targets[d.id] != null) targets[d.id].push(r.targets[d.id]);
         });
         findings += (r.findings || []).length;
     });
     var dirAvg = {};
     var targetAvg = {};
-    DIRS.forEach(function(d) {
-        dirAvg[d.id] = avg(dirs[d.id]);
+    axes.forEach(function(d) {
+        dirAvg[d.id] = avg(dirMap[d.id]);
         targetAvg[d.id] = avg(targets[d.id]);
     });
     var weak = null;
-    DIRS.forEach(function(d) {
+    axes.forEach(function(d) {
         if (dirAvg[d.id] == null) return;
-        if (!weak || dirAvg[d.id] < weak.score) weak = { id: d.id, name: d.name, score: dirAvg[d.id] };
+        if (!weak || dirAvg[d.id] < weak.score) {
+            weak = { id: d.id, name: d.name, short: d.short || d.name, score: dirAvg[d.id] };
+        }
     });
     return {
+        kind: kind,
         n: list.length,
         overall: avg(overalls),
+        star: stars.length ? Math.round(avg(stars)) : exqStarFromPercent(avg(overalls)),
         dirs: dirAvg,
         targets: targetAvg,
         findings: findings,
-        weak: weak
+        weak: weak,
+        axes: axes
     };
 }
 
 function reportFileTitle(name) {
-    return String(name || '').trim().replace(/\.(pptx?|PPTX?)$/, '');
+    return String(name || '').trim().replace(/\.(pptx?|pptm|pdf)$/i, '');
+}
+
+function reportKindsHtml() {
+    var cur = activeReportKind();
+    return '<nav class="nk303-rep-kinds" aria-label="Hesabat növü">' + REPORT_KINDS.map(function(k) {
+        var n = reportsOfKind(k.id).length;
+        return '<button type="button" class="nk303-rep-kind is-' + k.id + (cur === k.id ? ' is-on' : '') + '" onclick="nk303Call(\'reportKind\',\'' + k.id + '\')">'
+            + '<i style="background:' + k.color + '"></i>'
+            + '<span>' + esc(k.label) + '</span>'
+            + '<b>' + n + '</b></button>';
+    }).join('') + '</nav>';
+}
+
+function reportPickKindHtml() {
+    if (!ui.reportPickKind) return '';
+    return '<section class="nk303-card nk303-card--kindpick">'
+        + '<h3>Bu hesabat hansıdır?</h3>'
+        + '<p class="nk303-hint">Növü siz seçin. Sistem nəticələri buna görə çıxaracaq — avtomatik təxmin etmir.</p>'
+        + '<div class="nk303-rep-kinds is-pick">' + REPORT_KINDS.map(function(k) {
+            return '<button type="button" class="nk303-rep-kind is-' + k.id + '" onclick="nk303Call(\'uploadAs\',\'' + k.id + '\')">'
+                + '<i style="background:' + k.color + '"></i>'
+                + '<span>' + esc(k.label) + '</span></button>';
+        }).join('') + '</div>'
+        + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'cancelPickKind\')">Ləğv et</button>'
+        + '</section>';
+}
+
+function reportFileKindHtml(fileId, kind) {
+    if (!isAdmin() || !fileId) {
+        var km = reportKindMeta(kind);
+        return '<p class="nk303-kicker">' + esc(km.label) + '</p>';
+    }
+    return '<div class="nk303-rep-kinds is-file" role="group" aria-label="Hesabat növü">' + REPORT_KINDS.map(function(k) {
+        return '<button type="button" class="nk303-rep-kind is-' + k.id + (kind === k.id ? ' is-on' : '') + '" onclick="nk303Call(\'setFileKind\',\'' + qarg(fileId + '|' + k.id) + '\')">'
+            + '<i style="background:' + k.color + '"></i>'
+            + '<span>' + esc(k.label) + '</span></button>';
+    }).join('') + '</div>';
 }
 
 function reportFilesHtml() {
+    var kind = activeReportKind();
     var files = isAdmin() ? (reportStore.files || []) : [];
-    var reports = reportStore.reports || [];
-    var chips = files.length ? files : reports.map(function(r) {
-        return { id: r.id, name: r.name || r.org, org: r.org };
-    });
+    var reports = visibleReports();
+    var chips = files.length
+        ? files.filter(function(f) {
+            var rec = (reportStore.reports || []).filter(function(r) { return r.id === f.id; })[0] || f;
+            return reportKindOf(rec) === kind;
+        })
+        : reports.map(function(r) {
+            return { id: r.id, name: r.name || r.org, org: r.org, kind: r.kind, format: r.format };
+        });
     if (!chips.length) return '';
     return '<div class="nk303-rep-files" role="list">' + chips.map(function(f) {
+        var rec = (reportStore.reports || []).filter(function(r) { return r.id === f.id; })[0] || f;
         var on = ui.reportId === f.id || (!ui.reportId && selectedReport() && selectedReport().id === f.id);
         var raw = f.name || f.org || 'Hesabat';
         var title = reportFileTitle(raw) || 'Hesabat';
         var org = f.org && f.org !== raw && f.org !== title ? f.org : '';
-        return '<div class="nk303-rep-file' + (on ? ' is-on' : '') + '" role="listitem">'
+        var km = reportKindMeta(reportKindOf(rec));
+        return '<div class="nk303-rep-file is-' + km.id + (on ? ' is-on' : '') + '" role="listitem">'
             + '<button type="button" class="nk303-rep-file-btn" onclick="nk303Call(\'pickReport\',\'' + qarg(f.id) + '\')">'
             + '<span class="nk303-rep-file-ic" aria-hidden="true">' + iconSvg('file') + '</span>'
             + '<span class="nk303-rep-file-txt">'
             + '<strong title="' + esc(title) + '">' + esc(title) + '</strong>'
             + (org ? '<em title="' + esc(org) + '">' + esc(org) + '</em>' : '')
             + '</span>'
-            + '<span class="nk303-rep-file-ext">PPTX</span>'
-            + '</button>'
+            + '<span class="nk303-rep-file-tags">'
+            + '<span class="nk303-rep-file-kind">' + esc(km.label) + '</span>'
+            + '<span class="nk303-rep-file-ext">' + esc(reportExtLabel(rec)) + '</span>'
+            + '</span></button>'
             + (isAdmin()
                 ? '<button type="button" class="nk303-xl-del" title="Hesabatı sil" onclick="event.stopPropagation(); nk303Call(\'removeReport\',\'' + qarg(f.id) + '\')">Sil</button>'
                 : '')
@@ -2369,9 +2523,10 @@ function reportFilesHtml() {
 
 function reportListHtml(item, cls) {
     if (!(item || []).length) return '<p class="nk303-empty">' + esc(NA) + '</p>';
+    var kind = activeReportKind();
     return '<ul class="nk303-list ' + (cls || '') + '">' + item.map(function(it) {
-        var dir = DIRS.filter(function(d) { return d.id === it.dirId; })[0];
-        return '<li><div class="t">' + esc(dir ? dir.name : (it.slide ? 'Slayd ' + it.slide : 'Hesabat')) + '</div>'
+        var name = reportAxisName(it.dirId, kind);
+        return '<li><div class="t">' + esc(name || (it.slide ? (reportPageWord(selectedReport()) + ' ' + it.slide) : 'Hesabat')) + '</div>'
             + '<div class="d">' + esc(it.text) + '</div></li>';
     }).join('') + '</ul>';
 }
@@ -2436,17 +2591,16 @@ function reportFocusMeta(sel, agg) {
     }
     if (focus === 'weak' || (focus && focus.indexOf('dir:') === 0)) {
         var did = focus === 'weak' ? (agg && agg.weak && agg.weak.id) : focus.slice(4);
-        var dir = DIRS.filter(function(d) { return d.id === did; })[0];
-        var score = sel && sel.dirs && did ? sel.dirs[did] : (agg && agg.dirs && did ? agg.dirs[did] : null);
+        var dirName = reportAxisName(did, agg && agg.kind) || ((agg && agg.weak && agg.weak.name) || 'istiqamət');
+        var score = sel ? reportAxisScore(sel, (agg.axes || []).filter(function(d) { return d.id === did; })[0], agg.kind) : null;
+        if (score == null && agg && agg.dirs) score = agg.dirs[did];
         var items = uniqueReportItems([].concat((sel && sel.findings) || [], (sel && sel.strengths) || [], (sel && sel.actions) || []))
             .filter(function(it) { return !did || it.dirId === did; });
         if (!items.length && focus === 'weak') items = uniqueReportItems(sel && sel.findings);
         return {
             id: focus,
-            title: focus === 'weak'
-                ? ('Zəif tərəf: ' + ((dir && dir.name) || 'istiqamət'))
-                : ((dir && dir.name) || 'İstiqamət'),
-            hint: org + ' üzrə ' + ((dir && dir.name) || 'istiqamət')
+            title: focus === 'weak' ? ('Zəif tərəf: ' + dirName) : dirName,
+            hint: org + ' üzrə ' + dirName
                 + (score != null ? ' (' + fmt1(score) + '/100)' : '') + '.',
             items: items
         };
@@ -2484,62 +2638,84 @@ function reportFocusPaneHtml(sel, agg) {
 function scrollReportFocus() {
     var focus = ui.reportFocus || '';
     var id = 'nkRepDonutCard';
-    if (focus === 'reports') id = 'nkRepCards';
+    if (focus === 'reports') id = 'nkRepDetail';
     var el = document.getElementById(id) || document.getElementById('nkRepFocus');
     if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
 function reportPageHtml() {
-    var list = reportStore.reports || [];
+    var kind = activeReportKind();
+    var km = reportKindMeta(kind);
+    var list = visibleReports();
+    var all = reportStore.reports || [];
     var agg = reportAgg();
     var sel = selectedReport();
+    var useStar = kind === 'isq' || kind === 'exq';
     var uploadBtn = isAdmin()
-        ? '<button type="button" class="nk303-upload" onclick="nk303Call(\'uploadReport\')">' + iconSvg('upload') + ' PPTX yüklə</button>'
+        ? '<button type="button" class="nk303-upload" onclick="nk303Call(\'uploadReport\')">' + iconSvg('upload') + ' PPTX / PDF yüklə</button>'
         : '';
     var head = '<div class="nk303-hub-toolbar">'
         + '<div class="nk303-hub-toolbar-main">'
         + '<div class="nk303-hub-toolbar-title">'
         + '<h3>Hesabat analizi</h3>'
-        + '<p class="nk303-hint">Yüklənmiş PPTX əsasında qurumun rəqəmsal inkişafının qiymətləndirilməsi.</p>'
+        + '<p class="nk303-hint">Əvvəl növü seçin, sonra PPTX və ya PDF yükləyin. Hər növ öz nəticə lövhəsində açılır.</p>'
         + '</div></div>'
         + uploadBtn
         + '</div>'
+        + reportKindsHtml()
+        + reportPickKindHtml()
         + reportFilesHtml();
-    if (!list.length) {
+    if (!all.length || !list.length) {
+        var emptyTitle = all.length ? (km.label + ' hesabatı yoxdur') : 'Hələ hesabat yoxdur';
         return head + '<section class="nk303-card nk303-card--report-empty">'
-            + '<h3>Hələ hesabat yoxdur</h3>'
+            + '<h3>' + esc(emptyTitle) + '</h3>'
             + '<p class="nk303-hint">' + (isAdmin()
-                ? 'Qurumun diaqnostika və ya rəqəmsal inkişaf hesabatını PPTX formatında yükləyin. Sistem slaydları oxuyub istiqamət ballarını, cari vəziyyəti, çatışmazlıqları və tövsiyələri çıxaracaq.'
-                : 'Hesabat yüklənəndən sonra burada qurumun rəqəmsal inkişaf indeksi, 4 rəsmi istiqamət və tapıntılar görünəcək.')
-            + '</p></section>';
+                ? '«PPTX / PDF yüklə» düyməsinə basın və bu faylın Diaqnostika, İSQ və ya EXQ olduğunu seçin.'
+                : 'Hesabat yüklənəndən sonra burada növünə uyğun indeks, istiqamətlər və tapıntılar görünəcək.')
+            + '</p>'
+            + (all.length ? '' : ('<ul class="nk303-rep-empty-kinds">'
+            + '<li><b>Diaqnostika</b> — 4 rəsmi istiqamət, yetkinlik səviyyəsi</li>'
+            + '<li><b>İSQ</b> — 10 sütun, yekun nəticə və ulduz şkalası</li>'
+            + '<li><b>EXQ</b> — yekun faiz, ulduz və altmeyarlar</li>'
+            + '</ul>'))
+            + '</section>';
     }
     var focus = ui.reportFocus || '';
     var weakHtml = agg.weak
-        ? esc(agg.weak.name) + ' · ' + esc(fmt1(agg.weak.score))
+        ? esc(agg.weak.short || agg.weak.name) + ' · ' + esc(fmt1(agg.weak.score))
         : '—';
     var nStr = sel ? (sel.strengths || []).length : 0;
-    var nAct = sel ? (sel.actions || []).length : 0;
     if (!sel) {
-        (list || []).forEach(function(r) {
-            nStr += (r.strengths || []).length;
-            nAct += (r.actions || []).length;
-        });
+        list.forEach(function(r) { nStr += (r.strengths || []).length; });
     }
+    var indexLabel = kind === 'diag' ? 'Rəqəmsal inkişaf indeksi' : 'Yekun nəticə';
+    var indexSub = useStar
+        ? (exqStarFromPercent(agg.overall) ? exqStarLabel(exqStarFromPercent(agg.overall)) : NA)
+        : ((maturityOf(agg.overall) && maturityOf(agg.overall).label) || NA);
+    var third = kind === 'exq'
+        ? kpiCardHtml({
+            ic: 'is-amber', icon: 'star', label: 'Ulduz səviyyəsi',
+            valueHtml: agg.star ? esc(String(agg.star) + ' ulduz') : '—',
+            onclick: reportFocusHit('summary'), on: focus === 'summary'
+        })
+        : kpiCardHtml({
+            ic: 'is-amber', icon: 'down',
+            label: kind === 'isq' ? 'Ən zəif sütun' : 'Ən zəif istiqamət',
+            valueHtml: weakHtml,
+            onclick: reportFocusHit('weak'), on: focus === 'weak'
+        });
     var kpis = '<div class="nk303-kpis nk303-kpis--4">'
         + kpiCardHtml({
-            ic: 'is-teal', icon: 'chart', label: 'Hesabat', valueHtml: esc(String(agg.n)),
+            ic: 'is-teal', icon: 'chart', label: km.label + ' hesabatı', valueHtml: esc(String(agg.n)),
             onclick: reportFocusHit('reports'), on: focus === 'reports'
         })
         + kpiCardHtml({
-            ic: 'is-blue', icon: 'star', label: 'Rəqəmsal inkişaf indeksi',
-            valueHtml: agg.overall == null ? '—' : (esc(fmt1(agg.overall)) + ' <small>/ 100</small>'),
-            subHtml: '<div class="sub">' + esc(maturityOf(agg.overall) ? maturityOf(agg.overall).label : NA) + '</div>',
+            ic: 'is-blue', icon: 'star', label: indexLabel,
+            valueHtml: agg.overall == null ? '—' : (esc(fmt1(agg.overall)) + (useStar ? ' <small>%</small>' : ' <small>/ 100</small>')),
+            subHtml: '<div class="sub">' + esc(indexSub) + '</div>',
             onclick: reportFocusHit('summary'), on: focus === 'summary'
         })
-        + kpiCardHtml({
-            ic: 'is-amber', icon: 'down', label: 'Ən zəif istiqamət', valueHtml: weakHtml,
-            onclick: reportFocusHit('weak'), on: focus === 'weak'
-        })
+        + third
         + kpiCardHtml({
             ic: 'is-red', icon: 'flag', label: 'Çatışmazlıq', valueHtml: esc(String(agg.findings)),
             onclick: reportFocusHit('findings'), on: focus === 'findings'
@@ -2553,17 +2729,20 @@ function reportPageHtml() {
         { id: 'strengths', label: 'Güclü tərəf', n: nStr, color: '#0f766e' },
         { id: 'weak', label: 'Zəif tərəf', n: nWeak, color: '#d97706' }
     ];
-    var mid = '<div class="nk303-mid nk303-mid--two">'
+    var radarTitle = kind === 'isq' ? 'İSQ sütunları' : (kind === 'exq' ? 'Ulduz səviyyələri' : 'Rəqəmsallaşma istiqamətləri');
+    var nowHex = kind === 'isq' ? ISQ_RADAR_NOW : (useStar ? exqBarColor(agg.overall) : barColor(agg.overall));
+    var goalHex = kind === 'isq' ? ISQ_RADAR_GOAL : (useStar ? exqBarColor(exqStarTarget(agg.overall)) : barColor(maturityTarget(agg.overall)));
+    var mid = '<div class="nk303-mid nk303-mid--two nk303-mid--report">'
         + '<section class="nk303-card nk303-card--gauge nk303-card--hit' + (focus === 'summary' ? ' is-on' : '') + '" onclick="nk303Call(\'reportFocus\',\'summary\')"><h3>Ümumi nəticə</h3>'
-        + hubGaugeHtml(agg.overall, false)
+        + reportGaugeHtml(agg.overall, kind)
         + '</section>'
-        + '<section class="nk303-card nk303-card--radar"><h3>Rəqəmsallaşma istiqamətləri</h3>'
-        + compareLegendHtml(barColor(agg.overall), barColor(maturityTarget(agg.overall)))
-        + '<div class="nk303-chart nk303-chart--radar"><canvas id="nkRepRadar"></canvas></div>'
+        + '<section class="nk303-card nk303-card--radar"><h3>' + esc(radarTitle) + '</h3>'
+        + (kind === 'exq' ? '<ul class="nk303-compare-legend"><li class="is-now" style="--nk-now:' + nowHex + '">Toplanmış / mümkün</li></ul>' : compareLegendHtml(nowHex, goalHex))
+        + '<div class="nk303-chart nk303-chart--radar' + (kind === 'isq' ? ' is-isq' : '') + '"><canvas id="nkRepRadar"></canvas></div>'
         + '</section></div>'
         + '<section class="nk303-card nk303-card--rep-split' + (focus === 'findings' || focus === 'strengths' || focus === 'weak' || focus === 'actions' ? ' is-on' : '') + '" id="nkRepDonutCard">'
         + '<h3>Nəticələrin bölgüsü</h3>'
-        + '<p class="nk303-hint">Dilimi və ya adı klikləyin — qurumun çatışmazlığı, güclü və zəif tərəfi açılsın.</p>'
+        + '<p class="nk303-hint">Dilimi klikləyin — həmin tapıntılar sağda açılsın.</p>'
         + '<div class="nk303-rep-split">'
         + '<div class="nk303-rep-split-chart">'
         + '<div class="nk303-chart nk303-chart--donut"><canvas id="nkRepDonut"></canvas></div>'
@@ -2579,73 +2758,75 @@ function reportPageHtml() {
         + reportFocusPaneHtml(sel, agg)
         + '</div></section>';
     var themes = (sel && sel.themes) || [];
-    var themeHtml = '<section class="nk303-card"><h3>Əhatə olunan mövzular</h3>'
-        + (themes.length
-            ? '<div class="nk303-theme-bars">' + themes.map(function(t) {
+    var themeHtml = (kind === 'diag' && themes.length)
+        ? ('<section class="nk303-card"><h3>Əhatə olunan mövzular</h3>'
+            + '<div class="nk303-theme-bars">' + themes.map(function(t) {
                 return '<div class="nk303-dist-row"><b>' + esc(t.label) + '</b>'
                     + '<span class="nk303-track"><i style="width:' + Math.max(6, Math.min(100, t.score)) + '%;background:#0f766e"></i></span>'
                     + '<em>' + esc(fmt1(t.score)) + '</em></div>';
-            }).join('') + '</div>'
-            : '<p class="nk303-empty">' + esc(NA) + '</p>')
-        + '</section>';
-    var cards = '<section class="nk303-card" id="nkRepCards"><h3>Yüklənmiş hesabatlar</h3>'
-        + '<div class="nk303-rep-grid">' + list.map(function(r) {
-            var on = sel && sel.id === r.id;
-            return '<button type="button" class="nk303-rep-card' + (on ? ' is-on' : '') + '" onclick="nk303Call(\'pickReport\',\'' + qarg(r.id) + '\')">'
-                + '<span class="nk303-rep-org">' + esc(r.org || r.name || 'Hesabat') + '</span>'
-                + '<strong>' + (r.overall == null ? '—' : esc(fmt1(r.overall))) + '</strong>'
-                + '<span class="nk303-hint">' + esc((r.maturity && r.maturity.label) || NA)
-                + (r.year ? ' · ' + r.year : '')
-                + (r.slideCount ? ' · ' + r.slideCount + ' slayd' : '')
-                + '</span></button>';
-        }).join('') + '</div></section>';
+            }).join('') + '</div></section>')
+        : '';
+    var axes = agg.axes || reportAxes(kind);
     var detail = '';
     if (sel) {
-        var dirRows = DIRS.map(function(d) {
-            var sc = sel.dirs && sel.dirs[d.id];
+        var pages = sel.pageCount || sel.slideCount;
+        var pageWord = reportPageWord(sel);
+        var dirRows = axes.map(function(d) {
+            var sc = reportAxisScore(sel, d, kind);
+            if (sc == null && sel.dirs) sc = sel.dirs[d.id];
             var on = focus === ('dir:' + d.id) || (focus === 'weak' && agg.weak && agg.weak.id === d.id);
+            var badge = useStar ? (sc == null ? '' : '<span class="nk303-mat is-s' + (exqStarFromPercent(sc) || 1) + '">' + esc(fmt1(sc)) + '</span>') : matBadge(sc);
             return '<button type="button" class="nk303-rep-dir' + (on ? ' is-on' : '') + '" onclick="nk303Call(\'reportFocus\',\'dir:' + d.id + '\')">'
-                + '<div><b>' + esc(d.name) + '</b>' + matBadge(sc) + '</div>'
+                + '<div><b>' + esc(d.short || d.name) + '</b>' + badge + '</div>'
                 + '<em>' + (sc == null ? '—' : esc(fmt1(sc))) + '</em></button>';
         }).join('');
+        var dirCls = 'nk303-rep-dirs' + (kind === 'isq' ? ' is-isq' : (kind === 'exq' ? ' is-exq' : ''));
         detail = '<section class="nk303-card nk303-card--report" id="nkRepDetail"><div class="nk303-rep-head">'
-            + '<div><p class="nk303-kicker">Seçilmiş hesabat</p><h3>' + esc(sel.org || sel.name || 'Hesabat') + '</h3>'
-            + '<p class="nk303-hint">' + esc(sel.name || '')
+            + '<div><p class="nk303-kicker">Seçilmiş hesabat</p>'
+            + reportFileKindHtml(sel.id, kind)
+            + '<h3>' + esc(sel.org || sel.name || 'Hesabat') + '</h3>'
+            + '<p class="nk303-hint">' + esc(reportFileTitle(sel.name) || '')
+            + ' · ' + esc(reportExtLabel(sel))
             + (sel.year ? ' · ' + sel.year : '')
-            + (sel.slideCount ? ' · ' + sel.slideCount + ' slayd' : '')
+            + (pages ? ' · ' + pages + ' ' + pageWord : '')
             + (sel.inferred ? ' · bal mətn əsasında qiymətləndirilib' : '')
             + '</p></div>'
             + (isAdmin() ? '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'removeReport\',\'' + qarg(sel.id) + '\')">Sil</button>' : '')
             + '</div>'
             + '<p class="nk303-rep-sum">' + esc(sel.summary || NA) + '</p>'
-            + '<div class="nk303-rep-dirs" id="nkRepDirs">' + dirRows + '</div>'
+            + '<div class="' + dirCls + '" id="nkRepDirs">' + dirRows + '</div>'
             + '<div class="nk303-find nk303-find--3">'
             + '<div id="nkRepColStr" class="' + (focus === 'strengths' ? 'is-on' : '') + '"><button type="button" class="nk303-find-hit" onclick="nk303Call(\'reportFocus\',\'strengths\')"><h4>Cari vəziyyət / güclü tərəflər</h4></button>' + reportListHtml(sel.strengths) + '</div>'
             + '<div id="nkRepColFind" class="' + (focus === 'findings' ? 'is-on' : '') + '"><button type="button" class="nk303-find-hit" onclick="nk303Call(\'reportFocus\',\'findings\')"><h4>Çatışmazlıqlar</h4></button>' + reportListHtml(sel.findings) + '</div>'
             + '<div id="nkRepColAct" class="' + (focus === 'actions' ? 'is-on' : '') + '"><button type="button" class="nk303-find-hit" onclick="nk303Call(\'reportFocus\',\'actions\')"><h4>Tövsiyələr</h4></button>' + reportListHtml(sel.actions) + '</div>'
             + '</div>'
             + ((sel.slides || []).length
-                ? '<h4 class="nk303-rep-slides-h">Slayd icmalı'
-                    + (sel.slideCount ? '<span>' + esc(String(sel.slideCount)) + ' slayd</span>' : '')
+                ? '<h4 class="nk303-rep-slides-h">' + (pageWord === 'səhifə' ? 'Səhifə icmalı' : 'Slayd icmalı')
+                    + (pages ? '<span>' + esc(String(pages)) + ' ' + pageWord + '</span>' : '')
                     + '</h4><ul class="nk303-rep-slides">'
                     + (sel.slides || []).map(function(s) {
-                        var title = String(s.title || ('Slayd ' + (s.n || ''))).replace(/[\u000b\u000c]+/g, ' ').replace(/\s+/g, ' ').trim();
+                        var title = String(s.title || (pageWord + ' ' + (s.n || ''))).replace(/[\u000b\u000c]+/g, ' ').replace(/\s+/g, ' ').trim();
                         return '<li><em>' + esc(String(s.n || '')) + '</em><b>' + esc(title) + '</b></li>';
                     }).join('') + '</ul>'
                 : '')
             + '</section>';
     }
-    return head + kpis + mid + themeHtml + cards + detail;
+    return head + kpis + mid + themeHtml + detail;
 }
 
 function drawReportCharts() {
     if (typeof Chart === 'undefined') return;
     var agg = reportAgg();
     var sel = selectedReport();
+    var kind = agg.kind || activeReportKind();
+    var axes = agg.axes || reportAxes(kind);
+    var useStar = kind === 'isq' || kind === 'exq';
+    var nowHex = kind === 'isq' ? ISQ_RADAR_NOW : (useStar ? exqBarColor(agg.overall) : barColor(agg.overall));
+    var goalHex = kind === 'isq' ? ISQ_RADAR_GOAL : (useStar ? exqBarColor(exqStarTarget(agg.overall)) : barColor(maturityTarget(agg.overall)));
     if (document.getElementById('nkHubGauge')) {
         var empty = agg.overall == null;
         var v = empty ? 0 : Math.max(0, Math.min(100, agg.overall));
-        var col = empty ? '#cbd5e1' : barColor(agg.overall);
+        var col = empty ? '#cbd5e1' : (useStar ? exqBarColor(agg.overall) : barColor(agg.overall));
         makeHubChart('nkHubGauge', {
             type: 'doughnut',
             data: {
@@ -2666,24 +2847,35 @@ function drawReportCharts() {
             },
             plugins: [centerTextPlugin('nkHubGaugeCenter', [
                 { text: agg.overall == null ? '—' : fmt1(agg.overall), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
-                { text: '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
+                { text: useStar ? '%' : '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
             ])]
         });
     }
     if (document.getElementById('nkRepRadar')) {
-        var src = sel && sel.dirs ? sel.dirs : agg.dirs;
-        var goals = (sel && sel.targets) || (agg && agg.targets) || {};
-        var nowVals = DIRS.map(function(d) { return src[d.id] != null ? src[d.id] : 0; });
-        var goalVals = DIRS.map(function(d) {
-            if (goals[d.id] != null) return goals[d.id];
-            var goal = maturityTarget(src[d.id]);
-            return goal != null ? goal : 0;
+        var nowVals = axes.map(function(d) {
+            var sc = sel ? reportAxisScore(sel, d, kind) : agg.dirs[d.id];
+            if (sc == null && agg.dirs) sc = agg.dirs[d.id];
+            return sc != null ? sc : 0;
         });
+        var goalVals = axes.map(function(d, i) {
+            var now = nowVals[i];
+            if (kind === 'diag') {
+                var goals = (sel && sel.targets) || agg.targets || {};
+                if (goals[d.id] != null) return goals[d.id];
+                var g = maturityTarget(now);
+                return g != null ? g : 0;
+            }
+            if (kind === 'exq') return 100;
+            var step = exqStarTarget(now);
+            return step != null ? step : 0;
+        });
+        var sets = radarPairDatasets(nowVals, goalVals, nowHex, goalHex);
+        if (kind === 'exq') sets = sets.slice(0, 1);
         makeHubChart('nkRepRadar', {
             type: 'radar',
             data: {
-                labels: DIRS.map(function(d) { return dirShort(d); }),
-                datasets: radarPairDatasets(nowVals, goalVals, barColor(agg.overall), barColor(maturityTarget(agg.overall)))
+                labels: axes.map(function(d) { return d.short || dirShort(d) || d.name; }),
+                datasets: sets
             },
             options: {
                 responsive: true,
@@ -2692,10 +2884,10 @@ function drawReportCharts() {
                 scales: {
                     r: {
                         min: 0, max: 100,
-                        ticks: { stepSize: 20, color: '#94a3b8', backdropColor: 'transparent', font: { size: 10, weight: '600' } },
+                        ticks: { stepSize: 20, color: '#94a3b8', backdropColor: 'transparent', font: { size: kind === 'isq' ? 9 : 10, weight: '600' } },
                         grid: { color: 'rgba(148,163,184,0.35)' },
                         angleLines: { color: 'rgba(148,163,184,0.35)' },
-                        pointLabels: { color: '#334155', font: { size: 11, weight: '700' } }
+                        pointLabels: { color: '#334155', font: { size: kind === 'isq' ? 10 : 11, weight: '700' } }
                     }
                 }
             }
@@ -2705,7 +2897,7 @@ function drawReportCharts() {
         var nFind = sel ? (sel.findings || []).length : agg.findings;
         var nStr = sel ? (sel.strengths || []).length : 0;
         if (!sel) {
-            (reportStore.reports || []).forEach(function(r) {
+            visibleReports().forEach(function(r) {
                 nStr += (r.strengths || []).length;
             });
         }
@@ -2754,7 +2946,7 @@ function drawReportCharts() {
         if (radarChart) {
             radarChart.options.onClick = function(evt, els) {
                 if (!els || !els.length) return;
-                var d = DIRS[els[0].index];
+                var d = axes[els[0].index];
                 if (d) nk303Call('reportFocus', 'dir:' + d.id);
             };
             radarChart.options.onHover = function(evt, els) {
@@ -2781,7 +2973,14 @@ function bodyHtml(model) {
 
 function sourceHtml() {
     if (ui.hub === 'report') {
-        return '<p class="nk303-src">Hesabat analizi yüklənmiş PPTX təqdimatın mətni, balları və rəsmi 4 istiqamət (Strategiya, Xidmətlər, Texniki-texnoloji infrastruktur, Əməliyyat modelləri) əsasında qurulur.</p>';
+        var k = activeReportKind();
+        if (k === 'isq') {
+            return '<p class="nk303-src">İSQ hesabatı yüklənmiş PPTX/PDF mətnindən 10 sütun balı və yekun nəticə oxunur. Ulduz şkalası Qərar 380, bənd 4.18 üzrədir.</p>';
+        }
+        if (k === 'exq') {
+            return '<p class="nk303-src">EXQ hesabatı yüklənmiş PPTX/PDF mətnindən yekun faiz, ulduz və altmeyarlar oxunur · Qərar 380, bənd 4.14–4.18 · <a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a></p>';
+        }
+        return '<p class="nk303-src">Diaqnostika hesabatı yüklənmiş PPTX/PDF mətnindən rəsmi 4 istiqamət (Strategiya, Xidmətlər, Texniki-texnoloji infrastruktur, Əməliyyat modelləri) əsasında qurulur.</p>';
     }
     if (ui.hub === 'exq') {
         return '<p class="nk303-src">Mənbə: <a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a>'
@@ -3099,6 +3298,9 @@ function resetHubState() {
     ui.hubFilter = '';
     ui.hubSort = 'desc';
     ui.reportId = '';
+    ui.reportKind = '';
+    ui.reportPickKind = false;
+    ui.reportUploadKind = '';
     ui.reportFocus = '';
     ui.reportPin = false;
     destroyHubCharts();
@@ -3292,6 +3494,19 @@ function hubGaugeHtml(score, law) {
         + (law
             ? '<p class="nk303-hint nk303-hint--law">Qərar 303, bənd 4.10</p>'
             : '<p class="nk303-hint">Ortalama bal 0–100 şkalası üzrə</p>')
+        + '</div>';
+}
+
+function reportGaugeHtml(score, kind) {
+    if (kind !== 'isq' && kind !== 'exq') return hubGaugeHtml(score, false);
+    var star = exqStarFromPercent(score);
+    return '<div class="nk303-gauge">'
+        + '<div class="nk303-gauge-box"><canvas id="nkHubGauge"></canvas></div>'
+        + (star
+            ? '<div class="nk303-mat is-s' + star + '">' + esc(exqStarLabel(star)) + '</div>'
+            : '<div class="nk303-mat is-none">' + esc(NA) + '</div>')
+        + exqStarsHtml(star)
+        + '<p class="nk303-hint">' + (kind === 'exq' ? 'EXQ yekunu, Qərar 380 ulduz şkalası' : 'İSQ yekunu, Qərar 380 ulduz şkalası') + '</p>'
         + '</div>';
 }
 
@@ -4598,14 +4813,22 @@ function loadReportUploads() {
         });
 }
 
-function pickPptxFile() {
+function pickPptxFile(kind) {
     if (!isAdmin()) return;
+    if (kind !== 'diag' && kind !== 'isq' && kind !== 'exq') {
+        ui.reportPickKind = true;
+        render();
+        return;
+    }
+    ui.reportPickKind = false;
+    ui.reportUploadKind = kind;
+    ui.reportKind = kind;
     var input = document.getElementById('nk303PptxInput');
     if (!input) {
         input = document.createElement('input');
         input.type = 'file';
         input.id = 'nk303PptxInput';
-        input.accept = '.pptx,.pptm,application/vnd.openxmlformats-officedocument.presentationml.presentation';
+        input.accept = '.pptx,.pptm,.pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/pdf';
         input.multiple = true;
         input.style.display = 'none';
         input.addEventListener('change', onPptxChosen);
@@ -4621,7 +4844,14 @@ function onPptxChosen(ev) {
     var fd = new FormData();
     var i;
     for (i = 0; i < files.length; i++) fd.append('file', files[i]);
+    fd.append('kind', ui.reportUploadKind || activeReportKind() || '');
     input.value = '';
+    if (!fd.get('kind')) {
+        showToast('Əvvəl hesabat növünü seçin: Diaqnostika, İSQ və ya EXQ', 'error');
+        ui.reportPickKind = true;
+        render();
+        return;
+    }
     showToast('Hesabat oxunur…', 'info');
     fetch('/api/hesabat/upload', { method: 'POST', body: fd, credentials: 'same-origin' })
         .then(function(r) {
@@ -4643,7 +4873,11 @@ function onPptxChosen(ev) {
             return diagApi('/api/hesabat/uploads').then(function(r) { return r.json(); }).then(function(data) {
                 applyReportPayload(data);
                 var first = (res.data.files || [])[0];
-                if (first && first.id) ui.reportId = first.id;
+                if (first && first.id) {
+                    ui.reportId = first.id;
+                    var rec = (first.report || first);
+                    ui.reportKind = reportKindOf(rec);
+                }
                 ui.hub = 'report';
                 showToast(((first && (first.org || first.name)) || 'Hesabat') + ' yükləndi', 'success');
                 if (res.data.errors && res.data.errors.length) {
@@ -4654,6 +4888,41 @@ function onPptxChosen(ev) {
             });
         })
         .catch(function() { showToast('Hesabat yüklənmədi', 'error'); });
+}
+
+function setUploadedReportKind(payload) {
+    payload = darg(payload || '');
+    var parts = payload.split('|');
+    var fileId = parts[0] || '';
+    var kind = parts[1] || '';
+    if (!fileId || (kind !== 'diag' && kind !== 'isq' && kind !== 'exq') || !isAdmin()) return;
+    var rec = (reportStore.reports || []).filter(function(r) { return r.id === fileId; })[0];
+    if (rec && reportKindOf(rec) === kind) return;
+    showToast('Növ yenilənir…', 'info');
+    fetch('/api/hesabat/uploads/' + encodeURIComponent(fileId) + '/kind', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: kind })
+    })
+        .then(function(r) {
+            return r.json().then(function(data) { return { ok: r.ok, data: data }; });
+        })
+        .then(function(res) {
+            if (!res.ok) {
+                showToast((res.data && res.data.error) || 'Növ dəyişmədi', 'error');
+                return;
+            }
+            return diagApi('/api/hesabat/uploads').then(function(r) { return r.json(); }).then(function(data) {
+                applyReportPayload(data);
+                ui.reportId = fileId;
+                ui.reportKind = kind;
+                ui.hub = 'report';
+                showToast(reportKindMeta(kind).label + ' kimi oxundu', 'success');
+                render();
+            });
+        })
+        .catch(function() { showToast('Növ dəyişmədi', 'error'); });
 }
 
 function removeReportFile(fileId) {
@@ -4864,13 +5133,39 @@ export function nk303Call(action, payload) {
         if (href) window.open(href, '_blank', 'noopener,noreferrer');
         return;
     } else if (action === 'uploadReport') {
-        pickPptxFile();
+        ui.reportPickKind = true;
+        ui.hub = 'report';
+        render();
+        return;
+    } else if (action === 'uploadAs') {
+        ui.reportPickKind = false;
+        pickPptxFile(darg(payload || ''));
+        return;
+    } else if (action === 'cancelPickKind') {
+        ui.reportPickKind = false;
+        ui.hub = 'report';
+        render();
+        return;
+    } else if (action === 'setFileKind') {
+        setUploadedReportKind(payload);
         return;
     } else if (action === 'removeReport') {
         removeReportFile(payload);
         return;
     } else if (action === 'pickReport') {
         ui.reportId = darg(payload || '');
+        var picked = (reportStore.reports || []).filter(function(r) { return r.id === ui.reportId; })[0];
+        if (picked) ui.reportKind = reportKindOf(picked);
+        ui.reportFocus = '';
+        ui.reportPin = false;
+        ui.hub = 'report';
+        window.scrollTo(0, 0);
+    } else if (action === 'reportKind') {
+        ui.reportKind = darg(payload || '') || 'diag';
+        var vis = reportsOfKind(ui.reportKind);
+        if (!vis.some(function(r) { return r.id === ui.reportId; })) {
+            ui.reportId = vis[0] ? vis[0].id : '';
+        }
         ui.reportFocus = '';
         ui.reportPin = false;
         ui.hub = 'report';

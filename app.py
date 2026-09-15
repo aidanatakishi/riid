@@ -2,7 +2,18 @@ import os
 import subprocess
 import sys
 
-REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl', 'pptx')
+REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl', 'pptx', 'pypdf')
+
+
+def _configure_stdio():
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except Exception:
+            pass
+
+
+_configure_stdio()
 
 
 def _can_import(name):

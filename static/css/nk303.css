@@ -849,6 +849,110 @@ body.nk303-admin-locked #nk303Root {
     border-radius: 6px;
     padding: 0.2rem 0.42rem;
 }
+.nk303-rep-file-tags {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.18rem;
+    flex-shrink: 0;
+}
+.nk303-rep-file-kind {
+    font-size: 0.6rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    border-radius: 6px;
+    padding: 0.16rem 0.38rem;
+    color: #334155;
+    background: #f1f5f9;
+}
+.nk303-rep-file.is-diag.is-on,
+.nk303-rep-kind.is-diag.is-on { border-color: #c4b5fd; background: #f5f3ff; }
+.nk303-rep-file.is-isq.is-on,
+.nk303-rep-kind.is-isq.is-on { border-color: #93c5fd; background: #eff6ff; }
+.nk303-rep-file.is-exq.is-on,
+.nk303-rep-kind.is-exq.is-on { border-color: #fdba74; background: #fff7ed; }
+.nk303-rep-file.is-diag .nk303-rep-file-ic { background: #ede9fe; color: #6d28d9; }
+.nk303-rep-file.is-isq .nk303-rep-file-ic { background: #dbeafe; color: #1d4ed8; }
+.nk303-rep-file.is-exq .nk303-rep-file-ic { background: #ffedd5; color: #c2410c; }
+.nk303-rep-file.is-diag .nk303-rep-file-kind { background: #ede9fe; color: #6d28d9; }
+.nk303-rep-file.is-isq .nk303-rep-file-kind { background: #dbeafe; color: #1d4ed8; }
+.nk303-rep-file.is-exq .nk303-rep-file-kind { background: #ffedd5; color: #c2410c; }
+.nk303-card--kindpick {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.7rem;
+    margin: 0 0 0.85rem;
+    padding: 1rem 1.1rem 1.05rem;
+    border-color: #c4b5fd;
+    background: #faf8ff;
+}
+.nk303-card--kindpick h3 { margin: 0; }
+.nk303-card--kindpick .nk303-hint { margin: 0; }
+.nk303-rep-kinds.is-pick {
+    margin: 0;
+}
+.nk303-rep-kinds.is-pick .nk303-rep-kind {
+    padding: 0.55rem 0.95rem;
+    font-size: 0.88rem;
+}
+.nk303-rep-kinds.is-file {
+    margin: 0 0 0.45rem;
+}
+.nk303-rep-kinds.is-file .nk303-rep-kind {
+    padding: 0.28rem 0.55rem;
+    font-size: 0.72rem;
+}
+.nk303-rep-kinds {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin: 0 0 0.85rem;
+}
+.nk303-rep-kind {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    margin: 0;
+    padding: 0.38rem 0.7rem;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: #fff;
+    font-family: inherit;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #334155;
+    cursor: pointer;
+}
+.nk303-rep-kind i {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 99px;
+}
+.nk303-rep-kind b {
+    font-size: 0.68rem;
+    font-weight: 800;
+    color: #64748b;
+    background: #f1f5f9;
+    border-radius: 999px;
+    padding: 0.05rem 0.4rem;
+}
+.nk303-rep-kind.is-on b { background: #fff; }
+.nk303-rep-empty-kinds {
+    margin: 0.85rem 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.45rem;
+    color: #475569;
+    font-size: 0.84rem;
+    line-height: 1.4;
+}
+.nk303-rep-empty-kinds b { color: #0f2744; }
+.nk303-chart--radar.is-isq { height: 17.5rem; }
+.nk303-rep-dirs.is-isq { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.nk303-rep-dirs.is-exq { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.nk303-mid--report > .nk303-card--gauge .nk303-exq-formula { display: none; }
 .nk303-rep-file .nk303-xl-del {
     align-self: center;
     margin: 0 0.55rem 0 0;
@@ -1177,7 +1281,7 @@ body.nk303-admin-locked #nk303Root {
 }
 .nk303-track i { display: block; height: 100%; border-radius: inherit; }
 @media (max-width: 900px) {
-    .nk303-find--3, .nk303-rep-dirs { grid-template-columns: 1fr; }
+    .nk303-find--3, .nk303-rep-dirs, .nk303-rep-dirs.is-isq, .nk303-rep-dirs.is-exq { grid-template-columns: 1fr; }
 }
 .nk303-del {
     margin-left: 0.35rem;

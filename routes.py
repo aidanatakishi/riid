@@ -12,7 +12,7 @@ from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIR
 from chat_llm import answer_chat, chat_llm_ready
 import chat_llm
 from diag_excel import parse_diag_excel
-from report_pptx import parse_report_pptx
+from report_pptx import parse_report_file, normalize_report_kind
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
@@ -1129,7 +1129,7 @@ def delete_diag_upload(file_id):
 
 REPORT_UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads', 'hesabat')
 REPORT_INDEX_PATH = os.path.join(BASE_DIR, 'data', 'report_uploads.json')
-REPORT_ALLOWED_EXT = {'.pptx', '.pptm'}
+REPORT_ALLOWED_EXT = {'.pptx', '.pptm', '.pdf'}
 
 
 def report_index():
@@ -1156,7 +1156,7 @@ def live_report(item):
     path = os.path.join(REPORT_UPLOAD_DIR, stored) if stored else ''
     if path and os.path.isfile(path):
         try:
-            parsed = parse_report_pptx(path, item.get('name'))
+            parsed = parse_report_file(path, item.get('name'), kind=item.get('kind'))
             report = parsed.get('report')
             if report:
                 return report
@@ -1171,14 +1171,21 @@ def public_report_row(item):
         'id': item.get('id'),
         'name': item.get('name'),
         'uploadedAt': item.get('uploadedAt'),
+        'kind': item.get('kind') or report.get('kind') or 'diag',
+        'format': report.get('format') or '',
         'org': report.get('org') or '',
         'year': report.get('year'),
-        'slideCount': report.get('slideCount'),
+        'slideCount': report.get('slideCount') or report.get('pageCount'),
+        'pageCount': report.get('pageCount') or report.get('slideCount'),
         'overall': report.get('overall'),
         'inferred': bool(report.get('inferred')),
         'maturity': report.get('maturity'),
+        'star': report.get('star'),
         'dirs': report.get('dirs') or {},
         'targets': report.get('targets') or {},
+        'pillars': report.get('pillars') or [],
+        'byStar': report.get('byStar') or [],
+        'criteria': report.get('criteria') or [],
         'summary': report.get('summary') or '',
         'findings': report.get('findings') or [],
         'strengths': report.get('strengths') or [],
@@ -1208,6 +1215,8 @@ def list_report_uploads():
             'name': f.get('name'),
             'uploadedAt': f.get('uploadedAt'),
             'org': (f.get('report') or {}).get('org') or '',
+            'kind': f.get('kind') or (f.get('report') or {}).get('kind') or 'diag',
+            'format': (f.get('report') or {}).get('format') or '',
         } for f in index.get('files') or []],
         'reports': reports
     }), 200
@@ -1224,7 +1233,10 @@ def upload_report_pptx():
             incoming = [one]
     incoming = [f for f in incoming if f and f.filename]
     if not incoming:
-        return jsonify({'error': 'PPTX faylı seçin'}), 400
+        return jsonify({'error': 'PPTX və ya PDF faylı seçin'}), 400
+    kind = normalize_report_kind(request.form.get('kind'))
+    if not kind:
+        return jsonify({'error': 'Əvvəl hesabat növünü seçin: Diaqnostika, İSQ və ya EXQ'}), 400
 
     os.makedirs(REPORT_UPLOAD_DIR, exist_ok=True)
     index = report_index()
@@ -1234,7 +1246,7 @@ def upload_report_pptx():
     for fh in incoming:
         ext = os.path.splitext(fh.filename or '')[1].lower()
         if ext not in REPORT_ALLOWED_EXT:
-            errors.append((fh.filename or 'fayl') + ': yalnız .pptx / .pptm qəbul olunur')
+            errors.append((fh.filename or 'fayl') + ': yalnız .pptx, .pptm və .pdf qəbul olunur')
             continue
         file_id = uuid.uuid4().hex
         safe = secure_filename(fh.filename) or ('hesabat' + ext)
@@ -1242,7 +1254,7 @@ def upload_report_pptx():
         path = os.path.join(REPORT_UPLOAD_DIR, stored)
         fh.save(path)
         try:
-            parsed = parse_report_pptx(path, fh.filename)
+            parsed = parse_report_file(path, fh.filename, kind=kind)
         except Exception as e:
             try:
                 os.remove(path)
@@ -1256,13 +1268,14 @@ def upload_report_pptx():
                 os.remove(path)
             except OSError:
                 pass
-            msg = (parsed.get('warnings') or ['Təqdimatda təhlil olunacaq mətn tapılmadı.'])[0]
+            msg = (parsed.get('warnings') or ['Hesabatda təhlil olunacaq mətn tapılmadı.'])[0]
             errors.append((fh.filename or 'fayl') + ': ' + msg)
             continue
         rec = {
             'id': file_id,
             'name': fh.filename,
             'stored': stored,
+            'kind': kind,
             'uploadedAt': datetime.now(timezone.utc).isoformat(),
             'report': report,
             'warnings': parsed.get('warnings') or []
@@ -1310,4 +1323,43 @@ def delete_report_upload(file_id):
         except OSError:
             pass
     return jsonify({'ok': True, 'reports': flatten_reports(index)}), 200
+
+
+@api.route('/api/hesabat/uploads/<file_id>/kind', methods=['POST', 'OPTIONS'])
+@diagnostics_required
+@admin_required
+def set_report_kind(file_id):
+    if request.method == 'OPTIONS':
+        return options_ok()
+    kind = normalize_report_kind((request.get_json(silent=True) or {}).get('kind') or request.form.get('kind'))
+    if not kind:
+        return jsonify({'error': 'Növü seçin: Diaqnostika, İSQ və ya EXQ'}), 400
+    index = report_index()
+    found = None
+    for item in index.get('files') or []:
+        if item.get('id') == file_id:
+            found = item
+            break
+    if not found:
+        return jsonify({'error': 'Fayl tapılmadı'}), 404
+    found['kind'] = kind
+    path = os.path.join(REPORT_UPLOAD_DIR, found.get('stored') or '')
+    if path and os.path.isfile(path):
+        try:
+            parsed = parse_report_file(path, found.get('name'), kind=kind)
+            report = parsed.get('report')
+            if report:
+                found['report'] = report
+                found['warnings'] = parsed.get('warnings') or []
+        except Exception as e:
+            return jsonify({'error': str(e)}), 400
+    elif found.get('report'):
+        found['report']['kind'] = kind
+    save_report_index(index)
+    return jsonify({
+        'ok': True,
+        'id': file_id,
+        'kind': kind,
+        'reports': flatten_reports(index)
+    }), 200
 
