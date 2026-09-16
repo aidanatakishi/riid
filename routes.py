@@ -30,6 +30,7 @@ from users import (
     get_shared_jira_pat,
     has_users,
     list_users,
+    normalize_project_key,
     normalize_team,
     public_user,
     save_user_jira_pat,
@@ -92,7 +93,7 @@ def current_team():
 
 
 def can_see_diagnostics():
-    return is_logged_in() and current_project_key() == home_project_key() and current_team() == 'komplayns'
+    return is_logged_in() and current_project_key() == home_project_key()
 
 
 TOKEN_MISSING = 'Jira tokeni yoxdur. Daxil olanda öz tokeninizi yazın; bir dəfə yadda qalır.'
@@ -160,7 +161,7 @@ def diagnostics_required(fn):
         if not is_logged_in():
             return jsonify({'error': 'Giriş lazımdır'}), 401
         if not can_see_diagnostics():
-            return jsonify({'error': 'Qiymətləndirmə analitikası yalnız Komplayns üçün əlçatandır'}), 403
+            return jsonify({'error': 'Qiymətləndirmə analitikasına giriş yoxdur'}), 403
         return fn(*args, **kwargs)
     return wrapper
 
@@ -448,8 +449,15 @@ def auth_me():
 @api.route('/api/auth/project', methods=['POST', 'OPTIONS'])
 @login_required
 def auth_set_project():
-    data = request_json()
-    remember_project_key(data if isinstance(data, dict) else {})
+    user = find_user_by_id(session_user_id())
+    if is_app_admin():
+        data = request_json()
+        remember_project_key(data if isinstance(data, dict) else {})
+    elif user:
+        session['current_project_key'] = normalize_project_key(user.get('project_key')) or home_project_key()
+        session['current_team'] = normalize_team(user.get('team'))
+        session['team'] = session['current_team']
+        session['project_key'] = session['current_project_key']
     return jsonify({
         'currentProjectKey': current_project_key(),
         'currentTeam': current_team(),

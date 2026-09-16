@@ -351,6 +351,7 @@
         teamRead.textContent = opt ? opt.textContent : '—';
     }
     function saveScope() {
+        if (!canManage) return;
         var btn = document.getElementById('saveScopeBtn');
         var ok = document.getElementById('scopeOk');
         showError('scopeError', '');

@@ -7,9 +7,9 @@ import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumCha
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
 import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda37';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda91';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda94';
 import { initChat } from './chat.js?v=idda18';
-import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda8';
+import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda9';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 state.onViewChange = persistViewState;

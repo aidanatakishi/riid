@@ -54,7 +54,7 @@ export function currentProjectKey() {
 export function canSeeDiagnostics() {
     var home = String(state.homeProjectKey || 'DGD').toUpperCase();
     var cur = currentProjectKey();
-    return !!home && !!cur && cur === home && currentTeamId() === 'komplayns';
+    return !!home && !!cur && cur === home;
 }
 
 export function applyDiagnosticsVisibility() {

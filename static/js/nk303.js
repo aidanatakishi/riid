@@ -21,7 +21,7 @@ import {
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
-import { apiFetch, canSeeDiagnostics } from './session.js';
+import { apiFetch, canSeeDiagnostics } from './session.js?v=idda9';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
@@ -41,8 +41,7 @@ var HUB_TABS = [
     { id: 'isq', label: 'İSQ', color: KIND.isq },
     { id: 'self', label: 'Özünüqiymətləndirmə', color: KIND.self },
     { id: 'exq', label: 'EXQ', color: KIND.exq },
-    { id: 'meqsed', label: 'Məqsədəuyğunluq', color: KIND.meqsed },
-    { id: 'report', label: 'Hesabat analizi', color: KIND.report }
+    { id: 'meqsed', label: 'Məqsədəuyğunluq', color: KIND.meqsed }
 ];
 var PAGE_HEADS = {
     diag: {
@@ -64,10 +63,6 @@ var PAGE_HEADS = {
     meqsed: {
         title: 'Məqsədəuyğunluq',
         sub: 'Məqsədəuyğunluq rəyləri və müraciətlər'
-    },
-    report: {
-        title: 'Hesabat analizi',
-        sub: 'PPTX və PDF hesabatların növünə görə təhlili'
     }
 };
 var HUB_STATUS_COLORS = STATUS;
@@ -1072,7 +1067,7 @@ function pageHeadHtml(model) {
     if (!(onDiag && ui.orgKey)) {
         if (onDiag) {
             yearHtml = '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>';
-        } else if (ui.hub !== 'report') {
+        } else {
             yearHtml = hubYearFilterHtml(ui.hub);
         }
     }
@@ -1133,23 +1128,13 @@ function hubSectionOn(id) {
     return id === 'diag';
 }
 
-function reportTabItem() {
-    return {
-        id: 'report',
-        label: 'Hesabat analizi',
-        color: '#0f766e',
-        count: (reportStore.reports || []).length
-    };
-}
-
 function hubNavHtml() {
-    var items = HUB_TABS.filter(function(it) { return it.id !== 'report'; });
+    var items = HUB_TABS.slice();
     try {
         var live = getAssessmentHubNav();
         if (live && live.length) items = live.slice();
     } catch (e) {}
     items = items.filter(function(it) { return it.id !== 'report'; });
-    items.push(reportTabItem());
     return '<nav class="nk303-sec-nav" aria-label="Qiymətləndirmə bölmələri">'
         + items.map(function(it) {
             return '<button type="button" class="nk303-sec' + (hubSectionOn(it.id) ? ' is-on' : '') + '" data-sec="'
@@ -1167,9 +1152,6 @@ function isAdmin() {
 }
 
 function currentHubView() {
-    if (ui.hub === 'report') {
-        return { section: 'report', label: 'Hesabat analizi', stats: {}, rows: [], period: '' };
-    }
     try {
         return getAssessmentHubView(ui.hub);
     } catch (e) {
@@ -2947,34 +2929,13 @@ function drawReportCharts() {
 
 function bodyHtml(model) {
     var inner;
-    if (ui.hub === 'report') inner = reportPageHtml();
-    else if (ui.hub) inner = hubPageHtml(currentHubView());
+    if (ui.hub) inner = hubPageHtml(currentHubView());
     else if (ui.mode === 'institution' || ui.orgKey) inner = institutionBody(model);
     else if (ui.nav === 'gaps') inner = highGapsBody(model);
     else if (ui.nav === 'orgs') inner = countryOrgListBody(model, 'all');
     else if (isVisNav(ui.nav)) inner = countryOrgListBody(model, ui.nav);
     else inner = countryBody(model);
-    return inner + sourceHtml() + '</div>';
-}
-
-function sourceHtml() {
-    if (ui.hub === 'report') {
-        var k = activeReportKind();
-        if (k === 'isq') {
-            return '<p class="nk303-src">İSQ hesabatı yüklənmiş PPTX/PDF mətnindən 10 sütun balı və yekun nəticə oxunur. Ulduz şkalası Qərar 380, bənd 4.18 üzrədir.</p>';
-        }
-        if (k === 'exq') {
-            return '<p class="nk303-src">EXQ hesabatı yüklənmiş PPTX/PDF mətnindən yekun faiz, ulduz və altmeyarlar oxunur · Qərar 380, bənd 4.14–4.18 · <a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a></p>';
-        }
-        return '<p class="nk303-src">Diaqnostika hesabatı yüklənmiş PPTX/PDF mətnindən rəsmi 4 istiqamət (Strategiya, Xidmətlər, Texniki-texnoloji infrastruktur, Əməliyyat modelləri) əsasında qurulur.</p>';
-    }
-    if (ui.hub === 'exq') {
-        return '<p class="nk303-src">Mənbə: <a href="' + EXQ_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60998</a>'
-            + ' · NK Qərar 380 (9 dekabr 2025) · bənd 4.14–4.18 · yekun nəticə və 5 ulduz şkalası</p>';
-    }
-    return '<p class="nk303-src">Mənbə: <a href="https://e-qanun.az/framework/60692" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60692</a>'
-        + ' · metodologiya sənədi: <a href="https://nk.gov.az/uploads/doc/docs/68f9c02089229.pdf" target="_blank" rel="noopener noreferrer">nk.gov.az PDF</a>'
-        + ' · rəsmi istiqamətlər: Strategiya, Xidmətlər, Texniki-texnoloji infrastruktur, Əməliyyat modelləri</p>';
+    return inner + '</div>';
 }
 
 function destroyNkCharts() {
@@ -3309,7 +3270,7 @@ function closeHub() {
 }
 
 function openHub(section) {
-    if (!section || section === 'diag') {
+    if (!section || section === 'diag' || section === 'report') {
         closeHub();
         window.scrollTo(0, 0);
         render();
@@ -3329,11 +3290,9 @@ function openHub(section) {
     ui.mode = 'country';
     ui.orgKey = '';
     ui.nav = 'overview';
-    if (section === 'report' && !ui.reportKind) ui.reportKind = 'diag';
     hideHubOverlay();
     window.scrollTo(0, 0);
     render();
-    if (section === 'report' && !reportStore.loaded) loadReportUploads();
 }
 
 function hubKpiHit(key) {
@@ -4419,21 +4378,14 @@ function render() {
     root.innerHTML = pageHeadHtml(model) + bodyHtml(model);
     document.title = pageHeadCopy(model).title;
     requestAnimationFrame(function() {
-        if (ui.hub === 'report') {
-            drawReportCharts();
-        } else if (ui.hub) {
+        if (ui.hub) {
             var view = currentHubView();
             drawHubCharts(view);
             if (view.section === 'meqsed') drawMeqsedOverviewCharts(view.stats);
         } else {
             drawCharts(model);
         }
-        if (ui.hub === 'report' && ui.reportPin) {
-            ui.reportPin = false;
-            scrollReportFocus();
-        } else {
-            window.scrollTo(0, y);
-        }
+        window.scrollTo(0, y);
         scheduleHubPrefetch();
     });
 }
@@ -5123,51 +5075,6 @@ export function nk303Call(action, payload) {
         var issueKey = darg(payload || '');
         var href = jiraBrowseUrl(issueKey);
         if (href) window.open(href, '_blank', 'noopener,noreferrer');
-        return;
-    } else if (action === 'uploadReport') {
-        pickPptxFile(activeReportKind());
-        return;
-    } else if (action === 'uploadAs') {
-        ui.reportPickKind = false;
-        pickPptxFile(darg(payload || ''));
-        return;
-    } else if (action === 'cancelPickKind') {
-        ui.reportPickKind = false;
-        ui.hub = 'report';
-        render();
-        return;
-    } else if (action === 'setFileKind') {
-        setUploadedReportKind(payload);
-        return;
-    } else if (action === 'removeReport') {
-        removeReportFile(payload);
-        return;
-    } else if (action === 'pickReport') {
-        ui.reportId = darg(payload || '');
-        var picked = (reportStore.reports || []).filter(function(r) { return r.id === ui.reportId; })[0];
-        if (picked) ui.reportKind = reportKindOf(picked);
-        ui.reportFocus = '';
-        ui.reportPin = false;
-        ui.hub = 'report';
-        window.scrollTo(0, 0);
-    } else if (action === 'reportKind') {
-        var nextKind = darg(payload || '');
-        if (nextKind !== 'isq' && nextKind !== 'exq' && nextKind !== 'diag') nextKind = 'diag';
-        ui.reportKind = nextKind;
-        ui.reportPickKind = false;
-        var vis = reportsOfKind(ui.reportKind);
-        if (!vis.some(function(r) { return r.id === ui.reportId; })) {
-            ui.reportId = vis[0] ? vis[0].id : '';
-        }
-        ui.reportFocus = '';
-        ui.reportPin = false;
-        ui.hub = 'report';
-    } else if (action === 'reportFocus') {
-        var next = darg(payload || '');
-        ui.reportFocus = ui.reportFocus === next ? '' : next;
-        ui.reportPin = true;
-        ui.hub = 'report';
-        render();
         return;
     } else if (action === 'logout') {
         logoutAdmin();

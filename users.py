@@ -435,12 +435,11 @@ ACCESS_LABELS = (
 
 
 def user_accesses(user):
-    team = normalize_team((user or {}).get('team'))
     manage = can_manage_users(user)
     tech = can_manage_tech(user)
     flags = {
         'panel': True,
-        'diag': team == 'komplayns',
+        'diag': True,
         'users': manage,
         'tech': tech,
     }
