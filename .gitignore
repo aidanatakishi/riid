@@ -25,10 +25,7 @@ data/secret.key
 
 # Yüklənmiş diaqnostika Excel-ləri
 uploads/
-
-# Netlify
 site/
-.netlify/
 
 # IDE / OS
 .idea/

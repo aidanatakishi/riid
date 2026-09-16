@@ -23,11 +23,9 @@ var SEARCH_FIELDS = [
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ].join(',');
 
-var CORS_BLOCK_MSG = 'riid.netlify.app internetdədir, Jira isə ofis daxilindədir (10.252.21.15). Netlify serveri ora çatmır; brauzerdən birbaşa çağırış da CORS və daxili şəbəkə qadağasına görə bloklanır. Canlı data üçün python app.py açın: http://127.0.0.1:5000. İctimai link üçün lokal Flask-ı cloudflared tunnel ilə paylaşın və tunnel ünvanını Proxy sahəsinə yazın.';
 var NETWORK_BLOCK_MSG = 'Jira-ya qoşulmaq mümkün olmadı. Ofis şəbəkəsi və ya VPN açıq olmalıdır.';
 
 function useFlaskProxy() {
-    if (/netlify\.app$/i.test(location.hostname)) return false;
     return true;
 }
 
@@ -114,9 +112,6 @@ async function pickTransport() {
 }
 
 async function describeDirectFailure() {
-    if (location.hostname.indexOf('netlify.app') !== -1 || location.protocol === 'https:') {
-        return CORS_BLOCK_MSG;
-    }
     return NETWORK_BLOCK_MSG;
 }
 

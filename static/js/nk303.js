@@ -21,7 +21,7 @@ import {
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
-import { apiFetch, canSeeDiagnostics } from './session.js?v=idda9';
+import { apiFetch, canSeeDiagnostics } from './session.js?v=idda10';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';

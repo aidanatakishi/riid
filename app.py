@@ -152,7 +152,7 @@ def cors_origin_ok(origin):
     return host in ('127.0.0.1', 'localhost')
 
 
-# Xarici origin (riid.netlify.app və ya cloudflared) /api/jira çağıranda CORS lazımdır.
+# Xarici origin /api/jira çağıranda CORS lazımdır.
 @app.before_request
 def handle_cors_preflight():
     if request.method == 'OPTIONS':

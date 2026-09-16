@@ -2,8 +2,6 @@ import { state } from './state.js';
 import { currentTeamId, normalizeTeamId } from './model.js';
 
 export function loginPath() {
-    var host = String(location.hostname || '');
-    if (/netlify\.app$/i.test(host)) return '/login.html';
     return '/login';
 }
 
@@ -28,13 +26,6 @@ export function apiFetch(url, opts) {
 }
 
 export async function requireSession() {
-    var host = String(location.hostname || '');
-    if (/netlify\.app$/i.test(host)) {
-        if (String(location.pathname || '').indexOf('login') === -1) {
-            window.location.replace(loginPath());
-        }
-        return false;
-    }
     try {
         var res = await fetch('/api/auth/me', { credentials: 'same-origin' });
         var data = await res.json();

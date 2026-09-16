@@ -14,9 +14,6 @@ _tmp_reports
 _tmp_*
 .idea
 .vscode
-site
-.netlify
-netlify
 *.pyc
 __pycache__
 _tmp_avqust_manual.txt
