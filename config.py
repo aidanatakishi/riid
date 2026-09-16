@@ -19,24 +19,50 @@ def _load_dotenv():
                 os.environ[key] = value
 
 
+def env_flag(name, default=False):
+    raw = os.environ.get(name)
+    if raw is None:
+        return bool(default)
+    return raw.strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 _load_dotenv()
 
 # Boş saxlayın — brauzerdə yazılacaq. İstehsalda .env-ə JIRA_PAT yazın.
 _JIRA_PAT_FALLBACK = ''
+
+APP_ENV = (os.environ.get('APP_ENV') or os.environ.get('FLASK_ENV') or '').strip().lower()
+FLASK_DEBUG = env_flag('FLASK_DEBUG', False)
+
+
+def is_production():
+    if APP_ENV in ('development', 'dev', 'local'):
+        return False
+    if APP_ENV == 'production':
+        return True
+    return not FLASK_DEBUG
+
 
 JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', 'https://jira.idda.az').rstrip('/')
 JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
 SECRET_KEY = os.environ.get('SECRET_KEY') or ''
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME') or 'admin'
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or 'admin123'
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or ''
 DEPT_USERNAME = os.environ.get('DEPT_USERNAME') or ''
 DEPT_PASSWORD = os.environ.get('DEPT_PASSWORD') or ''
 DEPT_DISPLAY_NAME = os.environ.get('DEPT_DISPLAY_NAME') or 'Qiymətləndirmə və komplayens şöbəsi'
 USER_USERNAME = os.environ.get('USER_USERNAME') or 'user'
-USER_PASSWORD = os.environ.get('USER_PASSWORD') or 'user123'
+USER_PASSWORD = os.environ.get('USER_PASSWORD') or ''
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') or ''
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or ''
+SESSION_COOKIE_SECURE = env_flag('SESSION_COOKIE_SECURE', False)
+TRUST_PROXY = env_flag('TRUST_PROXY', is_production())
+CORS_ORIGINS = tuple(
+    origin.strip().rstrip('/')
+    for origin in (os.environ.get('CORS_ORIGINS') or '').split(',')
+    if origin.strip()
+)
 
 SEARCH_FIELDS = (
     "summary,status,duedate,description,customfield_10807,customfield_10808,"

@@ -54,6 +54,38 @@ export function normalizeStr(str) {
     return str.trim().toLocaleLowerCase('az').replace(/i̇/g, 'i');
 }
 
+export function showSettings() {
+    var panel = document.getElementById('settingsPanel');
+    if (!panel) return;
+    panel.classList.remove('hidden');
+    panel.removeAttribute('hidden');
+    panel.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('settings-open');
+    syncSettingsButton(true);
+    bindSettingsEsc();
+    bindSettingsPlace();
+    requestAnimationFrame(positionSettingsPopup);
+}
+
+export function hideSettings() {
+    var panel = document.getElementById('settingsPanel');
+    if (!panel) return;
+    panel.classList.add('hidden');
+    panel.setAttribute('hidden', '');
+    panel.setAttribute('aria-hidden', 'true');
+    document.body.classList.remove('settings-open');
+    syncSettingsButton(false);
+}
+
+export function toggleSettings() {
+    if (isSettingsOpen()) hideSettings();
+    else showSettings();
+}
+
+export function onSettingsOverlayClick(ev) {
+    if (!ev || ev.target === ev.currentTarget) hideSettings();
+}
+
 function syncSettingsButton(open) {
     var btn = document.getElementById('settingsBtn');
     if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
@@ -107,38 +139,6 @@ function bindSettingsPlace() {
     });
 }
 
-export function showSettings() {
-    var panel = document.getElementById('settingsPanel');
-    if (!panel) return;
-    panel.classList.remove('hidden');
-    panel.removeAttribute('hidden');
-    panel.setAttribute('aria-hidden', 'false');
-    document.body.classList.add('settings-open');
-    syncSettingsButton(true);
-    bindSettingsEsc();
-    bindSettingsPlace();
-    requestAnimationFrame(positionSettingsPopup);
-}
-
-export function hideSettings() {
-    var panel = document.getElementById('settingsPanel');
-    if (!panel) return;
-    panel.classList.add('hidden');
-    panel.setAttribute('hidden', '');
-    panel.setAttribute('aria-hidden', 'true');
-    document.body.classList.remove('settings-open');
-    syncSettingsButton(false);
-}
-
-export function toggleSettings() {
-    if (isSettingsOpen()) hideSettings();
-    else showSettings();
-}
-
-export function onSettingsOverlayClick(ev) {
-    if (!ev || ev.target === ev.currentTarget) hideSettings();
-}
-
 export function getInitials(name) {
     if (!name || name === 'Təyin edilməyib') return '?';
     return name.split(' ').map(function(p) { return p[0]; }).join('').toUpperCase().substring(0, 2);
@@ -153,7 +153,7 @@ export function getIssueTypeIcon(typeName) {
 
 export function getStatusColor(statusName) {
     var g = getStatusGroup(statusName);
-    return { 'planned': 'bg-orange-500', 'progress': 'bg-blue-500', 'review': 'bg-cyan-500', 'esd': 'bg-indigo-500', 'blocked': 'bg-red-500', 'paused': 'bg-amber-500', 'rejected': 'bg-rose-700', 'done': 'bg-emerald-500', 'other': 'bg-slate-400' }[g];
+    return { 'planned': 'bg-slate-500', 'progress': 'bg-blue-600', 'review': 'bg-cyan-600', 'esd': 'bg-indigo-600', 'blocked': 'bg-orange-600', 'paused': 'bg-amber-500', 'rejected': 'bg-rose-600', 'done': 'bg-emerald-600', 'other': 'bg-slate-400' }[g];
 }
 
 export function truncateChangeValue(str, max) {

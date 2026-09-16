@@ -18,8 +18,9 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda90">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda75">
+    <link rel="stylesheet" href="/static/css/tokens.css?v=idda2">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda95">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda80">
 </head>
 <body class="app-page">
 
@@ -47,6 +48,10 @@
             </div>
         </div>
         <div class="app-head-tools" role="toolbar" aria-label="Panel əməliyyatları">
+            <a href="/diaqnostika" id="analyticsLaunchBtn" class="app-head-tool is-accent nk303-launch" title="Qiymətləndirmə analitikası" onclick="openNk303(); return false;">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>
+                <span>Qiymətləndirmə analitikası</span>
+            </a>
             <button type="button" id="reportDownloadBtn" class="app-head-tool" onclick="exportTasksToWord('Hesabat')" title="Hesabat">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 <span id="reportDownloadLabel">Hesabat</span>
@@ -55,9 +60,9 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 Yenilə
             </button>
-            <button id="settingsBtn" type="button" class="app-head-tool" onclick="toggleSettings()" aria-expanded="false" aria-controls="settingsPanel" aria-haspopup="dialog">
+            <button id="settingsBtn" type="button" class="app-head-tool" onclick="toggleSettings()" aria-expanded="false" aria-controls="settingsPanel" aria-haspopup="dialog" title="Tənzimləmələr">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                Ayarlar
+                Tənzimləmələr
             </button>
         </div>
     </header>
@@ -324,17 +329,13 @@
     </div>
 
     <div class="card mb-6 fade-in assess-hub-card" id="assessHubCard">
-        <div class="assess-hub-head app-sec-head p-4 md:p-5 flex flex-wrap justify-between items-center gap-3 border-b border-slate-200">
+        <div class="assess-hub-head app-sec-head p-4 md:p-5 flex flex-wrap items-center gap-3 border-b border-slate-200">
             <div class="flex items-center gap-3 min-w-0">
                 <span class="assess-hub-icon shrink-0">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
                 </span>
                 <h2 class="font-bold text-base md:text-lg text-slate-800 min-w-0">Diaqnostika və qiymətləndirmə nəticələri</h2>
             </div>
-            <a href="/diaqnostika" class="nk303-launch" title="Qiymətləndirmə analitikası" onclick="openNk303(); return false;">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>
-                <span>Qiymətləndirmə analitikası</span>
-            </a>
         </div>
         <div id="assessDash" class="assess-dash" onclick="event.stopPropagation();">
             <div id="assessSectionLoading" class="assess-section-loading hidden" hidden aria-live="polite" aria-busy="false">
@@ -675,66 +676,36 @@
             </button>
             <div class="app-settings-head">
                 <div>
-                    <p class="app-settings-kicker">Panel</p>
-                    <h2 id="settingsTitle">Ayarlar</h2>
+                    <p class="app-settings-kicker">Hesab</p>
+                    <h2 id="settingsTitle">Tənzimləmələr</h2>
                 </div>
             </div>
-
             <section class="app-settings-block" aria-labelledby="settingsAccountTitle">
-                <h3 id="settingsAccountTitle">Hesab</h3>
+                <h3 id="settingsAccountTitle" class="sr-only">Hesab</h3>
                 <div class="app-settings-account">
                     <div class="app-userbox" id="appUserBox">
                         <strong id="appUserName">—</strong>
                         <span id="appUserRole">İstifadəçi</span>
-                        <span id="appUserJira" class="hidden"></span>
                     </div>
                     <div class="app-settings-account-actions">
-                        <a id="adminUsersLink" href="/admin" class="app-btn app-btn--ghost hidden">İstifadəçilər</a>
+                        <a id="manageSettingsLink" href="/settings" class="app-btn app-btn--primary">İdarəetmə</a>
                         <button type="button" onclick="logoutApp()" class="app-btn app-btn--soft">Çıxış</button>
                     </div>
                 </div>
             </section>
-
-            <section class="app-settings-block hidden" id="settingsScopeBlock" aria-labelledby="settingsScopeTitle">
-                <h3 id="settingsScopeTitle">Layihə və komanda</h3>
-                <div class="app-settings-grid">
-                    <label class="app-field">
-                        <span>Layihə açarı</span>
-                        <input id="projectKey" type="text" value="DGD" placeholder="KEY" class="uppercase" autocomplete="off" spellcheck="false" title="Jira layihə açarı">
-                    </label>
-                    <label class="app-field">
-                        <span>Komanda</span>
-                        <select id="teamFilter" onchange="onTeamChange()" title="Jira Component/s: Komplayns, Koordinasiya, Servis dizayn">
-                            <option value="komplayns">Komplayns</option>
-                            <option value="koordinasiya">Koordinasiya</option>
-                            <option value="servis-dizayn">Servis dizayn</option>
-                        </select>
-                    </label>
-                </div>
-                <p class="app-settings-note">Layihə Jira KEY-dir. Komanda Jira <span>Component/s</span> sahəsidir. Komanda dərhal tətbiq olunur; başqa KEY üçün <span>Məlumatları yüklə</span> və ya <span>Yenilə</span> basın.</p>
-            </section>
-
-            <section class="app-settings-block hidden" id="settingsJiraBlock" aria-labelledby="settingsJiraTitle">
-                <h3 id="settingsJiraTitle">Jira bağlantısı</h3>
-                <div class="app-settings-grid">
-                    <label class="app-field">
-                        <span>Jira URL</span>
-                        <input id="baseUrl" type="text" value="https://jira.idda.az" placeholder="https://jira.idda.az">
-                    </label>
-                    <label class="app-field hidden" id="patFieldWrap">
-                        <span>PAT token</span>
-                        <input id="pat" type="password" autocomplete="off" tabindex="-1">
-                    </label>
-                    <label class="app-field">
-                        <span>Chatbot AI açarı</span>
-                        <input id="chatApiKey" type="password" placeholder="Gemini və ya OpenAI (istəyə bağlı)">
-                    </label>
-                    <button type="button" onclick="fetchDashboardData()" class="app-btn app-btn--primary">Məlumatları yüklə</button>
-                </div>
-            </section>
         </div>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda107"></script>
+    <div class="sr-only" aria-hidden="true">
+        <input id="projectKey" type="hidden" value="DGD">
+        <input id="baseUrl" type="hidden" value="https://jira.idda.az">
+        <input id="pat" type="hidden" value="" autocomplete="off">
+        <select id="teamFilter" hidden>
+            <option value="komplayns">Komplayns</option>
+            <option value="koordinasiya">Koordinasiya</option>
+            <option value="servis-dizayn">Servis dizayn</option>
+        </select>
+    </div>
+    <script type="module" src="/static/js/main.js?v=idda122"></script>
 
 </body>
 </html>

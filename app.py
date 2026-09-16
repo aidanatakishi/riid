@@ -2,7 +2,7 @@ import os
 import subprocess
 import sys
 
-REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl', 'pptx', 'pypdf')
+REQUIRED_PACKAGES = ('flask', 'requests', 'urllib3', 'openpyxl', 'pptx', 'pypdf', 'waitress')
 
 
 def _configure_stdio():
@@ -52,8 +52,10 @@ def ensure_requirements():
 ensure_requirements()
 
 from datetime import timedelta
+from urllib.parse import urlparse
 
 from flask import Flask, render_template, request, redirect, session, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import (
     SECRET_KEY,
@@ -65,6 +67,11 @@ from config import (
     JIRA_PROJECT_KEY,
     USER_PASSWORD,
     USER_USERNAME,
+    CORS_ORIGINS,
+    FLASK_DEBUG,
+    SESSION_COOKIE_SECURE,
+    TRUST_PROXY,
+    is_production,
 )
 from routes import api, can_see_diagnostics, is_app_admin
 from users import bootstrap_users, ensure_superadmin, sync_display_names
@@ -90,11 +97,13 @@ def _persist_secret_key():
 
 app.secret_key = _persist_secret_key()
 app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
-app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['TEMPLATES_AUTO_RELOAD'] = not is_production()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '').lower() in ('1', 'true', 'yes')
+app.config['SESSION_COOKIE_SECURE'] = SESSION_COOKIE_SECURE
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+if TRUST_PROXY:
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.register_blueprint(api)
 
 bootstrap_users(
@@ -117,7 +126,20 @@ OPEN_PATHS = {
     '/api/auth/status',
     '/api/auth/me',
     '/api/auth/change-password',
+    '/api/health',
 }
+
+
+def cors_origin_ok(origin):
+    if not origin:
+        return False
+    cleaned = origin.strip().rstrip('/')
+    if cleaned in CORS_ORIGINS:
+        return True
+    if is_production():
+        return False
+    host = (urlparse(origin).hostname or '').lower()
+    return host in ('127.0.0.1', 'localhost')
 
 
 # Xarici origin (riid.netlify.app və ya cloudflared) /api/jira çağıranda CORS lazımdır.
@@ -145,15 +167,20 @@ def require_login():
 
 @app.after_request
 def add_cors_headers(resp):
-    origin = request.headers.get('Origin') or '*'
-    resp.headers['Access-Control-Allow-Origin'] = origin
-    resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
-    resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS'
-    if origin and origin != '*':
+    origin = request.headers.get('Origin')
+    if cors_origin_ok(origin):
+        resp.headers['Access-Control-Allow-Origin'] = origin
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, PATCH, DELETE, OPTIONS'
         resp.headers['Access-Control-Allow-Credentials'] = 'true'
-    resp.headers['Access-Control-Allow-Private-Network'] = 'true'
-    resp.headers['Access-Control-Max-Age'] = '600'
-    resp.headers['Vary'] = 'Origin'
+        resp.headers['Access-Control-Allow-Private-Network'] = 'true'
+        resp.headers['Access-Control-Max-Age'] = '600'
+        resp.headers['Vary'] = 'Origin'
+    resp.headers['X-Content-Type-Options'] = 'nosniff'
+    resp.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    resp.headers['Referrer-Policy'] = 'same-origin'
+    if request.is_secure:
+        resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     ctype = str(resp.content_type or '')
     if 'text/html' in ctype:
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -174,11 +201,16 @@ def serve_login():
     return render_template('login.html')
 
 
+@app.route('/settings')
+def serve_settings():
+    return render_template('settings.html')
+
+
 @app.route('/admin')
 def serve_admin_users():
     if not is_app_admin():
-        return redirect('/')
-    return render_template('admin.html')
+        return redirect('/settings')
+    return redirect('/settings#users')
 
 
 @app.route('/diaqnostika')
@@ -191,5 +223,6 @@ def serve_diaqnostika():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    debug = os.environ.get('FLASK_DEBUG', 'true').lower() in ('1', 'true', 'yes')
-    app.run(host='0.0.0.0', port=port, debug=debug)
+    if is_production():
+        print('Production rejimi: debug söndürülüb. Windows-da run-prod.bat, Linux-da gunicorn istifadə edin.')
+    app.run(host='0.0.0.0', port=port, debug=FLASK_DEBUG)

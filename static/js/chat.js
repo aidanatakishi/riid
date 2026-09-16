@@ -2063,13 +2063,8 @@ function resetChat() {
     addBot(welcomeHtml(), false);
 }
 
-function readChatKey() {
-    var el = document.getElementById('chatApiKey');
-    return el ? String(el.value || '').trim() : '';
-}
-
 function llmEnabled() {
-    return chatLlm || !!readChatKey();
+    return chatLlm;
 }
 
 function addUser(text) {
@@ -2121,8 +2116,7 @@ async function reply(question) {
                     question: question,
                     draft: used,
                     facts: packChatFacts(local),
-                    history: chatHistory.slice(0, -1).slice(-8),
-                    llmKey: readChatKey()
+                    history: chatHistory.slice(0, -1).slice(-8)
                 })
             });
             if (res.ok) {

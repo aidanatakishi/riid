@@ -30,14 +30,9 @@ def chat_llm_ready(override=None):
 
 
 def _keys(override=None):
+    # Client-supplied keys are ignored. Chatbot uses only server env keys.
     gemini = os.environ.get('GEMINI_API_KEY') or ''
     openai = os.environ.get('OPENAI_API_KEY') or ''
-    extra = str(override or '').strip()
-    if extra:
-        if extra.startswith('sk-'):
-            openai = extra
-        else:
-            gemini = extra
     return gemini, openai
 
 

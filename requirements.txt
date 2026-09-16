@@ -2,6 +2,7 @@ flask
 requests
 urllib3
 gunicorn
+waitress
 openpyxl
 python-pptx
 pypdf

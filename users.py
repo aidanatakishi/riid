@@ -7,14 +7,13 @@ from datetime import datetime, timezone
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from config import is_production
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_PATH = os.path.join(BASE_DIR, 'data', 'users.json')
 SECRETS_PATH = os.path.join(BASE_DIR, 'data', 'secrets.json')
 
-DEFAULT_ADMIN_USERNAME = 'admin'
-DEFAULT_ADMIN_PASSWORD = 'admin123'
-DEFAULT_USER_USERNAME = 'user'
-DEFAULT_USER_PASSWORD = 'user123'
+WEAK_PASSWORDS = frozenset(('admin123', 'user123', 'password', '123456', 'admin', 'user'))
 
 _lock = threading.Lock()
 
@@ -185,14 +184,14 @@ def user_jira_pat(user):
     return str(user.get('jira_pat') or '').strip()
 
 
+def save_user_jira_pat(user_id, token):
+    with _lock:
+        _set_user_secret_pat(user_id, token)
+    return bool(str(token or '').strip())
+
+
 def effective_jira_pat(user=None):
-    own = user_jira_pat(user)
-    if own:
-        return own
-    shared = get_shared_jira_pat()
-    if shared:
-        return shared
-    return ''
+    return user_jira_pat(user)
 
 
 def has_users():
@@ -427,6 +426,30 @@ def jira_id_taken(account_id, users, exclude_id=None):
     return False
 
 
+ACCESS_LABELS = (
+    ('panel', 'Panel'),
+    ('diag', 'Diaqnostika'),
+    ('users', 'İstifadəçilər'),
+    ('tech', 'Texniki ayarlar'),
+)
+
+
+def user_accesses(user):
+    team = normalize_team((user or {}).get('team'))
+    manage = can_manage_users(user)
+    tech = can_manage_tech(user)
+    flags = {
+        'panel': True,
+        'diag': team == 'komplayns',
+        'users': manage,
+        'tech': tech,
+    }
+    return [
+        {'id': key, 'label': label, 'on': bool(flags.get(key))}
+        for key, label in ACCESS_LABELS
+    ]
+
+
 def public_user(user):
     if not user:
         return None
@@ -445,9 +468,10 @@ def public_user(user):
         'teamLabel': TEAM_LABELS.get(team) or TEAM_LABELS['komplayns'],
         'jiraAccountId': (user.get('jira_account_id') or '').strip(),
         'jiraDisplayName': jira_name,
-        'hasPat': bool(str(user.get('jira_pat') or '').strip()),
+        'hasPat': bool(user_jira_pat(user)),
         'canManageUsers': can_manage_users(user),
-        'canManageTech': can_manage_tech(user)
+        'canManageTech': can_manage_tech(user),
+        'accesses': user_accesses(user)
     }
 
 
@@ -584,6 +608,11 @@ def delete_user(user_id, actor_id=None):
         return True, None
 
 
+def _is_strong_password(password):
+    pwd = str(password or '').strip()
+    return len(pwd) >= 8 and pwd.lower() not in WEAK_PASSWORDS
+
+
 def verify_login(username, password):
     pwd = str(password or '').strip()
     if not pwd:
@@ -661,35 +690,47 @@ def bootstrap_users(
     user_password='',
 ):
     migrate_secrets()
+    if has_users():
+        return
     project = normalize_project_key(home_project) or 'DGD'
-    wanted = (
-        (
-            normalize_username(admin_username) or DEFAULT_ADMIN_USERNAME,
-            str(admin_password or '').strip() or DEFAULT_ADMIN_PASSWORD,
-            'Admin',
-            'superadmin',
-            True,
-        ),
-        (
-            normalize_username(user_username) or DEFAULT_USER_USERNAME,
-            str(user_password or '').strip() or DEFAULT_USER_PASSWORD,
-            'İstifadəçi',
-            'user',
-            False,
-        ),
-    )
-    extra = []
+    admin_name = normalize_username(admin_username) or 'admin'
+    admin_pwd = str(admin_password or '').strip()
+    user_name = normalize_username(user_username)
+    user_pwd = str(user_password or '').strip()
     dept_name = normalize_username(dept_username)
     dept_pwd = str(dept_password or '').strip()
-    if dept_name:
-        extra.append((
+
+    if is_production():
+        if not _is_strong_password(admin_pwd):
+            raise SystemExit(
+                'Production: hesab yoxdur. .env-də ADMIN_PASSWORD yazın (ən azı 8 simvol, asan parol olmasın) və yenidən başladın.'
+            )
+        create_user(admin_name, admin_pwd, 'Admin', 'superadmin', project, allow_superadmin=True)
+        if user_name and _is_strong_password(user_pwd):
+            create_user(user_name, user_pwd, 'İstifadəçi', 'user', project)
+        if dept_name and _is_strong_password(dept_pwd):
+            create_user(
+                dept_name,
+                dept_pwd,
+                dept_display or 'Qiymətləndirmə və komplayens şöbəsi',
+                'user',
+                project,
+            )
+        return
+
+    if not admin_pwd:
+        admin_pwd = 'admin123'
+    create_user(admin_name, admin_pwd, 'Admin', 'superadmin', project, allow_superadmin=True)
+    if user_name:
+        create_user(user_name, user_pwd or 'user123', 'İstifadəçi', 'user', project)
+    if dept_name and dept_pwd:
+        create_user(
             dept_name,
-            dept_pwd or DEFAULT_USER_PASSWORD,
+            dept_pwd,
             dept_display or 'Qiymətləndirmə və komplayens şöbəsi',
             'user',
-            False,
-        ))
-    for name, pwd, display, role_name, allow_sa in wanted + tuple(extra):
-        if find_user_by_username(name):
-            continue
-        create_user(name, pwd, display, role_name, project, allow_superadmin=allow_sa)
+            project,
+        )
+    print('Lokal ilk hesablar: %s / %s' % (admin_name, admin_pwd))
+    if user_name:
+        print('Lokal istifadəçi: %s / %s' % (user_name, user_pwd or 'user123'))

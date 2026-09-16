@@ -7,7 +7,8 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
     <title>Giriş — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/auth.css?v=idda94">
+    <link rel="stylesheet" href="/static/css/tokens.css?v=idda2">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda97">
 </head>
 <body class="auth-page">
     <div class="auth-shell">
@@ -15,11 +16,11 @@
             <span class="auth-mark" aria-hidden="true">Rİ</span>
             <p class="auth-kicker">Rəqəmsal İdarəetmə Departamenti</p>
             <h1>Rəqəmsal İdarəetmə Paneli</h1>
-            <p class="auth-sub">GitHub-dan yükləyənlər admin, user və /admin-də yaradılan digər hesablarla daxil ola bilər.</p>
+            <p class="auth-sub">Hesab, parol və öz Jira tokeninizlə daxil olun. Token bir dəfə yadda qalır.</p>
             <ul class="auth-points">
-                <li>admin / admin123 — superadmin</li>
-                <li>user / user123 — adi istifadəçi</li>
-                <li>Yeni hesabları superadmin /admin-dən əlavə edir</li>
+                <li>Jira adı və ya istifadəçi adı ilə daxil olun</li>
+                <li>Parol Jira parolu deyil</li>
+                <li>Öz Jira tokeninizi ilk dəfə yazın, sonra yadda qalır</li>
             </ul>
         </aside>
 
@@ -27,7 +28,7 @@
             <div class="auth-card" id="loginCard">
                 <p class="auth-card-kicker">Giriş</p>
                 <h2 id="formTitle">Daxil ol</h2>
-                <p class="auth-hint">Ad, Jira adı və ya istifadəçi adı. Hazır hesablar: <strong>admin / admin123</strong>, <strong>user / user123</strong>. Admin panelində yaradılan digər istifadəçilər də eyni qaydada işləyir.</p>
+                <p class="auth-hint">Adınız, Jira-dakı tam ad və ya istifadəçi adı. Jira tokenini ilk dəfə yazın — növbəti dəfə boş saxlaya bilərsiniz.</p>
                 <p class="auth-error" id="authError"></p>
                 <p class="auth-ok" id="authOk"></p>
 
@@ -45,6 +46,17 @@
                             <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
                             <input id="password" name="password" type="password" autocomplete="current-password" required minlength="6" placeholder="Parolunuzu yazın">
                             <button type="button" class="auth-pass-toggle" data-pass="password" aria-label="Parolu göstər" aria-pressed="false" title="Parolu göstər">
+                                <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
+                                <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
+                            </button>
+                        </span>
+                    </label>
+                    <label class="auth-field" id="jiraPatField">
+                        <span>Jira tokeni (PAT)</span>
+                        <span class="auth-control auth-pass">
+                            <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                            <input id="jiraPat" name="jiraPat" type="password" autocomplete="off" placeholder="İlk dəfə yazın, sonra boş saxlaya bilərsiniz">
+                            <button type="button" class="auth-pass-toggle" data-pass="jiraPat" aria-label="Tokeni göstər" aria-pressed="false" title="Tokeni göstər">
                                 <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
                                 <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
                             </button>
@@ -190,6 +202,7 @@
             body: JSON.stringify({
                 username: document.getElementById('username').value.trim(),
                 password: document.getElementById('password').value,
+                jiraPat: document.getElementById('jiraPat').value.trim(),
                 remember: document.getElementById('rememberMe').checked
             })
         }).then(function(r) {
@@ -198,6 +211,10 @@
             btn.disabled = false;
             if (!res.ok) {
                 showError('authError', (res.data && res.data.error) || 'Daxil olmaq mümkün olmadı');
+                if (res.data && res.data.needsToken) {
+                    var patEl = document.getElementById('jiraPat');
+                    if (patEl) patEl.focus();
+                }
                 return;
             }
             try {

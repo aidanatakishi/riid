@@ -1,15 +1,15 @@
 import { state } from './state.js';
-import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js';
+import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js?v=idda2';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda6';
-import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js?v=idda12';
-import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda19';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda10';
+import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearDirectionFilter, clearQurumFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, selectViewedMonth } from './filters.js?v=idda17';
+import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda23';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js';
 import { loadDocxLib, exportTasksToWord } from './report.js';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda35';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda84';
-import { initChat } from './chat.js?v=idda17';
-import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda6';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda37';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda91';
+import { initChat } from './chat.js?v=idda18';
+import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda8';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
 state.onViewChange = persistViewState;
@@ -150,6 +150,27 @@ window.logoutApp = logoutApp;
 window.rememberCurrentProject = rememberCurrentProject;
 window.onTeamChange = onTeamChange;
 
+function placeNk303LaunchInHeader() {
+    var tools = document.querySelector('.app-head-tools');
+    if (!tools) return;
+    var launches = document.querySelectorAll('.nk303-launch, #analyticsLaunchBtn');
+    var i;
+    for (i = 0; i < launches.length; i++) launches[i].remove();
+    var link = document.createElement('a');
+    link.href = '/diaqnostika';
+    link.id = 'analyticsLaunchBtn';
+    link.className = 'app-head-tool is-accent nk303-launch';
+    link.title = 'Qiymətləndirmə analitikası';
+    link.addEventListener('click', function(ev) {
+        ev.preventDefault();
+        if (typeof window.openNk303 === 'function') window.openNk303();
+    });
+    link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg><span>Qiymətləndirmə analitikası</span>';
+    tools.insertBefore(link, tools.firstChild);
+}
+
+placeNk303LaunchInHeader();
+
 async function onTeamChange() {
     await rememberCurrentProject();
     applyTeamScope();
@@ -164,13 +185,12 @@ window.onload = async function() {
     var authed = await requireSession();
     if (!authed) return;
     var u = localStorage.getItem('jiraBaseUrl');
-    if (u) document.getElementById('baseUrl').value = u;
+    var baseEl = document.getElementById('baseUrl');
+    if (u && baseEl) baseEl.value = u;
     try { localStorage.removeItem('jiraPat'); } catch (e) {}
+    try { localStorage.removeItem('jiraChatApiKey'); } catch (e2) {}
     var patEl = document.getElementById('pat');
     if (patEl) patEl.value = '';
-    var chatKey = localStorage.getItem('jiraChatApiKey');
-    var chatEl = document.getElementById('chatApiKey');
-    if (chatKey && chatEl) chatEl.value = chatKey;
     var serverCfg = {};
     try {
         serverCfg = await loadServerConfig() || {};
@@ -180,6 +200,7 @@ window.onload = async function() {
     try { applySessionChrome(serverCfg); } catch (e) { console.error(e); }
     try { initChat({ hasChatLlm: !!serverCfg.hasChatLlm }); } catch (e) { console.error(e); }
     var projectEl = document.getElementById('projectKey');
+    var baseElNow = document.getElementById('baseUrl');
     if (projectEl) {
         projectEl.addEventListener('change', function() { rememberCurrentProject(); });
         projectEl.addEventListener('keydown', function(ev) {
@@ -189,9 +210,11 @@ window.onload = async function() {
             }
         });
     }
-    var baseUrl = document.getElementById('baseUrl').value;
-    var projectKey = document.getElementById('projectKey').value;
-    if (baseUrl && projectKey && serverCfg.hasToken) fetchDashboardData();
+    var baseUrl = baseElNow ? baseElNow.value : '';
+    var projectKey = projectEl ? projectEl.value : '';
+    if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey) && (serverCfg.hasToken || state.hasServerToken)) {
+        fetchDashboardData().catch(function (err) { console.error(err); });
+    }
     try { renderAssessmentSections(); } catch (e) {}
     try { syncNk303Route(); } catch (e) {}
 };

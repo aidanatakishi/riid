@@ -1,14 +1,16 @@
 import hmac
 import json
 import os
+import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 from functools import wraps
 
 from flask import Blueprint, request, jsonify, session
 from werkzeug.utils import secure_filename
 
-from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_PAT, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
+from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
 from chat_llm import answer_chat, chat_llm_ready
 import chat_llm
 from diag_excel import parse_diag_excel
@@ -23,7 +25,6 @@ from users import (
     component_matches_team,
     create_user,
     delete_user,
-    effective_jira_pat,
     find_user_by_id,
     first_name,
     get_shared_jira_pat,
@@ -31,9 +32,10 @@ from users import (
     list_users,
     normalize_team,
     public_user,
-    set_shared_jira_pat,
+    save_user_jira_pat,
     unique_username,
     update_user,
+    user_jira_pat,
     username_from_display_name,
     verify_login,
     change_password_with_current,
@@ -44,6 +46,9 @@ api = Blueprint('api', __name__)
 
 DONE_STATUSES = ["Done", "Closed", "Resolved"]
 IN_PROGRESS_STATUSES = ["In Progress", "Development", "Testing"]
+_LOGIN_HITS = defaultdict(list)
+_LOGIN_WINDOW_SEC = 60
+_LOGIN_MAX_HITS = 12
 
 
 def options_ok():
@@ -90,13 +95,13 @@ def can_see_diagnostics():
     return is_logged_in() and current_project_key() == home_project_key() and current_team() == 'komplayns'
 
 
-TOKEN_MISSING = 'Jira tokeni yoxdur. Superadmin /admin səhifəsində bir dəfə yazmalıdır.'
+TOKEN_MISSING = 'Jira tokeni yoxdur. Daxil olanda öz tokeninizi yazın; bir dəfə yadda qalır.'
 
 
 def viewer_jira_pat(user=None):
     if user is None and is_logged_in():
         user = find_user_by_id(session_user_id())
-    return effective_jira_pat(user) or str(JIRA_PAT or '').strip()
+    return user_jira_pat(user)
 
 
 def has_jira_token(user=None):
@@ -247,6 +252,22 @@ def password_ok(given, expected):
     return hmac.compare_digest(got, want)
 
 
+def client_ip():
+    return (request.remote_addr or '').strip()
+
+
+def login_rate_limited():
+    ip = client_ip() or 'unknown'
+    now = time.time()
+    recent = [stamp for stamp in _LOGIN_HITS[ip] if now - stamp < _LOGIN_WINDOW_SEC]
+    if len(recent) >= _LOGIN_MAX_HITS:
+        _LOGIN_HITS[ip] = recent
+        return True
+    recent.append(now)
+    _LOGIN_HITS[ip] = recent
+    return False
+
+
 def public_orgs(index):
     rows = []
     for org in flatten_diag_orgs(index):
@@ -255,6 +276,13 @@ def public_orgs(index):
         row.pop('fileName', None)
         rows.append(row)
     return rows
+
+
+@api.route('/api/health', methods=['GET', 'OPTIONS'])
+def health():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    return jsonify({'ok': True}), 200
 
 
 @api.route('/api/admin/me', methods=['GET', 'OPTIONS'])
@@ -268,6 +296,8 @@ def admin_me():
 def admin_login():
     if request.method == 'OPTIONS':
         return options_ok()
+    if login_rate_limited():
+        return jsonify({'error': 'Çox cəhd. Bir az sonra yenidən yoxlayın'}), 429
     if not ADMIN_PASSWORD:
         return jsonify({'error': 'Admin parolu serverdə təyin edilməyib (.env: ADMIN_PASSWORD)'}), 503
     data = request_json()
@@ -312,12 +342,26 @@ def auth_setup():
 def auth_login():
     if request.method == 'OPTIONS':
         return options_ok()
+    if login_rate_limited():
+        return jsonify({'error': 'Çox cəhd. Bir az sonra yenidən yoxlayın'}), 429
     data = request_json()
     if not isinstance(data, dict):
         data = {}
     user = verify_login(data.get('username'), data.get('password'))
     if not user:
         return jsonify({'error': 'İstifadəçi adı və ya parol səhvdir'}), 401
+    incoming = str(data.get('jiraPat') or data.get('pat') or data.get('token') or '').strip()
+    if incoming:
+        save_user_jira_pat(user.get('id'), incoming)
+    elif not user_jira_pat(user) and (user.get('role') == 'superadmin'):
+        shared = get_shared_jira_pat()
+        if shared:
+            save_user_jira_pat(user.get('id'), shared)
+    if not user_jira_pat(user):
+        return jsonify({
+            'error': 'Jira tokeninizi yazın. Bir dəfə yadda qalır, növbəti girişdə lazım olmayacaq.',
+            'needsToken': True
+        }), 400
     bind_session(user, wants_remember(data))
     return jsonify(login_payload(user)), 200
 
@@ -476,20 +520,20 @@ def api_user_item(user_id):
 
 
 @api.route('/api/jira/token', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
-@superadmin_required
-def api_shared_jira_token():
+@login_required
+def api_own_jira_token():
+    user = find_user_by_id(session_user_id())
     if request.method == 'GET':
         return jsonify({
-            'hasSharedToken': bool(get_shared_jira_pat()),
-            'hasEnvToken': bool(str(JIRA_PAT or '').strip()),
-            'hasToken': has_jira_token()
+            'hasToken': bool(user_jira_pat(user)),
+            'hasOwnToken': bool(user_jira_pat(user))
         }), 200
     if request.method == 'DELETE':
-        set_shared_jira_pat('')
+        save_user_jira_pat((user or {}).get('id'), '')
         return jsonify({
             'ok': True,
-            'hasSharedToken': False,
-            'hasToken': has_jira_token()
+            'hasToken': False,
+            'hasOwnToken': False
         }), 200
     data = request_json()
     if not isinstance(data, dict):
@@ -497,11 +541,11 @@ def api_shared_jira_token():
     token = str(data.get('pat') or data.get('jiraPat') or data.get('token') or '').strip()
     if not token:
         return jsonify({'error': 'Token boş ola bilməz'}), 400
-    set_shared_jira_pat(token)
+    save_user_jira_pat((user or {}).get('id'), token)
     return jsonify({
         'ok': True,
-        'hasSharedToken': True,
-        'hasToken': True
+        'hasToken': True,
+        'hasOwnToken': True
     }), 200
 
 
@@ -628,15 +672,14 @@ def api_chat():
     draft = str(data.get('draft') or '')
     facts = data.get('facts') if isinstance(data.get('facts'), dict) else {}
     history = data.get('history') if isinstance(data.get('history'), list) else []
-    llm_key = str(data.get('llmKey') or '').strip()
     viewer = session_viewer()
     if viewer:
         facts['viewer'] = viewer
     if not question:
         return jsonify({'error': 'Sual boşdur'}), 400
-    if not chat_llm_ready(llm_key):
+    if not chat_llm_ready():
         return jsonify({'answer': draft, 'source': 'local'})
-    text = answer_chat(question, facts, draft, history, llm_key)
+    text = answer_chat(question, facts, draft, history)
     if text:
         return jsonify({'answer': text, 'source': 'llm', 'model': chat_llm.LAST_MODEL})
     return jsonify({'answer': draft, 'source': 'local', 'error': chat_llm.LAST_ERROR})

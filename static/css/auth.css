@@ -1,7 +1,7 @@
 :root {
-    --auth-purple: #4c1d95;
+    --auth-purple: var(--brand-deep, #4c1d95);
     --auth-deep: #2e1065;
-    --auth-accent: #7c3aed;
+    --auth-accent: var(--brand-accent, #7c3aed);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; min-height: 100%; }

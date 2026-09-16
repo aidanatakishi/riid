@@ -54,13 +54,12 @@ Brauzerinizi (Google Chrome, Edge və s.) açın və ünvan çubuğuna yazın:
 http://127.0.0.1:5000
 
 Giriş
-Boş quraşdırmada bu hesablar avtomatik yaranır:
-  admin / admin123  — superadmin
-  user  / user123   — adi istifadəçi
-Yeni hesabları /admin səhifəsindən superadmin yaradır. Hesab siyahısı data/users.json-dadır; token data/secrets.json-da qalır və Git-ə düşmür.
+Lokal (run.bat): boş quraşdırmada terminalda admin / admin123 və user / user123 yaranır.
+Production: .env-də ADMIN_PASSWORD yazın (ən azı 8 simvol). Login səhifəsində parol göstərilmir.
+Yeni hesabları /admin səhifəsindən superadmin yaradır. Token data/secrets.json-dadır və Git-ə düşmür.
 
 Jira tokeni
-Superadmin /admin səhifəsində bir dəfə ümumi PAT yazır. Digər istifadəçilər token yazmır.
+Superadmin /admin səhifəsində və ya .env-də JIRA_PAT bir dəfə yazılır. Digər istifadəçilər token yazmır.
 
 🔧 Dəyişiklik Edilməsi Üçün Təlimat
 1. Yeni qrafik (chart) əlavə etmək istəyirsinizsə:
@@ -71,16 +70,30 @@ config.py: SEARCH_FIELDS / HIERARCHY_FIELDS siyahısına yeni customfield_XXXXX 
 static/js: t.fields['customfield_XXXXX'] çağıraraq datanı oxuyun və kartlara əlavə edin.
 3. Filtrləri (Sprint və Tarix) dəyişdirmək:
 Filtr məntiqi static/js/filters.js içindəki applyFilters() funksiyasında yerləşir. state.filteredTasks massivi üzərində .filter() istifadə edərək istənilən şərti əlavə edib taskları süzgəcdən keçirə bilərsiniz.
-Qeyd: Server artıq host='0.0.0.0' ilə açılır — eyni ofis şəbəkəsindəki kompüterlər http://SİZİN-IP:5000 ünvanına daxil ola bilər.
+Qeyd: Server host='0.0.0.0' ilə açılır — eyni ofis şəbəkəsindəki kompüterlər http://SİZİN-IP:5000 ünvanına daxil ola bilər.
+
+🏭 Production
+Netlify (riid.netlify.app) canlı Jira yükləyə bilməz — jira.idda.az daxili şəbəkədədir. Prod server Jira-ya çatmalıdır.
+
+1. Serverdə .env yazın (.env.example əsasında):
+   APP_ENV=production
+   FLASK_DEBUG=false
+   SESSION_COOKIE_SECURE=true
+   TRUST_PROXY=true
+   SECRET_KEY=...uzun təsadüfi...
+   JIRA_PAT=...
+   ADMIN_PASSWORD=...ən azı 8 simvol, admin123 olmasın...
+2. Qarşısında HTTPS reverse proxy (IIS / nginx) qoyun.
+3. Windows: run-prod.bat  (waitress)
+   Linux: gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 120 app:app
+   Docker: docker compose up -d --build
+4. data/ və uploads/ qovluqlarını yedəkləyin (hesablar, token, fayllar).
+5. /api/health 200 qaytarmalıdır.
 
 🌐 Netlify (statik sayt)
-https://riid.netlify.app menyunu göstərir, amma canlı Jira yükləyə bilməz:
-- jira.idda.az daxili IP-dir (10.252.21.15). Netlify serveri ora çatmır.
-- Brauzerdən birbaşa çağırış Jira CORS siyasətinə görə bloklanır.
-
-Hər kəs Token düyməsindən öz PAT-ini yazır; Netlify-də token yoxdur.
-
+https://riid.netlify.app menyunu göstərir, amma canlı Jira yükləyə bilməz.
 İşləyən yollar:
-1. Lokal: python app.py → http://127.0.0.1:5000 (ən etibarlı).
-2. İctimai canlı link: python app.py və cloudflared tunnel --url http://127.0.0.1:5000. Verilən https://….trycloudflare.com linkini açın (və ya riid.netlify.app Token panelində Proxy sahəsinə yazın). Python və tunnel açıq qalmalıdır.
+1. Lokal: run.bat → http://127.0.0.1:5000
+2. Production: yuxarıdakı 🏭 bölmə
+3. Müvəqqəti ictimai test: python app.py + cloudflared tunnel (prod deyil)
 

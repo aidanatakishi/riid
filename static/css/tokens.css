@@ -1,0 +1,36 @@
+:root {
+    --brand-deep: #4c1d95;
+    --brand: #6d28d9;
+    --brand-accent: #7c3aed;
+    --brand-soft: #f5f3ff;
+    --brand-line: #ddd6fe;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e8edf3;
+    --soft: #f8fafc;
+    --violet: #6d28d9;
+    --violet-deep: #4c1d95;
+    --st-done: #059669;
+    --st-progress: #2563eb;
+    --st-review: #0891b2;
+    --st-esd: #4f46e5;
+    --st-planned: #64748b;
+    --st-paused: #d97706;
+    --st-blocked: #ea580c;
+    --st-rejected: #e11d48;
+    --st-other: #94a3b8;
+    --mat-ilkin: #dc2626;
+    --mat-idare: #d97706;
+    --mat-mueyyen: #2563eb;
+    --mat-opt: #059669;
+    --kind-diag: #7c3aed;
+    --kind-isq: #2563eb;
+    --kind-self: #059669;
+    --kind-exq: #d97706;
+    --kind-meqsed: #5b21b6;
+    --kind-report: #0f766e;
+    --op-pos: #059669;
+    --op-neg: #e11d48;
+    --op-revision: #d97706;
+    --op-baxilir: #2563eb;
+}

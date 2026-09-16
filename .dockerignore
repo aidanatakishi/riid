@@ -7,6 +7,12 @@ __pycache__
 .env
 .env.*
 !.env.example
-data/*.json
+data
+uploads
+tools
+_tmp_reports
+_tmp_*
 .idea
 .vscode
+site
+.netlify

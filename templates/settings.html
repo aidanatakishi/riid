@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4c1d95">
+    <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+    <title>Tənzimləmələr — Rəqəmsal İdarəetmə Paneli</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/tokens.css?v=idda2">
+    <link rel="stylesheet" href="/static/css/admin.css?v=idda90">
+    <link rel="stylesheet" href="/static/css/settings.css?v=idda2">
+</head>
+<body class="settings-page">
+    <div class="set-shell">
+        <aside class="set-nav">
+            <a class="set-brand" href="/">
+                <span class="set-mark" aria-hidden="true">Rİ</span>
+                <div>
+                    <h1>Tənzimləmələr</h1>
+                    <p id="setUserHint">Hesab</p>
+                </div>
+            </a>
+            <nav class="set-links" aria-label="Tənzimləmələr">
+                <a class="set-link is-on" href="#scope" data-view="scope" id="navScope">Layihə və komanda</a>
+                <a class="set-link hidden" href="#users" data-view="users" id="navUsers">İstifadəçilər</a>
+                <button type="button" class="set-link is-exit" id="logoutBtn">Çıxış</button>
+            </nav>
+        </aside>
+
+        <main class="set-main">
+            <div class="set-head">
+                <div>
+                    <h2 id="setTitle">Layihə və komanda</h2>
+                    <p id="setSub">Jira KEY və komanda bu panelin əhatəsini müəyyən edir.</p>
+                </div>
+                <a class="set-panel-link" href="/">Panelə qayıt</a>
+            </div>
+
+            <section id="view-scope">
+                <article class="set-card">
+                    <h3>Əhatə</h3>
+                    <div class="set-grid">
+                        <label class="admin-field">
+                            <span>Layihə açarı</span>
+                            <input id="scopeProjectKey" type="text" value="DGD" placeholder="KEY" class="uppercase" autocomplete="off" spellcheck="false">
+                            <div class="set-readonly hidden" id="scopeProjectRead">DGD</div>
+                        </label>
+                        <label class="admin-field">
+                            <span>Komanda</span>
+                            <select id="scopeTeam">
+                                <option value="komplayns">Komplayns</option>
+                                <option value="koordinasiya">Koordinasiya</option>
+                                <option value="servis-dizayn">Servis dizayn</option>
+                            </select>
+                            <div class="set-readonly hidden" id="scopeTeamRead">Komplayns</div>
+                        </label>
+                    </div>
+                    <p class="set-note">Layihə Jirada qeyd olunan KEY-dir. Komanda isə Jiradakı <span>Component/s</span> sahəsidir.</p>
+                    <div class="admin-actions" id="scopeActions">
+                        <button type="button" class="admin-btn admin-btn--primary" id="saveScopeBtn">Yadda saxla</button>
+                    </div>
+                    <p class="admin-error" id="scopeError"></p>
+                    <p class="set-ok" id="scopeOk"></p>
+                </article>
+
+                <article class="set-card" id="tokenPanel">
+                    <h3>Jira tokeni</h3>
+                    <p class="admin-status" id="tokenStatus">Yoxlanılır…</p>
+                    <p class="admin-error" id="tokenError"></p>
+                    <form id="tokenForm">
+                        <label class="admin-field">
+                            <span>Sizin Jira tokeniniz (PAT)</span>
+                            <input id="sharedPat" type="password" autocomplete="off" placeholder="Jira Personal Access Token">
+                        </label>
+                        <div class="admin-actions">
+                            <button type="submit" class="admin-btn admin-btn--primary" id="saveTokenBtn">Tokeni yadda saxla</button>
+                            <button type="button" class="admin-btn admin-btn--quiet hidden" id="clearTokenBtn">Tokeni sil</button>
+                        </div>
+                    </form>
+                </article>
+            </section>
+
+            <section id="view-users" class="hidden">
+                <div class="admin-grid">
+                    <article class="admin-panel">
+                        <h2 id="formTitle">Yeni hesab</h2>
+                        <p class="admin-kicker" id="formHint">Komanda seçəndə Jira-da həmin komponentin adamları açılır. Siyahıda yoxdursa yalnız istifadəçi adı və parol yazılır. Access-lər rol və komandaya görə verilir.</p>
+                        <p class="admin-error" id="formError"></p>
+                        <form id="userForm">
+                            <input type="hidden" id="userId" value="">
+                            <input type="hidden" id="userProjectKey" value="DGD">
+                            <input type="hidden" id="jiraAccountId" value="">
+                            <input type="hidden" id="jiraDisplayName" value="">
+                            <div class="admin-fields">
+                                <div class="admin-row">
+                                    <label class="admin-field">
+                                        <span>Komanda</span>
+                                        <select id="team">
+                                            <option value="komplayns">Komplayns</option>
+                                            <option value="koordinasiya">Koordinasiya</option>
+                                            <option value="servis-dizayn">Servis dizayn</option>
+                                        </select>
+                                    </label>
+                                    <label class="admin-field">
+                                        <span>Rol</span>
+                                        <select id="role">
+                                            <option value="user">İstifadəçi</option>
+                                            <option value="admin">Admin</option>
+                                        </select>
+                                    </label>
+                                </div>
+                                <label class="admin-field" id="jiraFieldWrap">
+                                    <span>Jira istifadəçisi</span>
+                                    <select id="jiraPerson">
+                                        <option value="">Yüklənir…</option>
+                                    </select>
+                                </label>
+                                <p class="admin-note" id="modeNote"></p>
+                                <p class="admin-chip hidden" id="jiraChip"></p>
+                                <label class="admin-field">
+                                    <span>İstifadəçi adı</span>
+                                    <input id="username" required minlength="3" autocomplete="off">
+                                </label>
+                                <label class="admin-field">
+                                    <span>Parol</span>
+                                    <input id="password" type="password" minlength="6" autocomplete="new-password" placeholder="Ən azı 6 simvol">
+                                </label>
+                                <div class="admin-actions">
+                                    <button type="submit" class="admin-btn admin-btn--primary" id="saveBtn">Əlavə et</button>
+                                    <button type="button" class="admin-btn admin-btn--quiet hidden" id="cancelEditBtn">Ləğv et</button>
+                                </div>
+                            </div>
+                        </form>
+                    </article>
+
+                    <article class="admin-panel">
+                        <h2>Mövcud hesablar</h2>
+                        <p class="admin-kicker">Hər kartın altında rol və komanda görünür.</p>
+                        <p class="admin-error" id="listError"></p>
+                        <div class="admin-list" id="userRows"></div>
+                    </article>
+                </div>
+            </section>
+        </main>
+    </div>
+    <div id="deleteOverlay" class="set-modal-overlay hidden" hidden>
+        <div class="set-modal" role="dialog" aria-modal="true" aria-labelledby="deleteTitle">
+            <h3 id="deleteTitle">Hesabı sil</h3>
+            <p id="deleteText"></p>
+            <div class="set-modal-actions">
+                <button type="button" class="admin-btn admin-btn--quiet" id="deleteCancelBtn">Ləğv et</button>
+                <button type="button" class="admin-btn admin-btn--danger" id="deleteConfirmBtn">Sil</button>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/settings.js?v=idda6"></script>
+</body>
+</html>

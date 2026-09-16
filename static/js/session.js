@@ -111,17 +111,26 @@ export function applySessionChrome(cfg) {
             jiraEl.classList.add('hidden');
         }
     }
-    if (adminLink) adminLink.classList.toggle('hidden', !manage);
+    if (adminLink) {
+        adminLink.href = '/settings#users';
+        adminLink.classList.toggle('hidden', !manage);
+    }
+    var manageLink = document.getElementById('manageSettingsLink');
+    if (manageLink) {
+        manageLink.href = manage ? '/settings#users' : '/settings';
+    }
     var jiraBlock = document.getElementById('settingsJiraBlock');
     if (jiraBlock) jiraBlock.classList.toggle('hidden', !tech);
     var scopeBlock = document.getElementById('settingsScopeBlock');
     if (scopeBlock) scopeBlock.classList.toggle('hidden', !manage);
     try { localStorage.removeItem('jiraPat'); } catch (e) {}
+    try { localStorage.removeItem('jiraChatApiKey'); } catch (e2) {}
     var pat = document.getElementById('pat');
     if (pat) pat.value = '';
     var settingsBtn = document.getElementById('settingsBtn');
     if (settingsBtn) {
-        settingsBtn.title = tech ? 'Texniki ayarlar' : 'Hesab';
+        settingsBtn.title = 'Tənzimləmələr';
+        if (settingsBtn.tagName === 'A') settingsBtn.removeAttribute('href');
     }
     applyDiagnosticsVisibility();
 }

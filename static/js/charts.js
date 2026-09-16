@@ -3,6 +3,7 @@ import { getInitials, normalizeStr, showToast } from './utils.js';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getEsdInnerStatus, ESD_INNER_STAGES, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
 import { applyFilters, filterQurumByStatus, filterQurumList, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
+import { STATUS, catColorByKey, seriesColor, workloadColor } from './palette.js';
 
 var chartRebuildRaf = {};
 var chartRebuildFn = {};
@@ -81,7 +82,7 @@ function escapeEsdChip(s) {
 }
 
 var STATUS_GROUP_NAMES = { 'done': 'İcra edilib', 'progress': 'İcradadır', 'review': 'Rəy gözlənilir', 'esd': 'ESD', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
-var STATUS_GROUP_COLORS = { 'done': '#10b981', 'progress': '#3b82f6', 'review': '#06b6d4', 'esd': '#6366f1', 'planned': '#f59e0b', 'blocked': '#ef4444', 'rejected': '#e11d48', 'paused': '#d97706', 'other': '#94a3b8' };
+var STATUS_GROUP_COLORS = STATUS;
 
 var esdPopupOpen = false;
 var esdPopupBound = false;
@@ -310,8 +311,7 @@ function drawAssigneeChart(tasks) {
     countableWorkUnits(tasks).forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
     var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
     var data = labels.map(function(n) { return counts[n]; });
-    var PALETTE = ['#4c1d95', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2'];
-    var colors = labels.map(function(_, i) { return PALETTE[i % PALETTE.length]; });
+    var colors = labels.map(function(_, i) { return workloadColor(i, labels.length); });
     var canvas = document.getElementById('assigneeChart');
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
@@ -403,7 +403,6 @@ export function renderEpicChart(tasks) {
         if (total > 0) counts[name] = total;
     });
     var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
-    var PALETTE = ['#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626', '#0891b2', '#c026d3', '#65a30d', '#e11d48', '#4f46e5', '#0d9488', '#b45309'];
     var list = document.getElementById('epicChartList');
     if (!list) return;
     var oldCanvas = document.getElementById('epicChart');
@@ -421,7 +420,7 @@ export function renderEpicChart(tasks) {
     labels.forEach(function(name, i) {
         var key = dirKeysMap[name];
         var isActive = key === state.currentDirectionFilter;
-        var color = isActive ? '#f59e0b' : PALETTE[i % PALETTE.length];
+        var color = catColorByKey(name);
         var pct = Math.max(8, Math.round((counts[name] / max) * 100));
         var btn = document.createElement('button');
         btn.type = 'button';
@@ -444,6 +443,20 @@ export function renderQurumChart(tasks) {
     debounceChartRebuild('qurumChart', function() { drawQurumChart(tasks); });
 }
 
+function qurumSliceColor(d) {
+    var best = { n: 0, color: STATUS.other };
+    var opts = [
+        { n: d.inProgress || 0, color: STATUS.progress },
+        { n: d.done || 0, color: STATUS.done },
+        { n: d.planned || 0, color: STATUS.paused },
+        { n: d.blocked || 0, color: STATUS.blocked }
+    ];
+    opts.forEach(function(o) {
+        if (o.n > best.n) best = o;
+    });
+    return best.n > 0 ? best.color : STATUS.other;
+}
+
 function drawQurumChart(tasks) {
     var qurumData = {};
     countableWorkUnits(tasks).forEach(function(t) {
@@ -464,8 +477,7 @@ function drawQurumChart(tasks) {
     var sortedQurums = sortedKeys.map(function(k) { return qurumData[k].name; });
     var tbody = document.getElementById('qurumTableBody');
     tbody.innerHTML = '';
-    var PALETTE = ['#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#a855f7', '#0d9488', '#b45309'];
-    var colors = sortedQurums.map(function(qName, i) { if (sameQurum(qName, state.currentQurumFilter)) return '#f59e0b'; return PALETTE[i % PALETTE.length]; });
+    var colors = sortedKeys.map(function(k) { return qurumSliceColor(qurumData[k]); });
     if (sortedQurums.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4 text-slate-400">Məlumat yoxdur.</td></tr>';
     } else {
@@ -477,8 +489,8 @@ function drawQurumChart(tasks) {
             var safeName = qName.replace(/'/g, "\\'");
             var isActive = sameQurum(qName, state.currentQurumFilter);
             var tr = document.createElement('tr');
-            tr.className = 'transition ' + (isActive ? 'bg-amber-50 ring-2 ring-amber-300' : 'hover:bg-indigo-50/50');
-            tr.innerHTML = '<td class="py-3 px-4 font-medium text-slate-700 cursor-pointer hover:bg-indigo-100/50 rounded-l-lg transition ' + (isActive ? 'text-amber-700' : '') + '" onclick="setQurumFilter(\'' + safeName + '\')"><div class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ' + color + '"></span><span class="break-words">' + qName + '</span>' + (isActive ? '<span class="text-[9px] bg-amber-400 text-white px-1.5 py-0.5 rounded-full ml-1 shrink-0">AKTİV</span>' : '') + '</div></td><td class="py-3 px-2 text-center font-bold text-slate-800 cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'all\')">' + d.total + '</td><td class="py-3 px-2 text-center text-orange-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'planned\')">' + d.planned + '</td><td class="py-3 px-2 text-center text-blue-600 font-medium cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'progress\')">' + d.inProgress + '</td><td class="py-3 px-2 text-center cursor-pointer hover:bg-indigo-100/50 rounded-r-lg transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'done\')"><div class="flex items-center justify-center gap-2"><span class="text-emerald-600 font-medium">' + d.done + '</span><div class="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block"><div class="h-full bg-emerald-500 rounded-full" style="width: ' + donePercent + '%"></div></div></div></td>';
+            tr.className = 'transition ' + (isActive ? 'bg-violet-50 ring-2 ring-violet-200' : 'hover:bg-indigo-50/50');
+            tr.innerHTML = '<td class="py-3 px-4 font-medium text-slate-700 cursor-pointer hover:bg-indigo-100/50 rounded-l-lg transition ' + (isActive ? 'text-violet-800' : '') + '" onclick="setQurumFilter(\'' + safeName + '\')"><div class="flex items-center gap-2 min-w-0"><span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ' + color + '"></span><span class="break-words">' + qName + '</span>' + (isActive ? '<span class="text-[9px] bg-violet-700 text-white px-1.5 py-0.5 rounded-full ml-1 shrink-0">AKTİV</span>' : '') + '</div></td><td class="py-3 px-2 text-center font-bold text-slate-800 cursor-pointer hover:bg-indigo-100/50 transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'all\')">' + d.total + '</td><td class="py-3 px-2 text-center font-medium cursor-pointer hover:bg-indigo-100/50 transition" style="color:' + STATUS.paused + '" onclick="filterQurumByStatus(\'' + safeName + '\', \'planned\')">' + d.planned + '</td><td class="py-3 px-2 text-center font-medium cursor-pointer hover:bg-indigo-100/50 transition" style="color:' + STATUS.progress + '" onclick="filterQurumByStatus(\'' + safeName + '\', \'progress\')">' + d.inProgress + '</td><td class="py-3 px-2 text-center cursor-pointer hover:bg-indigo-100/50 rounded-r-lg transition" onclick="filterQurumByStatus(\'' + safeName + '\', \'done\')"><div class="flex items-center justify-center gap-2"><span class="font-medium" style="color:' + STATUS.done + '">' + d.done + '</span><div class="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden hidden md:block"><div class="h-full rounded-full" style="width: ' + donePercent + '%;background:' + STATUS.done + '"></div></div></div></td>';
             tbody.appendChild(tr);
         });
     }
@@ -557,9 +569,8 @@ function drawLabelChart() {
         }
     });
     var uniqueLabels = Array.from(allLabelsSet);
-    var PALETTE = ['#8b5cf6', '#3b82f6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#84cc16', '#f97316', '#6366f1', '#14b8a6', '#a855f7'];
     var datasets = uniqueLabels.map(function(lbl, i) {
-        return { label: lbl, data: directionLabels.map(function(dirName) { return dataMatrix[dirName][lbl] || 0; }), backgroundColor: PALETTE[i % PALETTE.length], borderWidth: 0, hoverOffset: 4, borderRadius: 4 };
+        return { label: lbl, data: directionLabels.map(function(dirName) { return dataMatrix[dirName][lbl] || 0; }), backgroundColor: seriesColor(lbl), borderWidth: 0, hoverOffset: 4, borderRadius: 4 };
     });
     var onClickCB = function(e, elements) {
         if (elements.length > 0) {

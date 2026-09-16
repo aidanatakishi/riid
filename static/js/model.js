@@ -3436,9 +3436,9 @@ export var EXQ_STAR_WEIGHTS = [0.2, 0.4, 0.6, 0.8, 1];
 
 /** NK Qərar 380, bənd 4.18 — yekun nəticənin ulduz şkalası. */
 export var EXQ_STAR_BANDS = [
-    { star: 1, lo: 0, hi: 20, color: '#64748b' },
-    { star: 2, lo: 21, hi: 40, color: '#ea580c' },
-    { star: 3, lo: 41, hi: 60, color: '#ca8a04' },
+    { star: 1, lo: 0, hi: 20, color: '#94a3b8' },
+    { star: 2, lo: 21, hi: 40, color: '#dc2626' },
+    { star: 3, lo: 41, hi: 60, color: '#d97706' },
     { star: 4, lo: 61, hi: 80, color: '#2563eb' },
     { star: 5, lo: 81, hi: 100, color: '#059669' }
 ];

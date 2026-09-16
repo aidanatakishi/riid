@@ -47,6 +47,7 @@ import {
     isDiagOverallLabel,
     parseDiagUmumiNetice
 } from './model.js';
+import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
 var searchState = { diag: '', isq: '', self: '', exq: '', meqsed: '' };
@@ -85,18 +86,18 @@ var SECTION_LABELS = {
     meqsed: 'Məqsədəuyğunluq'
 };
 var CAT_COLORS = {
-    diag: '#7c3aed',
-    isq: '#2563eb',
-    self: '#059669',
-    exq: '#d97706',
-    meqsed: '#5b21b6'
+    diag: KIND.diag,
+    isq: KIND.isq,
+    self: KIND.self,
+    exq: KIND.exq,
+    meqsed: KIND.meqsed
 };
 var MEQSED_RESULT_COLORS = {
-    pos: '#5b21b6',
-    posAlt: '#7c3aed',
-    neg: '#dc2626',
-    revision: '#d97706',
-    baxilir: '#64748b'
+    pos: OPINION.pos,
+    posAlt: '#34d399',
+    neg: OPINION.neg,
+    revision: OPINION.revision,
+    baxilir: OPINION.baxilir
 };
 var lastDashSig = '';
 var YEAR_SELECT_ID = 'assessmentYearSelect';
@@ -2260,11 +2261,7 @@ function diagMaturityTarget(score) {
 }
 
 function diagBandColor(score) {
-    if (score == null || !isFinite(score)) return '#94a3b8';
-    if (score < 25) return '#ef4444';
-    if (score < 50) return '#f59e0b';
-    if (score < 75) return '#3b82f6';
-    return '#10b981';
+    return maturityColor(score);
 }
 
 function hexToRgba(hex, a) {
@@ -2657,16 +2654,16 @@ function statusDonutItems(byStatus) {
 function opinionDonutItems(stats) {
     return [
         { key: 'pos', label: 'Müsbət', n: stats.pos || 0, color: MEQSED_RESULT_COLORS.pos, filter: 'pos' },
-        { key: 'neg', label: 'Mənfi', n: stats.neg || 0, color: '#dc2626', filter: 'neg' },
-        { key: 'revision', label: 'Düzəliş', n: stats.other || 0, color: '#d97706', filter: 'revision' }
+        { key: 'neg', label: 'Mənfi', n: stats.neg || 0, color: MEQSED_RESULT_COLORS.neg, filter: 'neg' },
+        { key: 'revision', label: 'Düzəliş', n: stats.other || 0, color: MEQSED_RESULT_COLORS.revision, filter: 'revision' }
     ].filter(function(item) { return item.n > 0; });
 }
 
 var SCORE_BAND_DEFS = [
-    { key: 'score_high', label: '≥ 70', color: '#059669' },
-    { key: 'score_mid', label: '40–69', color: '#d97706' },
-    { key: 'score_low', label: '< 40', color: '#dc2626' },
-    { key: 'score_none', label: 'Balsız', color: '#94a3b8' }
+    { key: 'score_high', label: '≥ 70', color: MATURITY.opt },
+    { key: 'score_mid', label: '40–69', color: MATURITY.idare },
+    { key: 'score_low', label: '< 40', color: MATURITY.ilkin },
+    { key: 'score_none', label: 'Balsız', color: STATUS.other }
 ];
 
 function scoreBandDefs(hideNone) {
@@ -2880,9 +2877,12 @@ function meqsedOvFilterOn(key) {
     return cur === key;
 }
 
-function meqsedOvKpi(label, value, sub, filterKey) {
+function meqsedOvKpi(label, value, sub, filterKey, extraClass) {
     var on = filterKey && meqsedOvFilterOn(filterKey);
-    var cls = 'meqsed-ov-kpi' + (filterKey ? ' is-clickable' : '') + (on ? ' is-active' : '');
+    var cls = 'meqsed-ov-kpi'
+        + (extraClass ? ' ' + extraClass : '')
+        + (filterKey ? ' is-clickable' : '')
+        + (on ? ' is-active' : '');
     var inner = '<span class="meqsed-ov-kpi-label">' + escapeHtml(label) + '</span>'
         + '<strong>' + escapeHtml(String(value)) + '</strong>'
         + (sub ? '<em>' + escapeHtml(sub) + '</em>' : '');
@@ -2986,8 +2986,8 @@ function meqsedOverviewBodyHtml(stats) {
         + '<div class="meqsed-ov-kpis">'
         + meqsedOvKpi('Ümumi müraciət', total, (stats.baxilir || 0) + ' icradadır', 'all')
         + meqsedOvKpi('Müraciət edən qurum', stats.qurum || 0, qurumSub, 'orgs')
-        + meqsedOvKpi('Müsbət rəy', posPct + '%', (stats.pos || 0) + ' rəy', 'pos')
-        + meqsedOvKpi('Mənfi rəy', negPct + '%', (stats.neg || 0) + ' rəy', 'neg')
+        + meqsedOvKpi('Müsbət rəy', posPct + '%', (stats.pos || 0) + ' rəy', 'pos', 'is-pos')
+        + meqsedOvKpi('Mənfi rəy', negPct + '%', (stats.neg || 0) + ' rəy', 'neg', 'is-neg')
         + meqsedOvKpi('Orta baxılma müddəti', avgVal, avgSub, '')
         + '</div>'
         + '<div class="meqsed-ov-grid">'
@@ -3036,17 +3036,7 @@ export function destroyMeqsedOverviewCharts() {
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
 }
 
-var STATUS_CHART_COLORS = {
-    done: '#059669',
-    progress: '#2563eb',
-    planned: '#ea580c',
-    paused: '#d97706',
-    review: '#0891b2',
-    esd: '#4f46e5',
-    blocked: '#dc2626',
-    rejected: '#e11d48',
-    other: '#64748b'
-};
+var STATUS_CHART_COLORS = STATUS;
 
 function destroyAssessListDonut() {
     destroyAssessChart('assessListDonutChart', 'assessListDonut');
@@ -3342,30 +3332,29 @@ function drawMeqsedLifeChart(stats) {
     var barCanvas = document.getElementById('meqsedOpinionBar');
     if (!barCanvas) return;
     var life = stats.byLifeUnit || { yeni: emptyLifeUnit(), movcud: emptyLifeUnit() };
-    var unitOpinionDefs = [
-        { unit: 'sistem', op: 'pos', label: 'Sistem — müsbət', color: MEQSED_RESULT_COLORS.pos, filterSuffix: 'pos' },
-        { unit: 'xidmet', op: 'pos', label: 'Xidmət — müsbət', color: MEQSED_RESULT_COLORS.posAlt, filterSuffix: 'pos' },
-        { unit: 'sistem', op: 'neg', label: 'Sistem — mənfi', color: '#b91c1c', filterSuffix: 'neg' },
-        { unit: 'xidmet', op: 'neg', label: 'Xidmət — mənfi', color: '#f87171', filterSuffix: 'neg' },
-        { unit: 'sistem', op: 'revision', label: 'Sistem — düzəliş', color: '#d97706', filterSuffix: 'revision' },
-        { unit: 'xidmet', op: 'revision', label: 'Xidmət — düzəliş', color: '#fbbf24', filterSuffix: 'revision' }
+    var opinionDefs = [
+        { op: 'pos', label: 'Müsbət', color: MEQSED_RESULT_COLORS.pos, filterSuffix: 'pos' },
+        { op: 'neg', label: 'Mənfi', color: MEQSED_RESULT_COLORS.neg, filterSuffix: 'neg' },
+        { op: 'revision', label: 'Düzəliş', color: MEQSED_RESULT_COLORS.revision, filterSuffix: 'revision' }
     ];
     var lifeKeys = ['yeni', 'movcud'];
     var lifeLabels = ['Yeni yaradılan', 'Mövcudda dəyişiklik'];
-    var barDatasets = unitOpinionDefs.map(function(def) {
+    function lifeOpN(k, op) {
+        var row = life[k] || emptyLifeUnit();
+        var s = (row.sistem && row.sistem[op]) || 0;
+        var x = (row.xidmet && row.xidmet[op]) || 0;
+        return s + x;
+    }
+    var barDatasets = opinionDefs.map(function(def) {
         return {
             label: def.label,
-            data: lifeKeys.map(function(k) {
-                var row = life[k] && life[k][def.unit];
-                return (row && row[def.op]) || 0;
-            }),
+            data: lifeKeys.map(function(k) { return lifeOpN(k, def.op); }),
             backgroundColor: def.color,
             stack: 'life',
             borderRadius: 4,
             barPercentage: 0.78,
             categoryPercentage: 0.72,
             _filterSuffix: def.filterSuffix,
-            _unit: def.unit,
             _op: def.op
         };
     }).filter(function(ds) {
@@ -3412,9 +3401,8 @@ function drawMeqsedLifeChart(stats) {
                             var tot = lifeTotals[ctx.dataIndex] || 0;
                             var pct = tot ? Math.round((n / tot) * 100) : 0;
                             var ds = ctx.dataset || {};
-                            var unitName = ds._unit === 'xidmet' ? 'Xidmət' : 'Sistem';
-                            var opName = ds._op === 'neg' ? 'mənfi' : (ds._op === 'revision' ? 'düzəliş' : 'müsbət');
-                            return ' ' + unitName + ' — ' + opName + ': ' + n + ' (' + pct + '%)';
+                            var opName = ds._op === 'neg' ? 'Mənfi' : (ds._op === 'revision' ? 'Düzəliş' : 'Müsbət');
+                            return ' ' + opName + ': ' + n + ' (' + pct + '%)';
                         }
                     }
                 }

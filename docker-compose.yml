@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      APP_ENV: production
+      FLASK_DEBUG: "false"
+      TRUST_PROXY: "true"
+      SESSION_COOKIE_SECURE: "true"
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped

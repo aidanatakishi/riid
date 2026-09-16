@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda35';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda37';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -18,6 +18,7 @@ import {
     exqStarColor,
     exqStarLabel
 } from './model.js';
+import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
 import { apiFetch, canSeeDiagnostics } from './session.js';
@@ -36,12 +37,12 @@ var reportStore = { files: [], reports: [], loaded: false };
 var adminState = { isAdmin: false, bound: false };
 var hubPrefetchTimer = null;
 var HUB_TABS = [
-    { id: 'diag', label: 'Diaqnostika', color: '#7c3aed' },
-    { id: 'isq', label: 'İSQ', color: '#2563eb' },
-    { id: 'self', label: 'Özünüqiymətləndirmə', color: '#059669' },
-    { id: 'exq', label: 'EXQ', color: '#d97706' },
-    { id: 'meqsed', label: 'Məqsədəuyğunluq', color: '#5b21b6' },
-    { id: 'report', label: 'Hesabat analizi', color: '#0f766e' }
+    { id: 'diag', label: 'Diaqnostika', color: KIND.diag },
+    { id: 'isq', label: 'İSQ', color: KIND.isq },
+    { id: 'self', label: 'Özünüqiymətləndirmə', color: KIND.self },
+    { id: 'exq', label: 'EXQ', color: KIND.exq },
+    { id: 'meqsed', label: 'Məqsədəuyğunluq', color: KIND.meqsed },
+    { id: 'report', label: 'Hesabat analizi', color: KIND.report }
 ];
 var PAGE_HEADS = {
     diag: {
@@ -69,17 +70,7 @@ var PAGE_HEADS = {
         sub: 'PPTX və PDF hesabatların növünə görə təhlili'
     }
 };
-var HUB_STATUS_COLORS = {
-    done: '#059669',
-    progress: '#2563eb',
-    planned: '#ea580c',
-    paused: '#d97706',
-    review: '#0891b2',
-    esd: '#4f46e5',
-    blocked: '#dc2626',
-    rejected: '#e11d48',
-    other: '#64748b'
-};
+var HUB_STATUS_COLORS = STATUS;
 var HUB_STATUS_LABELS = {
     done: 'Tamamlanıb',
     progress: 'İcradadır',
@@ -99,9 +90,9 @@ var DIRS = [
     { id: 'emeliyyat', name: 'Əməliyyat modelləri', needles: ['emeliyyat', 'meliyyat'] }
 ];
 var REPORT_KINDS = [
-    { id: 'diag', label: 'Diaqnostika', color: '#7c3aed' },
-    { id: 'isq', label: 'İSQ', color: '#2563eb' },
-    { id: 'exq', label: 'EXQ', color: '#d97706' }
+    { id: 'diag', label: 'Diaqnostika', color: KIND.diag },
+    { id: 'isq', label: 'İSQ', color: KIND.isq },
+    { id: 'exq', label: 'EXQ', color: KIND.exq }
 ];
 var ISQ_PILLARS = [
     { id: 'strategy', name: 'Strateji və idarəçilik sənədləri', short: 'Strateji' },
@@ -117,10 +108,10 @@ var ISQ_PILLARS = [
 ];
 
 var MATS = [
-    { id: 'ilkin', label: 'İlkin', lo: 0, hi: 24, color: '#ef4444' },
-    { id: 'idare', label: 'İdarə olunan', lo: 25, hi: 49, color: '#f59e0b' },
-    { id: 'mueyyen', label: 'Müəyyən edilmiş', lo: 50, hi: 74, color: '#3b82f6' },
-    { id: 'opt', label: 'Optimallaşdırılan', lo: 75, hi: 100, color: '#10b981' }
+    { id: 'ilkin', label: 'İlkin', lo: 0, hi: 24, color: MATURITY.ilkin },
+    { id: 'idare', label: 'İdarə olunan', lo: 25, hi: 49, color: MATURITY.idare },
+    { id: 'mueyyen', label: 'Müəyyən edilmiş', lo: 50, hi: 74, color: MATURITY.mueyyen },
+    { id: 'opt', label: 'Optimallaşdırılan', lo: 75, hi: 100, color: MATURITY.opt }
 ];
 
 var VIS_STATUS = [
@@ -129,7 +120,7 @@ var VIS_STATUS = [
     { id: 'review', label: 'Rəydə', groups: { review: true, esd: true } },
     { id: 'not_started', label: 'İcraya başlanmayıb', groups: { other: true } }
 ];
-var VIS_COLORS = { done: '#22c55e', in_progress: '#3b82f6', review: '#f59e0b', not_started: '#94a3b8' };
+var VIS_COLORS = VIS;
 
 var DIR_ACTIONS = {
     strategiya: {
@@ -1358,13 +1349,23 @@ function kpiCard(label, value, matClass, analytic) {
         + '</div>';
 }
 
-function dirCardsHtml(dirAgg, clickable) {
+function dirHasDetail(org, dirId) {
+    if (!org || !dirId) return false;
+    if (extrasForDir(org, dirId).length) return true;
+    if (org.dirTexts && org.dirTexts[dirId]) return true;
+    if (org.dirGaps && org.dirGaps[dirId]) return true;
+    return false;
+}
+
+function dirCardsHtml(dirAgg, clickable, clickAction) {
+    var act = clickAction || 'openDir';
     return '<div class="nk303-dirs">'
         + dirAgg.map(function(d) {
             var w = d.avg == null ? 0 : Math.max(0, Math.min(100, d.avg));
-            var onclick = clickable ? ' onclick="nk303Call(\'openDir\',\'' + d.id + '\')"' : '';
-            var tag = clickable ? 'button type="button"' : 'article';
-            var close = clickable ? 'button' : 'article';
+            var live = clickable && d.hasDetail !== false;
+            var onclick = live ? ' onclick="nk303Call(\'' + act + '\',\'' + d.id + '\')"' : '';
+            var tag = live ? 'button type="button"' : 'article';
+            var close = live ? 'button' : 'article';
             return '<' + tag + ' class="nk303-dir' + (ui.dirId === d.id || ui.expandDir === d.id ? ' is-on' : '') + '"' + onclick + '>'
                 + '<div class="nk303-dir-top">'
                 + '<span class="nm">' + esc(d.name) + '</span>'
@@ -2015,8 +2016,8 @@ function criterionItemHtml(e) {
 function criterionBlock(org, dirId) {
     var items = extrasForDir(org, dirId);
     if (!items.length) {
-        var txt = org.dirTexts[dirId];
-        if (!txt) return '<p class="nk303-empty">' + esc(NA) + '</p>';
+        var txt = org.dirTexts && org.dirTexts[dirId];
+        if (!txt) return '';
         return '<div class="nk303-sub"><div class="lb">Cari vəziyyət</div><p>' + esc(txt) + '</p></div>';
     }
     var groups = groupExtras(items);
@@ -2037,6 +2038,26 @@ function criterionBlock(org, dirId) {
     }).join('');
 }
 
+function dirExpandPanelHtml(org) {
+    var d = DIRS.filter(function(x) { return x.id === ui.expandDir; })[0];
+    if (!d || !org || !dirHasDetail(org, d.id)) return '';
+    var crits = extrasForDir(org, d.id);
+    var meta = extrasMeta(org, d.id);
+    var weak = crits.filter(function(e) { return e.score != null && e.score < 50; });
+    var hint = [];
+    if (meta.domainN) hint.push('Meyar sayı: ' + meta.domainN);
+    else if (crits.length) hint.push('Meyar sayı: ' + crits.length);
+    if (meta.capN) hint.push('Altmeyar sayı: ' + meta.capN);
+    if (weak.length) hint.push('zəif sahələr: ' + weak.length);
+    var block = criterionBlock(org, d.id);
+    return '<div class="nk303-acc-body" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #eee8f6">'
+        + '<p class="nk303-hint"><b>' + esc(d.name) + '</b>' + (hint.length ? ' · ' + hint.join(' · ') : '') + '</p>'
+        + (org.dirTexts[d.id] ? '<div class="nk303-sub"><div class="lb">Cari vəziyyət</div><p>' + esc(org.dirTexts[d.id]) + '</p></div>' : '')
+        + (org.dirGaps && org.dirGaps[d.id] ? '<div class="nk303-sub"><div class="lb">Çatışmazlıq</div><p>' + esc(org.dirGaps[d.id]) + '</p></div>' : '')
+        + block
+        + '</div>';
+}
+
 function institutionBody(model) {
     var org = model.selected;
     if (!org) {
@@ -2049,7 +2070,8 @@ function institutionBody(model) {
             name: d.name,
             avg: org.dirs[d.id],
             maturity: maturityOf(org.dirs[d.id]),
-            n: meta.domainN || extrasForDir(org, d.id).length
+            n: meta.domainN || extrasForDir(org, d.id).length,
+            hasDetail: dirHasDetail(org, d.id)
         };
     });
     return '<section class="nk303-card" style="margin-bottom:0.55rem">'
@@ -2070,42 +2092,15 @@ function institutionBody(model) {
         + processHtml(org)
         + '</section>'
         + '<section class="nk303-card" style="margin-bottom:0.55rem"><h3>Dörd rəsmi istiqamət</h3>'
-        + dirCardsHtml(dirCards, false)
+        + dirCardsHtml(dirCards, true, 'expandDir')
+        + dirExpandPanelHtml(org)
         + '</section>'
-        + DIRS.map(function(d) {
-            var sc = org.dirs[d.id];
-            var open = ui.expandDir === d.id;
-            var crits = extrasForDir(org, d.id);
-            var meta = extrasMeta(org, d.id);
-            var weak = crits.filter(function(e) { return e.score != null && e.score < 50; });
-            var hint = [];
-            if (meta.domainN) hint.push('Meyar sayı: ' + meta.domainN);
-            else if (crits.length) hint.push('Meyar sayı: ' + crits.length);
-            if (meta.capN) hint.push('Altmeyar sayı: ' + meta.capN);
-            if (weak.length) hint.push('zəif sahələr: ' + weak.length);
-            return '<div class="nk303-acc">'
-                + '<button type="button" onclick="nk303Call(\'expandDir\',\'' + d.id + '\')">'
-                + '<span class="nm">' + esc(d.name) + '</span>'
-                + '<span>' + esc(sc == null ? '—' : fmt(sc)) + '</span>'
-                + matBadge(sc)
-                + '</button>'
-                + (open ? '<div class="nk303-acc-body">'
-                    + '<p class="nk303-hint">' + (hint.length ? hint.join(' · ') : esc(NA)) + '</p>'
-                    + (org.dirTexts[d.id] ? '<div class="nk303-sub"><div class="lb">Cari vəziyyət</div><p>' + esc(org.dirTexts[d.id]) + '</p></div>' : '')
-                    + (org.dirGaps && org.dirGaps[d.id] ? '<div class="nk303-sub"><div class="lb">Çatışmazlıq</div><p>' + esc(org.dirGaps[d.id]) + '</p></div>' : '')
-                    + criterionBlock(org, d.id)
-                    + '</div>' : '')
-                + '</div>';
-        }).join('')
         + (org.extras.filter(function(e) { return !e.dirId; }).length
             ? '<section class="nk303-card" style="margin-top:0.55rem"><h3>Mənbə məlumatında əlavə meyarlar</h3>'
                 + '<p class="nk303-hint">Bu sətirlər ayrı top-level istiqamət deyil; diaqnostika sahəsindən oxunub.</p>'
                 + criterionBlock({ extras: org.extras.filter(function(e) { return !e.dirId; }), dirTexts: {} }, '')
                 + '</section>'
-            : '')
-        + '<section class="nk303-card" style="margin-top:0.55rem"><h3>Çatışmazlıqlar</h3>'
-        + findingsHtml(org, model.gaps.filter(function(g) { return g.orgKey === org.key; }))
-        + '</section>';
+            : '');
 }
 
 function pushFinding(arr, title, text, score) {
@@ -2331,12 +2326,12 @@ function presentReportKinds() {
 }
 
 function activeReportKind() {
-    var present = presentReportKinds();
-    if (!present.length) return ui.reportKind || 'diag';
-    if (ui.reportKind && present.some(function(k) { return k.id === ui.reportKind; })) return ui.reportKind;
+    var k = ui.reportKind;
+    if (k === 'isq' || k === 'exq' || k === 'diag') return k;
     var byId = (reportStore.reports || []).filter(function(r) { return r.id === ui.reportId; })[0];
     if (byId) return reportKindOf(byId);
-    return present[0].id;
+    var present = presentReportKinds();
+    return present.length ? present[0].id : 'diag';
 }
 
 function visibleReports() {
@@ -2670,7 +2665,7 @@ function reportPageHtml() {
         return head + '<section class="nk303-card nk303-card--report-empty">'
             + '<h3>' + esc(emptyTitle) + '</h3>'
             + '<p class="nk303-hint">' + (isAdmin()
-                ? '«PPTX / PDF yüklə» düyməsinə basın və bu faylın Diaqnostika, İSQ və ya EXQ olduğunu seçin.'
+                ? 'Yuxarıdan ' + km.label + ' seçilib. «PPTX / PDF yüklə» bu növə aid faylı oxuyacaq.'
                 : 'Hesabat yüklənəndən sonra burada növünə uyğun indeks, istiqamətlər və tapıntılar görünəcək.')
             + '</p>'
             + (all.length ? '' : ('<ul class="nk303-rep-empty-kinds">'
@@ -2800,15 +2795,6 @@ function reportPageHtml() {
             + '<div id="nkRepColFind" class="' + (focus === 'findings' ? 'is-on' : '') + '"><button type="button" class="nk303-find-hit" onclick="nk303Call(\'reportFocus\',\'findings\')"><h4>Çatışmazlıqlar</h4></button>' + reportListHtml(sel.findings) + '</div>'
             + '<div id="nkRepColAct" class="' + (focus === 'actions' ? 'is-on' : '') + '"><button type="button" class="nk303-find-hit" onclick="nk303Call(\'reportFocus\',\'actions\')"><h4>Tövsiyələr</h4></button>' + reportListHtml(sel.actions) + '</div>'
             + '</div>'
-            + ((sel.slides || []).length
-                ? '<h4 class="nk303-rep-slides-h">' + (pageWord === 'səhifə' ? 'Səhifə icmalı' : 'Slayd icmalı')
-                    + (pages ? '<span>' + esc(String(pages)) + ' ' + pageWord + '</span>' : '')
-                    + '</h4><ul class="nk303-rep-slides">'
-                    + (sel.slides || []).map(function(s) {
-                        var title = String(s.title || (pageWord + ' ' + (s.n || ''))).replace(/[\u000b\u000c]+/g, ' ').replace(/\s+/g, ' ').trim();
-                        return '<li><em>' + esc(String(s.n || '')) + '</em><b>' + esc(title) + '</b></li>';
-                    }).join('') + '</ul>'
-                : '')
             + '</section>';
     }
     return head + kpis + mid + themeHtml + detail;
@@ -3249,9 +3235,19 @@ function hubOpinionLabel(kind) {
     if (kind === 'pos') return { id: 'pos', label: 'Müsbət' };
     if (kind === 'neg') return { id: 'neg', label: 'Mənfi' };
     if (kind === 'revision') return { id: 'rev', label: 'Düzəliş' };
-    if (kind === 'baxilir') return { id: 'part', label: 'İcradadır' };
+    if (kind === 'baxilir') return { id: 'wait', label: 'İcradadır' };
     if (kind === 'partial') return { id: 'part', label: 'Qismən' };
     return { id: 'part', label: '—' };
+}
+
+function meqsedOpinionItems(st) {
+    st = st || {};
+    return [
+        { id: 'pos', label: 'Müsbət', n: st.pos || 0, color: OPINION.pos, filter: 'pos' },
+        { id: 'neg', label: 'Mənfi', n: st.neg || 0, color: OPINION.neg, filter: 'neg' },
+        { id: 'rev', label: 'Düzəliş', n: st.other || 0, color: OPINION.revision, filter: 'revision' },
+        { id: 'wait', label: 'İcradadır', n: st.baxilir || 0, color: OPINION.baxilir, filter: 'baxilir' }
+    ];
 }
 
 function destroyHubCharts() {
@@ -3333,6 +3329,7 @@ function openHub(section) {
     ui.mode = 'country';
     ui.orgKey = '';
     ui.nav = 'overview';
+    if (section === 'report' && !ui.reportKind) ui.reportKind = 'diag';
     hideHubOverlay();
     window.scrollTo(0, 0);
     render();
@@ -3364,7 +3361,7 @@ function hubKpisHtml(view) {
             onclick: hubKpiHit('orgs'), on: f === 'orgs'
         })
         + kpiCardHtml({
-            ic: 'is-rose', icon: 'star', label: 'Müsbət rəy',
+            ic: 'is-green', icon: 'star', label: 'Müsbət rəy',
             valueHtml: esc(String(st.pos || 0)), subHtml: '<div class="sub">nəticə</div>',
             onclick: hubKpiHit('pos'), on: f === 'pos'
         })
@@ -3924,10 +3921,10 @@ function meqsedKindShareHtml(st) {
     var otherSplit = (st.byKindResult && st.byKindResult.other) || {};
     if (otherN || otherSplit.total) order.push('other');
     var tones = [
-        { key: 'pos', color: '#5b21b6' },
-        { key: 'neg', color: '#dc2626' },
-        { key: 'revision', color: '#d97706' },
-        { key: 'baxilir', color: '#94a3b8' }
+        { key: 'pos', color: OPINION.pos },
+        { key: 'neg', color: OPINION.neg },
+        { key: 'revision', color: OPINION.revision },
+        { key: 'baxilir', color: OPINION.baxilir }
     ];
     var rows = order.map(function(kind) {
         var split = (st.byKindResult && st.byKindResult[kind]) || {};
@@ -3969,10 +3966,10 @@ function meqsedHubExtraHtml(st) {
         + '<div class="nk303-extra-head">'
         + '<h3>Aylıq axın</h3>'
         + '<ul class="nk303-mini-legend" aria-label="Rəy rəngləri">'
-        + '<li><i style="background:#5b21b6"></i>Müsbət</li>'
-        + '<li><i style="background:#dc2626"></i>Mənfi</li>'
-        + '<li><i style="background:#d97706"></i>Düzəliş</li>'
-        + '<li><i style="background:#64748b"></i>İcradadır</li>'
+        + '<li><i style="background:' + OPINION.pos + '"></i>Müsbət</li>'
+        + '<li><i style="background:' + OPINION.neg + '"></i>Mənfi</li>'
+        + '<li><i style="background:' + OPINION.revision + '"></i>Düzəliş</li>'
+        + '<li><i style="background:' + OPINION.baxilir + '"></i>İcradadır</li>'
         + '</ul></div>'
         + (hasMonth
             ? '<div class="nk303-chart nk303-chart--trend nk303-chart--month"><canvas id="meqsedMonthChart" aria-label="Aylıq müraciət axını"></canvas></div>'
@@ -4009,12 +4006,7 @@ function hubBodyHtml(view) {
             + '</ol>';
     }
     var legendItems = view.section === 'meqsed'
-        ? [
-            { id: 'pos', label: 'Müsbət', n: st.pos || 0, color: '#5b21b6', filter: 'pos' },
-            { id: 'neg', label: 'Mənfi', n: st.neg || 0, color: '#dc2626', filter: 'neg' },
-            { id: 'rev', label: 'Düzəliş', n: st.other || 0, color: '#d97706', filter: 'revision' },
-            { id: 'wait', label: 'İcradadır', n: st.baxilir || 0, color: '#94a3b8', filter: 'baxilir' }
-        ]
+        ? meqsedOpinionItems(st)
         : VIS_STATUS.map(function(s) {
             return { id: s.id, label: s.label, n: vis[s.id] || 0, color: VIS_COLORS[s.id], filter: s.id };
         });
@@ -4215,12 +4207,7 @@ function drawHubCharts(view) {
         var centerN;
         var centerLb;
         if (view.section === 'meqsed') {
-            items = [
-                { label: 'Müsbət', n: st.pos || 0, color: '#5b21b6', filter: 'pos' },
-                { label: 'Mənfi', n: st.neg || 0, color: '#dc2626', filter: 'neg' },
-                { label: 'Düzəliş', n: st.other || 0, color: '#d97706', filter: 'revision' },
-                { label: 'İcradadır', n: st.baxilir || 0, color: '#94a3b8', filter: 'baxilir' }
-            ];
+            items = meqsedOpinionItems(st);
             centerN = st.qurum || 0;
             centerLb = 'Qurum';
         } else {
@@ -4374,9 +4361,9 @@ function drawHubCharts(view) {
             data: {
                 labels: ['Yeni sistem', 'Yeni xidmət', 'Mövcud sistem', 'Mövcud xidmət'],
                 datasets: [
-                    { label: 'Müsbət', backgroundColor: '#5b21b6', data: [lifeN('yeni', 'sistem', 'pos'), lifeN('yeni', 'xidmet', 'pos'), lifeN('movcud', 'sistem', 'pos'), lifeN('movcud', 'xidmet', 'pos')], borderRadius: 6 },
-                    { label: 'Mənfi', backgroundColor: '#dc2626', data: [lifeN('yeni', 'sistem', 'neg'), lifeN('yeni', 'xidmet', 'neg'), lifeN('movcud', 'sistem', 'neg'), lifeN('movcud', 'xidmet', 'neg')], borderRadius: 6 },
-                    { label: 'Düzəliş', backgroundColor: '#d97706', data: [lifeN('yeni', 'sistem', 'revision'), lifeN('yeni', 'xidmet', 'revision'), lifeN('movcud', 'sistem', 'revision'), lifeN('movcud', 'xidmet', 'revision')], borderRadius: 6 }
+                    { label: 'Müsbət', backgroundColor: OPINION.pos, data: [lifeN('yeni', 'sistem', 'pos'), lifeN('yeni', 'xidmet', 'pos'), lifeN('movcud', 'sistem', 'pos'), lifeN('movcud', 'xidmet', 'pos')], borderRadius: 6 },
+                    { label: 'Mənfi', backgroundColor: OPINION.neg, data: [lifeN('yeni', 'sistem', 'neg'), lifeN('yeni', 'xidmet', 'neg'), lifeN('movcud', 'sistem', 'neg'), lifeN('movcud', 'xidmet', 'neg')], borderRadius: 6 },
+                    { label: 'Düzəliş', backgroundColor: OPINION.revision, data: [lifeN('yeni', 'sistem', 'revision'), lifeN('yeni', 'xidmet', 'revision'), lifeN('movcud', 'sistem', 'revision'), lifeN('movcud', 'xidmet', 'revision')], borderRadius: 6 }
                 ]
             },
             options: {
@@ -5047,7 +5034,12 @@ export function nk303Call(action, payload) {
         ui.nav = 'dirs';
         ui.page = 1;
     } else if (action === 'expandDir') {
-        ui.expandDir = ui.expandDir === payload ? '' : payload;
+        if (ui.expandDir === payload) {
+            ui.expandDir = '';
+        } else {
+            var org = (buildModel().selected) || null;
+            ui.expandDir = org && dirHasDetail(org, payload) ? payload : '';
+        }
         ui.expandCrit = '';
     } else if (action === 'crit') {
         payload = darg(payload || '');
@@ -5133,9 +5125,7 @@ export function nk303Call(action, payload) {
         if (href) window.open(href, '_blank', 'noopener,noreferrer');
         return;
     } else if (action === 'uploadReport') {
-        ui.reportPickKind = true;
-        ui.hub = 'report';
-        render();
+        pickPptxFile(activeReportKind());
         return;
     } else if (action === 'uploadAs') {
         ui.reportPickKind = false;
@@ -5161,7 +5151,10 @@ export function nk303Call(action, payload) {
         ui.hub = 'report';
         window.scrollTo(0, 0);
     } else if (action === 'reportKind') {
-        ui.reportKind = darg(payload || '') || 'diag';
+        var nextKind = darg(payload || '');
+        if (nextKind !== 'isq' && nextKind !== 'exq' && nextKind !== 'diag') nextKind = 'diag';
+        ui.reportKind = nextKind;
+        ui.reportPickKind = false;
         var vis = reportsOfKind(ui.reportKind);
         if (!vis.some(function(r) { return r.id === ui.reportId; })) {
             ui.reportId = vis[0] ? vis[0].id : '';
@@ -5169,7 +5162,6 @@ export function nk303Call(action, payload) {
         ui.reportFocus = '';
         ui.reportPin = false;
         ui.hub = 'report';
-        window.scrollTo(0, 0);
     } else if (action === 'reportFocus') {
         var next = darg(payload || '');
         ui.reportFocus = ui.reportFocus === next ? '' : next;

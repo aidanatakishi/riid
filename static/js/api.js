@@ -35,6 +35,27 @@ function hasJiraAuth(pat) {
     return !!(pat || state.hasServerToken);
 }
 
+function readInputValue(id) {
+    var el = document.getElementById(id);
+    return el ? String(el.value || '').trim() : '';
+}
+
+function readPat() {
+    return readInputValue('pat');
+}
+
+function readBaseUrl() {
+    return (readInputValue('baseUrl') || DEFAULT_BASE_URL).replace(/\/+$/, '') || DEFAULT_BASE_URL;
+}
+
+function readProjectKey() {
+    var fromInput = readInputValue('projectKey').toUpperCase();
+    var key = fromInput || String(state.currentProjectKey || DEFAULT_PROJECT_KEY).toUpperCase();
+    var el = document.getElementById('projectKey');
+    if (el && key && el.value !== key) el.value = key;
+    return key;
+}
+
 function readProxyInput() {
     var el = document.getElementById('proxyUrl');
     return el ? String(el.value || '').trim().replace(/\/+$/, '') : '';
@@ -47,10 +68,7 @@ function saveClientCredentials(baseUrl, pat, projectKey) {
     var proxy = readProxyInput();
     if (proxy) localStorage.setItem('jiraProxyUrl', proxy);
     else localStorage.removeItem('jiraProxyUrl');
-    var chatEl = document.getElementById('chatApiKey');
-    var chatKey = chatEl ? String(chatEl.value || '').trim() : '';
-    if (chatKey) localStorage.setItem('jiraChatApiKey', chatKey);
-    else localStorage.removeItem('jiraChatApiKey');
+    try { localStorage.removeItem('jiraChatApiKey'); } catch (e) {}
 }
 
 export async function loadServerConfig() {
@@ -447,7 +465,7 @@ export async function ensureChangelogs(tasks) {
     missing.forEach(function(t) { changelogPending[t.key] = true; });
     try {
         var baseUrl = state.currentBaseUrl;
-        var pat = document.getElementById('pat').value;
+        var pat = readPat();
         var chunkSize = 40;
         for (var i = 0; i < missing.length; i += chunkSize) {
             var chunk = missing.slice(i, i + chunkSize);
@@ -471,9 +489,9 @@ export async function ensureChangelogs(tasks) {
 state.ensureChangelogs = ensureChangelogs;
 
 export async function fetchTodayChanges() {
-    var baseUrl = document.getElementById('baseUrl').value;
-    var pat = document.getElementById('pat').value;
-    var projectKey = document.getElementById('projectKey').value.toUpperCase();
+    var baseUrl = readBaseUrl();
+    var pat = readPat();
+    var projectKey = readProjectKey();
     if (!baseUrl || !projectKey || !hasJiraAuth(pat)) return;
     state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
     var today = new Date();
@@ -616,20 +634,17 @@ function mergeFetchedIssues(data, opts) {
 }
 
 function readDashboardCredentials() {
-    var baseUrl = document.getElementById('baseUrl').value;
-    var pat = document.getElementById('pat').value;
-    var projectKey = document.getElementById('projectKey').value.toUpperCase();
-    return { baseUrl: baseUrl, pat: pat, projectKey: projectKey };
+    return { baseUrl: readBaseUrl(), pat: readPat(), projectKey: readProjectKey() };
 }
 
 export async function loadAssessmentCreatedRange(startIso, endIso) {
     var creds = readDashboardCredentials();
     if (!creds.baseUrl || !creds.projectKey) {
-        showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error');
+        showToast('Jira hələ qurulmayıb. Öz Jira tokeninizi daxil olanda və ya Tənzimləmələrdə yazın.', 'error');
         return false;
     }
     if (!hasJiraAuth(creds.pat)) {
-        showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error');
+        showToast('Jira hələ qurulmayıb. Öz Jira tokeninizi daxil olanda və ya Tənzimləmələrdə yazın.', 'error');
         return false;
     }
     saveClientCredentials(creds.baseUrl, creds.pat, creds.projectKey);
@@ -660,11 +675,11 @@ export async function fetchDashboardData(opts) {
      opts = opts || {};
      var silent = !!opts.silent;
      if (state.dashboardFetchBusy) return;
-     var baseUrl = document.getElementById('baseUrl').value;
-     var pat = document.getElementById('pat').value;
-     var projectKey = document.getElementById('projectKey').value.toUpperCase();
-     if (!baseUrl || !projectKey) { showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error'); return; }
-     if (!hasJiraAuth(pat)) { showToast('Jira hələ qurulmayıb. Superadmin tokeni /admin səhifəsində yazmalıdır.', 'error'); return; }
+     var baseUrl = readBaseUrl();
+     var pat = readPat();
+     var projectKey = readProjectKey();
+     if (!baseUrl || !projectKey) { showToast('Jira hələ qurulmayıb. Öz Jira tokeninizi daxil olanda və ya Tənzimləmələrdə yazın.', 'error'); return; }
+     if (!hasJiraAuth(pat)) { showToast('Jira hələ qurulmayıb. Öz Jira tokeninizi daxil olanda və ya Tənzimləmələrdə yazın.', 'error'); return; }
      saveClientCredentials(baseUrl, pat, projectKey);
      await rememberCurrentProject();
      state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
