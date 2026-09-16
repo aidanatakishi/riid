@@ -1,0 +1,25 @@
+name: Source zip
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build zip
+        run: git archive --format=zip --prefix=riid-main/ -o riid-main.zip HEAD
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view source >/dev/null 2>&1; then
+            gh release upload source riid-main.zip --clobber
+          else
+            gh release create source riid-main.zip --title "Mənbə (ZIP)" --notes "Tam işlək arxiv. Windows-da açılır. GitHub Code → Download ZIP əvəzinə bunu yükləyin." --latest
+          fi

@@ -38,6 +38,12 @@ customfield_13608 - Qurumun adı
 customfield_12424 - Qurum (Ehtiyat field)
 customfield_10015 / 10016 - Target Start / End
 
+📥 GitHub-dan yükləmək
+Repo: https://github.com/aidanatakishi/riid
+Tam ZIP (Windows üçün): https://github.com/aidanatakishi/riid/releases/latest
+  (riid-main.zip — təxminən 300+ KB. Code → Download ZIP bəzən yarımçıq düşür.)
+Git: git clone https://github.com/aidanatakishi/riid.git
+
 🚀 Sistemi İşə Salmaq (Run Etmək)
 Komputerinizdə Python 3 olmalıdır. Layihə qovluğunda:
 
