@@ -280,12 +280,12 @@ export function isActiveExecutionGroup(g) {
 
 /** Jira «ESD Statusu» seçimləri — workflow ESD olanda daxili mərhələ. */
 export var ESD_INNER_STAGES = [
-    { id: 'huseyn', label: 'Hüseyn Mammadov' },
+    { id: 'none', label: 'Seçilməyib' },
+    { id: 'huseyn', label: 'Hüseyn Məmmədov' },
     { id: 'viza', label: 'Nazirlikdə vizada' },
     { id: 'daxil', label: 'Daxildə' },
     { id: 'imza', label: 'İmzada' },
-    { id: 'gonder', label: 'Göndərilib' },
-    { id: 'none', label: 'Seçilməyib' }
+    { id: 'gonder', label: 'Göndərilib' }
 ];
 
 function isEsdStatusFieldName(folded) {
@@ -326,10 +326,10 @@ function classifyEsdInnerLabel(text) {
         return { id: 'viza', label: 'Nazirlikdə vizada' };
     }
     if (f.indexOf('daxil') !== -1) return { id: 'daxil', label: 'Daxildə' };
-    if (f.indexOf('huseyn') !== -1 || f.indexOf('mammadov') !== -1) {
-        return { id: 'huseyn', label: 'Hüseyn Mammadov' };
+    if (f.indexOf('huseyn') !== -1 || f.indexOf('memmedov') !== -1 || f.indexOf('mammadov') !== -1) {
+        return { id: 'huseyn', label: 'Hüseyn Məmmədov' };
     }
-    return { id: 'other:' + f, label: raw };
+    return { id: 'opt:' + f.replace(/\s+/g, '-'), label: raw };
 }
 
 function readEsdStatusRaw(t) {

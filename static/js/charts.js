@@ -194,6 +194,9 @@ export function renderEsdStatusBreakdown(tasks) {
         return;
     }
     var counts = {};
+    (ESD_INNER_STAGES || []).forEach(function(stage) {
+        counts[stage.id] = { id: stage.id, label: stage.label, n: 0 };
+    });
     esdTasks.forEach(function(t) {
         var inner = getEsdInnerStatus(t) || { id: 'none', label: 'Seçilməyib' };
         if (!counts[inner.id]) counts[inner.id] = { id: inner.id, label: inner.label, n: 0 };
@@ -202,7 +205,7 @@ export function renderEsdStatusBreakdown(tasks) {
     });
     var order = (ESD_INNER_STAGES || []).map(function(s) { return s.id; });
     var extras = Object.keys(counts).filter(function(id) { return order.indexOf(id) === -1; }).sort();
-    var ids = order.concat(extras).filter(function(id) { return counts[id] && counts[id].n > 0; });
+    var ids = order.concat(extras);
     var html = '<button type="button" class="esd-status-row is-all" onclick="filterEsdInnerStatus(\'all\')" title="Bütün ESD tapşırıqları">'
         + '<span class="esd-status-dot"></span><span>Hamısı</span><b>' + esdTasks.length + '</b></button>';
     html += ids.map(function(id) {
