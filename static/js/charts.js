@@ -232,12 +232,12 @@ export function renderEsdStatusBreakdown(tasks) {
 function drawStatusChart(tasks) {
     var gN = STATUS_GROUP_NAMES;
     var gC = STATUS_GROUP_COLORS;
-    var order = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'rejected', 'paused', 'other'];
+    var order = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'rejected', 'other'];
     var counts = {};
     var units = countableWorkUnits(tasks);
     units.forEach(function(t) {
         var k = getStatusGroup(t.fields.status.name);
-        if (!gN[k]) return;
+        if (!gN[k] || k === 'paused') return;
         if (k === 'other' && !isOtherDashboardUnit(t)) return;
         counts[k] = (counts[k] || 0) + 1;
     });
