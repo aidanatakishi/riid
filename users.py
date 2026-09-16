@@ -9,6 +9,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_PATH = os.path.join(BASE_DIR, 'data', 'users.json')
+SECRETS_PATH = os.path.join(BASE_DIR, 'data', 'secrets.json')
+
+DEFAULT_ADMIN_USERNAME = 'admin'
+DEFAULT_ADMIN_PASSWORD = 'admin123'
+DEFAULT_USER_USERNAME = 'user'
+DEFAULT_USER_PASSWORD = 'user123'
 
 _lock = threading.Lock()
 
@@ -21,25 +27,128 @@ def _empty_store():
     return {'users': []}
 
 
-def load_store():
-    if not os.path.isfile(USERS_PATH):
-        return _empty_store()
+def _empty_secrets():
+    return {}
+
+
+def _read_json(path, fallback):
+    if not os.path.isfile(path):
+        return fallback()
     try:
-        with open(USERS_PATH, encoding='utf-8') as handle:
+        with open(path, encoding='utf-8') as handle:
             data = json.load(handle)
     except (OSError, ValueError):
-        return _empty_store()
-    if not isinstance(data, dict) or not isinstance(data.get('users'), list):
+        return fallback()
+    return data if isinstance(data, dict) else fallback()
+
+
+def _write_json(path, data):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def _sanitize_store(store):
+    clean = dict(store or {})
+    clean.pop('jira_pat', None)
+    users = []
+    for user in clean.get('users') or []:
+        if not isinstance(user, dict):
+            continue
+        row = dict(user)
+        row.pop('jira_pat', None)
+        users.append(row)
+    clean['users'] = users
+    return clean
+
+
+def load_store():
+    data = _read_json(USERS_PATH, _empty_store)
+    if not isinstance(data.get('users'), list):
         return _empty_store()
     return data
 
 
 def save_store(store):
-    os.makedirs(os.path.dirname(USERS_PATH), exist_ok=True)
-    tmp = USERS_PATH + '.tmp'
-    with open(tmp, 'w', encoding='utf-8') as handle:
-        json.dump(store, handle, ensure_ascii=False, indent=2)
-    os.replace(tmp, USERS_PATH)
+    _write_json(USERS_PATH, _sanitize_store(store))
+
+
+def load_secrets():
+    data = _read_json(SECRETS_PATH, _empty_secrets)
+    return data if isinstance(data, dict) else _empty_secrets()
+
+
+def save_secrets(secrets):
+    data = dict(secrets or {})
+    if not str(data.get('jira_pat') or '').strip():
+        data.pop('jira_pat', None)
+    pats = {
+        str(uid): str(token).strip()
+        for uid, token in (data.get('user_pats') or {}).items()
+        if str(uid or '').strip() and str(token or '').strip()
+    }
+    if pats:
+        data['user_pats'] = pats
+    else:
+        data.pop('user_pats', None)
+    if data:
+        _write_json(SECRETS_PATH, data)
+        return
+    try:
+        os.remove(SECRETS_PATH)
+    except OSError:
+        pass
+
+
+def _set_user_secret_pat(user_id, token):
+    uid = str(user_id or '').strip()
+    if not uid:
+        return
+    secrets = load_secrets()
+    pats = dict(secrets.get('user_pats') or {})
+    value = str(token or '').strip()
+    if value:
+        pats[uid] = value
+    else:
+        pats.pop(uid, None)
+    secrets['user_pats'] = pats
+    save_secrets(secrets)
+
+
+def migrate_secrets():
+    with _lock:
+        store = load_store()
+        secrets = load_secrets()
+        store_changed = False
+        secrets_changed = False
+        shared = str(store.get('jira_pat') or '').strip()
+        if shared and not str(secrets.get('jira_pat') or '').strip():
+            secrets['jira_pat'] = shared
+            secrets_changed = True
+        if 'jira_pat' in store:
+            store.pop('jira_pat', None)
+            store_changed = True
+        pats = dict(secrets.get('user_pats') or {})
+        for user in store.get('users') or []:
+            if not isinstance(user, dict):
+                continue
+            uid = str(user.get('id') or '').strip()
+            own = str(user.get('jira_pat') or '').strip()
+            if uid and own and not str(pats.get(uid) or '').strip():
+                pats[uid] = own
+                secrets_changed = True
+            if 'jira_pat' in user:
+                user.pop('jira_pat', None)
+                store_changed = True
+        if pats != dict(secrets.get('user_pats') or {}):
+            secrets['user_pats'] = pats
+            secrets_changed = True
+        if secrets_changed:
+            save_secrets(secrets)
+        if store_changed:
+            save_store(store)
 
 
 def list_users():
@@ -47,24 +156,32 @@ def list_users():
 
 
 def get_shared_jira_pat():
-    return str(load_store().get('jira_pat') or '').strip()
+    return str(load_secrets().get('jira_pat') or '').strip()
 
 
 def set_shared_jira_pat(token):
     with _lock:
-        store = load_store()
+        secrets = load_secrets()
         value = str(token or '').strip()
         if value:
-            store['jira_pat'] = value
+            secrets['jira_pat'] = value
         else:
+            secrets.pop('jira_pat', None)
+        save_secrets(secrets)
+        store = load_store()
+        if 'jira_pat' in store:
             store.pop('jira_pat', None)
-        save_store(store)
+            save_store(store)
         return bool(value)
 
 
 def user_jira_pat(user):
     if not user:
         return ''
+    uid = str(user.get('id') or '').strip()
+    pats = load_secrets().get('user_pats') or {}
+    if uid and str(pats.get(uid) or '').strip():
+        return str(pats.get(uid) or '').strip()
     return str(user.get('jira_pat') or '').strip()
 
 
@@ -373,11 +490,11 @@ def create_user(username, password, display_name='', role='user', project_key='D
         if jira_id:
             user['jira_account_id'] = jira_id
             user['jira_display_name'] = jira_name or user['display_name']
-        own_pat = str(jira_pat or '').strip()
-        if own_pat:
-            user['jira_pat'] = own_pat
         users.append(user)
         save_store(store)
+        own_pat = str(jira_pat or '').strip()
+        if own_pat:
+            _set_user_secret_pat(user.get('id'), own_pat)
         return user, None
 
 
@@ -429,9 +546,11 @@ def update_user(user_id, **fields):
         if 'jira_pat' in fields and fields['jira_pat'] is not None:
             token = str(fields.get('jira_pat') or '').strip()
             if token:
-                target['jira_pat'] = token
+                _set_user_secret_pat(target.get('id'), token)
+            target.pop('jira_pat', None)
         if fields.get('clear_pat'):
             target.pop('jira_pat', None)
+            _set_user_secret_pat(target.get('id'), '')
         if fields.get('password'):
             pwd = str(fields.get('password') or '').strip()
             if len(pwd) < 6:
@@ -461,6 +580,7 @@ def delete_user(user_id, actor_id=None):
             return False, 'Son admin hesabını silmək olmaz'
         store['users'] = [user for user in users if user is not target]
         save_store(store)
+        _set_user_secret_pat(target.get('id'), '')
         return True, None
 
 
@@ -530,20 +650,46 @@ def reset_password_with_admin(target_username, new_password, confirm_password, a
     return update_user(target.get('id'), password=pwd)
 
 
-def bootstrap_users(admin_username, admin_password, dept_username='', dept_password='', dept_display='', home_project='DGD'):
-    if has_users():
-        return
-    admin_name = normalize_username(admin_username) or 'admin'
-    admin_pwd = str(admin_password or '')
-    if admin_pwd:
-        create_user(admin_name, admin_pwd, 'Admin', 'superadmin', home_project, allow_superadmin=True)
+def bootstrap_users(
+    admin_username,
+    admin_password,
+    dept_username='',
+    dept_password='',
+    dept_display='',
+    home_project='DGD',
+    user_username='',
+    user_password='',
+):
+    migrate_secrets()
+    project = normalize_project_key(home_project) or 'DGD'
+    wanted = (
+        (
+            normalize_username(admin_username) or DEFAULT_ADMIN_USERNAME,
+            str(admin_password or '').strip() or DEFAULT_ADMIN_PASSWORD,
+            'Admin',
+            'superadmin',
+            True,
+        ),
+        (
+            normalize_username(user_username) or DEFAULT_USER_USERNAME,
+            str(user_password or '').strip() or DEFAULT_USER_PASSWORD,
+            'İstifadəçi',
+            'user',
+            False,
+        ),
+    )
+    extra = []
     dept_name = normalize_username(dept_username)
-    dept_pwd = str(dept_password or '')
-    if dept_name and dept_pwd:
-        create_user(
+    dept_pwd = str(dept_password or '').strip()
+    if dept_name:
+        extra.append((
             dept_name,
-            dept_pwd,
+            dept_pwd or DEFAULT_USER_PASSWORD,
             dept_display or 'Qiymətləndirmə və komplayens şöbəsi',
             'user',
-            home_project
-        )
+            False,
+        ))
+    for name, pwd, display, role_name, allow_sa in wanted + tuple(extra):
+        if find_user_by_username(name):
+            continue
+        create_user(name, pwd, display, role_name, project, allow_superadmin=allow_sa)

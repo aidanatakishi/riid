@@ -29,10 +29,12 @@ JIRA_PAT = os.environ.get('JIRA_PAT', _JIRA_PAT_FALLBACK)
 JIRA_PROJECT_KEY = os.environ.get('JIRA_PROJECT_KEY', 'DGD')
 SECRET_KEY = os.environ.get('SECRET_KEY') or ''
 ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME') or 'admin'
-ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or ''
+ADMIN_PASSWORD = os.environ.get('ADMIN_PASSWORD') or 'admin123'
 DEPT_USERNAME = os.environ.get('DEPT_USERNAME') or ''
 DEPT_PASSWORD = os.environ.get('DEPT_PASSWORD') or ''
 DEPT_DISPLAY_NAME = os.environ.get('DEPT_DISPLAY_NAME') or 'Qiymətləndirmə və komplayens şöbəsi'
+USER_USERNAME = os.environ.get('USER_USERNAME') or 'user'
+USER_PASSWORD = os.environ.get('USER_PASSWORD') or 'user123'
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') or ''
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or ''
 

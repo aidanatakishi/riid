@@ -53,8 +53,14 @@ Brauzerinizi (Google Chrome, Edge və s.) açın və ünvan çubuğuna yazın:
 
 http://127.0.0.1:5000
 
-Jira tokenini yazmaq
-Saytın yuxarısındakı Token düyməsinə basın və öz PAT-inizi yazın. Hər kəs öz tokeni ilə daxil olur.
+Giriş
+Boş quraşdırmada bu hesablar avtomatik yaranır:
+  admin / admin123  — superadmin
+  user  / user123   — adi istifadəçi
+Yeni hesabları /admin səhifəsindən superadmin yaradır. Hesab siyahısı data/users.json-dadır; token data/secrets.json-da qalır və Git-ə düşmür.
+
+Jira tokeni
+Superadmin /admin səhifəsində bir dəfə ümumi PAT yazır. Digər istifadəçilər token yazmır.
 
 🔧 Dəyişiklik Edilməsi Üçün Təlimat
 1. Yeni qrafik (chart) əlavə etmək istəyirsinizsə:

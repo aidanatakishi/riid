@@ -148,6 +148,10 @@ body.auth-page {
     color: #64748b;
     line-height: 1.5;
 }
+.auth-hint strong {
+    color: #4c1d95;
+    font-weight: 700;
+}
 .auth-field {
     display: flex;
     flex-direction: column;

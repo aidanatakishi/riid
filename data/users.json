@@ -1,0 +1,39 @@
+{
+  "users": [
+    {
+      "id": "960cade9-5d54-4070-963d-cfca687cde3e",
+      "username": "admin",
+      "display_name": "Aydan Atakishiyeva",
+      "password_hash": "scrypt:32768:8:1$nQOiYz1SyE6aBlLQ$2ca8f636854de7e53cfbf8d07707f4689da3049f31451b8c2fb9dd6d70ef406e50f64d44fb68c5a4347592f49c1e1d644fbbc4407122e8226a44406428a9617d",
+      "role": "superadmin",
+      "project_key": "DGD",
+      "created_at": "2026-09-14T08:34:54+00:00",
+      "team": "komplayns",
+      "updated_at": "2026-09-15T10:55:33+00:00",
+      "jira_account_id": "JIRAUSER23138",
+      "jira_display_name": "Aydan Atakishiyeva"
+    },
+    {
+      "id": "c17b8fd9-2d56-4543-aa3b-0915f6c0ed3a",
+      "username": "fidan.abasova",
+      "display_name": "Fidan Abasova",
+      "password_hash": "scrypt:32768:8:1$wbrJnrE9g0qz9R4h$08a5940198f29029c11a3cd4e2330fcf7f8b1752ee558d58baa058e0ef7f23536020c337018da840227476bb3186f942b3e935c86acdfeda128f0394eadcd87c",
+      "role": "admin",
+      "project_key": "DGD",
+      "team": "komplayns",
+      "created_at": "2026-09-15T06:53:26+00:00",
+      "jira_account_id": "JIRAUSER22504",
+      "jira_display_name": "Fidan Abasova"
+    },
+    {
+      "id": "9467fd28-6d97-4933-a689-195e184b7a6d",
+      "username": "user",
+      "display_name": "user",
+      "password_hash": "scrypt:32768:8:1$brLXYEKBafhfc5Gi$711d84011f3642733494c67e2c8b610b80d653e2a1539e9dd3614ff98bde4ad3cac6eee989b97e9578d7ed306db10f69f31a66a34e72042af29e49ced46a8849",
+      "role": "user",
+      "project_key": "DGD",
+      "team": "komplayns",
+      "created_at": "2026-09-15T12:03:03+00:00"
+    }
+  ]
+}

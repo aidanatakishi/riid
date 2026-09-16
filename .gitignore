@@ -17,8 +17,10 @@ env/
 .env.*
 !.env.example
 
-# Jira dump-ları git-ə düşməsin
+# Jira dump-ları və token git-ə düşməsin. Hesab siyahısı (users.json) klonlayanlar üçün qalır.
 data/*.json
+!data/users.json
+data/secrets.json
 data/secret.key
 
 # Yüklənmiş diaqnostika Excel-ləri

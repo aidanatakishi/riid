@@ -63,6 +63,8 @@ from config import (
     DEPT_PASSWORD,
     DEPT_DISPLAY_NAME,
     JIRA_PROJECT_KEY,
+    USER_PASSWORD,
+    USER_USERNAME,
 )
 from routes import api, can_see_diagnostics, is_app_admin
 from users import bootstrap_users, ensure_superadmin, sync_display_names
@@ -102,6 +104,8 @@ bootstrap_users(
     DEPT_PASSWORD,
     DEPT_DISPLAY_NAME,
     JIRA_PROJECT_KEY or 'DGD',
+    USER_USERNAME,
+    USER_PASSWORD,
 )
 ensure_superadmin()
 sync_display_names()
