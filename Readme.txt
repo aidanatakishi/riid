@@ -56,10 +56,10 @@ http://127.0.0.1:5000
 Giriş
 Lokal (run.bat): boş quraşdırmada terminalda admin / admin123 və user / user123 yaranır.
 Production: .env-də ADMIN_PASSWORD yazın (ən azı 8 simvol). Login səhifəsində parol göstərilmir.
-Yeni hesabları /admin səhifəsindən superadmin yaradır. Token data/secrets.json-dadır və Git-ə düşmür.
+Yeni hesabları Tənzimləmələr → İstifadəçilər səhifəsindən superadmin/admin yaradır. Tokenlər data/secrets.json-dadır və Git-ə düşmür.
 
 Jira tokeni
-Superadmin /admin səhifəsində və ya .env-də JIRA_PAT bir dəfə yazılır. Digər istifadəçilər token yazmır.
+Hər istifadəçi öz Jira tokenini (PAT) ilk girişdə yazır. Bir dəfə yadda qalır; növbəti dəfə boş saxlamaq olar. Tokeni Tənzimləmələr səhifəsindən də yeniləmək olur.
 
 🔧 Dəyişiklik Edilməsi Üçün Təlimat
 1. Yeni qrafik (chart) əlavə etmək istəyirsinizsə:
@@ -73,27 +73,26 @@ Filtr məntiqi static/js/filters.js içindəki applyFilters() funksiyasında yer
 Qeyd: Server host='0.0.0.0' ilə açılır — eyni ofis şəbəkəsindəki kompüterlər http://SİZİN-IP:5000 ünvanına daxil ola bilər.
 
 🏭 Production
-Netlify (riid.netlify.app) canlı Jira yükləyə bilməz — jira.idda.az daxili şəbəkədədir. Prod server Jira-ya çatmalıdır.
+Prod server Jira-ya (jira.idda.az) çatmalıdır. Netlify canlı Jira yükləyə bilməz.
 
 1. Serverdə .env yazın (.env.example əsasında):
    APP_ENV=production
    FLASK_DEBUG=false
-   SESSION_COOKIE_SECURE=true
    TRUST_PROXY=true
-   SECRET_KEY=...uzun təsadüfi...
-   JIRA_PAT=...
-   ADMIN_PASSWORD=...ən azı 8 simvol, admin123 olmasın...
-2. Qarşısında HTTPS reverse proxy (IIS / nginx) qoyun.
+   SECRET_KEY=...uzun təsadüfi (python -c "import secrets; print(secrets.token_hex(32))")...
+   ADMIN_PASSWORD=...yalnız users.json boşdursa, ən azı 8 simvol...
+   SESSION_COOKIE_SECURE=false   # HTTPS reverse proxy varsa true
+2. Qarşısında HTTPS reverse proxy (IIS / nginx) qoyun. Daxili HTTP-dirsə SESSION_COOKIE_SECURE=false saxlayın.
 3. Windows: run-prod.bat  (waitress)
-   Linux: gunicorn --bind 0.0.0.0:5000 --workers 2 --timeout 120 app:app
+   Linux: gunicorn --preload --bind 0.0.0.0:5000 --workers 2 --timeout 180 app:app
    Docker: docker compose up -d --build
-4. data/ və uploads/ qovluqlarını yedəkləyin (hesablar, token, fayllar).
-5. /api/health 200 qaytarmalıdır.
+4. data/ və uploads/ qovluqlarını yedəkləyin (hesablar, tokenlər, fayllar).
+5. Brauzerdə /api/health  {"ok": true} qaytarmalıdır.
+6. Superadmin daxil olub İstifadəçilərdə hesab açır. Hər kəs öz Jira tokenini bir dəfə yazır.
 
 🌐 Netlify (statik sayt)
 https://riid.netlify.app menyunu göstərir, amma canlı Jira yükləyə bilməz.
 İşləyən yollar:
 1. Lokal: run.bat → http://127.0.0.1:5000
 2. Production: yuxarıdakı 🏭 bölmə
-3. Müvəqqəti ictimai test: python app.py + cloudflared tunnel (prod deyil)
 

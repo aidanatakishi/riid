@@ -11,7 +11,7 @@ if not defined PY (
   exit /b 1
 )
 if not exist ".env" (
-  echo Production uchun .env yaradin. .env.example-a baxin.
+  echo Production uchun .env yaradin: .env.example-i kopyalayib ADMIN_PASSWORD ve SECRET_KEY yazin.
   pause
   exit /b 1
 )
@@ -19,6 +19,7 @@ set "APP_ENV=production"
 set "FLASK_DEBUG=false"
 set "TRUST_PROXY=true"
 if "%PORT%"=="" set "PORT=5000"
-echo Production: http://0.0.0.0:%PORT%  (HTTPS reverse proxy arxasinda saxlayin)
-%PY% -m waitress --listen=0.0.0.0:%PORT% --threads=8 app:app
+echo Production: http://0.0.0.0:%PORT%
+echo HTTPS reverse proxy arxasinda saxlayin. Saglamliq: /api/health
+%PY% app.py
 if errorlevel 1 pause

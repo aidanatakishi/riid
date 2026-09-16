@@ -95,9 +95,19 @@ def _persist_secret_key():
     return generated
 
 
+def _ensure_runtime_dirs():
+    root = os.path.dirname(os.path.abspath(__file__))
+    for name in ('data', 'uploads'):
+        os.makedirs(os.path.join(root, name), exist_ok=True)
+
+
+_ensure_runtime_dirs()
 app.secret_key = _persist_secret_key()
+if is_production() and not SECRET_KEY:
+    print('Production: SECRET_KEY .env-də boşdur — data/secret.key istifadə olunur. Bir neçə server varsa eyni açarı .env-ə yazın.')
 app.config['MAX_CONTENT_LENGTH'] = 25 * 1024 * 1024
 app.config['TEMPLATES_AUTO_RELOAD'] = not is_production()
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 60 * 60 * 24 * 30 if is_production() else 0
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = SESSION_COOKIE_SECURE
@@ -181,6 +191,10 @@ def add_cors_headers(resp):
     resp.headers['Referrer-Policy'] = 'same-origin'
     if request.is_secure:
         resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    path = request.path or '/'
+    if path.startswith('/static/'):
+        resp.headers['Cache-Control'] = 'public, max-age=2592000'
+        return resp
     ctype = str(resp.content_type or '')
     if 'text/html' in ctype:
         resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
@@ -224,5 +238,13 @@ def serve_diaqnostika():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     if is_production():
-        print('Production rejimi: debug söndürülüb. Windows-da run-prod.bat, Linux-da gunicorn istifadə edin.')
-    app.run(host='0.0.0.0', port=port, debug=FLASK_DEBUG)
+        try:
+            from waitress import serve
+        except ImportError:
+            print('Production üçün waitress lazımdır:')
+            print('  ' + sys.executable + ' -m pip install waitress')
+            raise SystemExit(1)
+        print('Production (waitress): http://0.0.0.0:%s  — HTTPS reverse proxy arxasında saxlayın.' % port)
+        serve(app, host='0.0.0.0', port=port, threads=8, channel_timeout=180)
+    else:
+        app.run(host='0.0.0.0', port=port, debug=FLASK_DEBUG)

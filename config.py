@@ -1,6 +1,6 @@
 import os
 
-# Jira URL/layihə. İstehsalda JIRA_PAT-i .env-də saxlayın.
+# Jira URL/layihə. Token hər istifadəçinin öz hesabındadır (girişdə bir dəfə).
 
 
 def _load_dotenv():
@@ -28,7 +28,7 @@ def env_flag(name, default=False):
 
 _load_dotenv()
 
-# Boş saxlayın — brauzerdə yazılacaq. İstehsalda .env-ə JIRA_PAT yazın.
+# Köçürmə üçün qalıq. Canlı sorğular istifadəçinin öz tokeni ilə gedir.
 _JIRA_PAT_FALLBACK = ''
 
 APP_ENV = (os.environ.get('APP_ENV') or os.environ.get('FLASK_ENV') or '').strip().lower()
@@ -38,9 +38,12 @@ FLASK_DEBUG = env_flag('FLASK_DEBUG', False)
 def is_production():
     if APP_ENV in ('development', 'dev', 'local'):
         return False
-    if APP_ENV == 'production':
-        return True
-    return not FLASK_DEBUG
+    return APP_ENV in ('production', 'prod')
+
+
+if is_production():
+    FLASK_DEBUG = False
+    os.environ['FLASK_DEBUG'] = 'false'
 
 
 JIRA_BASE_URL = os.environ.get('JIRA_BASE_URL', 'https://jira.idda.az').rstrip('/')

@@ -16,3 +16,7 @@ _tmp_*
 .vscode
 site
 .netlify
+netlify
+*.pyc
+__pycache__
+_tmp_avqust_manual.txt
