@@ -888,7 +888,7 @@ export function renderSprintComparison() {
         var delta = compare ? deltaHtml(done, compare.dueDone, 'good-up') : '';
         var name = scEscape(stats.jName);
         return '<div class="sc-metric sc-metric--due sc-duecombo" data-sprint="' + name + '" data-sc-type="due"'
-            + ' data-tip="Bu həftə bitməli olanlar. Yaşıl rəqəm — yekunlaşanlar.">'
+            + ' data-tip="Bu həftə bitməli və gecikən tapşırıqlar. Yaşıl rəqəm — yekunlaşanlar.">'
             + '<span class="sc-metric-top">'
             + '<span class="sc-metric-label">Həftə ərzində bitməli</span>'
             + '<span class="sc-metric-nums">'

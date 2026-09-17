@@ -236,17 +236,17 @@
             </div>
             <div class="dash-stat-foot">
                 <div class="dash-due">
-                    <p id="duePeriodLabel" class="dash-due-label" onclick="event.stopPropagation(); showDueThisWeekTasks();" title="Bitmə tarixi bu həftəyə düşən bütün tapşırıqlar">Bu həftə bitməli</p>
+                    <p id="duePeriodLabel" class="dash-due-label" onclick="event.stopPropagation(); showDueThisWeekTasks();" title="Bitmə tarixi bu həftəyə düşən və gecikən tapşırıqlar">Bu həftə bitməli</p>
                     <div class="dash-due-track" role="img" aria-label="Bu həftə bitməli irəliləyiş">
                         <button type="button" id="dueWeekDoneSeg" class="dash-due-seg is-done" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" title="Tamamlananları aç" hidden></button>
                         <button type="button" id="dueWeekRestSeg" class="dash-due-seg is-rest" onclick="event.stopPropagation(); showDueThisWeekOpenTasks();" title="Tamamlanmayanları aç" hidden></button>
                     </div>
                     <div class="dash-due-metrics">
-                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" class="dash-due-metric is-done" title="Bitmə tarixi bu həftəyə düşən və icra edilmiş tapşırıqlar">
+                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekDoneTasks();" class="dash-due-metric is-done" title="Bu həftə bitməli və ya gecikən, icra edilmiş tapşırıqlar">
                             <strong id="sprintTasksDueWeekDone">0</strong>
                             <span>tamamlanan</span>
                         </button>
-                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekOpenTasks();" class="dash-due-metric is-all" title="Bitmə tarixi bu həftəyə düşən, hələ bitməyənlər">
+                        <button type="button" onclick="event.stopPropagation(); showDueThisWeekOpenTasks();" class="dash-due-metric is-all" title="Bu həftə bitməli və ya gecikən, hələ bitməyənlər">
                             <strong id="sprintTasksDueWeekOpen">0</strong>
                             <span>tamamlanmayan</span>
                         </button>
@@ -696,7 +696,7 @@
             <option value="servis-dizayn">Servis dizayn</option>
         </select>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda128"></script>
+    <script type="module" src="/static/js/main.js?v=idda129"></script>
 
 </body>
 </html>

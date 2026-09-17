@@ -360,12 +360,44 @@ export function getEsdInnerStatus(t) {
     return classifyEsdInnerLabel(raw);
 }
 
-export function getBakuWeekRange(weekOffset) {
-    var offset = weekOffset || 0;
+function bakuToday() {
     var now = new Date();
     var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
     var bakuNow = new Date(utc + (4 * 3600000));
     bakuNow.setHours(0, 0, 0, 0);
+    return bakuNow;
+}
+
+function selectedPeriodIncludesToday(win) {
+    var start;
+    var end;
+    if (win) {
+        start = parseLocalDay(win.start);
+        end = parseLocalDay(win.end);
+        if (end) end.setHours(23, 59, 59, 999);
+    } else {
+        var week = getBakuWeekRange(0);
+        start = week.start;
+        end = week.end;
+    }
+    var today = bakuToday();
+    if (start && today < start) return false;
+    if (end && today > end) return false;
+    return true;
+}
+
+function isOpenOverdue(t) {
+    if (!t || !t.fields || !t.fields.status) return false;
+    var g = getStatusGroup(t.fields.status.name || '');
+    if (g === 'done' || g === 'rejected') return false;
+    var due = getTaskDueDate(t);
+    if (!due) return false;
+    return due < bakuToday();
+}
+
+export function getBakuWeekRange(weekOffset) {
+    var offset = weekOffset || 0;
+    var bakuNow = bakuToday();
     var dayOfWeek = bakuNow.getDay();
     var diffToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     var monday = new Date(bakuNow.getFullYear(), bakuNow.getMonth(), bakuNow.getDate() + diffToMonday + (offset * 7));
@@ -376,11 +408,11 @@ export function getBakuWeekRange(weekOffset) {
 }
 
 export function isDueThisWeek(t) {
-    if (!t.fields) return false;
+    if (!t || !t.fields) return false;
     var due = getTaskDueDate(t);
-    if (!due) return false;
     var week = getBakuWeekRange(0);
-    return due >= week.start && due <= week.end;
+    if (due && due >= week.start && due <= week.end) return true;
+    return isOpenOverdue(t);
 }
 
 export function getTaskDueDate(t) {
@@ -569,21 +601,29 @@ function getSelectedDueWindow() {
 
 export function isDueInSelectedWeek(t) {
     var win = getSelectedDueWindow();
-    if (win) return isDueInDateRange(t, win.start, win.end);
+    if (win) {
+        if (isDueInDateRange(t, win.start, win.end)) return true;
+        return selectedPeriodIncludesToday(win) && isOpenOverdue(t);
+    }
     return isDueThisWeek(t);
 }
 
 function dueInRangePool() {
     var win = getSelectedDueWindow();
     var source = win ? (state.allTasks || []) : (state.filteredTasks || []);
+    var sprintName = getSelectedSprintName();
+    var allowOverdue = selectedPeriodIncludesToday(win);
     return source.filter(function(t) {
         if (!t || !t.fields) return false;
-        if (!isTaskType(t)) return false;
+        var overdueCarry = allowOverdue && isOpenOverdue(t) && isTaskOrSubtaskType(t);
+        if (!isTaskType(t) && !overdueCarry) return false;
         var st = normalizeStr(t.fields.status.name || '');
         var g = getStatusGroup(st);
         if (g === 'rejected') return false;
-        if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
-        if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
+        if (!overdueCarry) {
+            if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
+            if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
+        }
         if (win) {
             if (state.currentDirectionFilter) {
                 var dir = resolveDirection(t);
@@ -596,7 +636,10 @@ function dueInRangePool() {
             if (state.currentAssigneeFilter) {
                 if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
             }
-            return isDueInDateRange(t, win.start, win.end);
+            if (isDueInDateRange(t, win.start, win.end)) return true;
+            if (!overdueCarry) return false;
+            if (sprintName && !issueBelongsToSprint(t, sprintName)) return false;
+            return true;
         }
         return isDueThisWeek(t);
     });
