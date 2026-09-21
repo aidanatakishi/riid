@@ -8,7 +8,7 @@
     <title>Giriş — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda2">
-    <link rel="stylesheet" href="/static/css/auth.css?v=idda97">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda107">
 </head>
 <body class="auth-page">
     <div class="auth-shell">
@@ -16,19 +16,52 @@
             <span class="auth-mark" aria-hidden="true">Rİ</span>
             <p class="auth-kicker">Rəqəmsal İdarəetmə Departamenti</p>
             <h1>Rəqəmsal İdarəetmə Paneli</h1>
-            <p class="auth-sub">Hesab, parol və öz Jira tokeninizlə daxil olun. Token bir dəfə yadda qalır.</p>
-            <ul class="auth-points">
-                <li>Jira adı və ya istifadəçi adı ilə daxil olun</li>
-                <li>Parol Jira parolu deyil</li>
-                <li>Öz Jira tokeninizi ilk dəfə yazın, sonra yadda qalır</li>
-            </ul>
+            <p class="auth-sub">Qurumun rəqəmsal idarəetmə və icra göstəriciləri üçün daxili panel.</p>
+            <div class="auth-pat" id="authPatGuide">
+                <div class="auth-pat-head">
+                    <span class="auth-pat-label">Jira Personal Access Token</span>
+                    <a class="auth-pat-link" href="https://jira.idda.az/secure/ViewPersonalAccessTokens.jspa" target="_blank" rel="noopener noreferrer">Jira-da aç</a>
+                </div>
+                <div class="auth-pat-bar" aria-hidden="true"><span></span></div>
+                <ol class="auth-pat-steps">
+                    <li>
+                        <span class="auth-pat-num">1</span>
+                        <span>jira.idda.az ünvanında hesabınıza daxil olun və sağ yuxarıdakı profil menyusunu açın.</span>
+                    </li>
+                    <li>
+                        <span class="auth-pat-num">2</span>
+                        <span>«Personal Access Tokens» bölməsində yeni token yaradın və dərhal kopyalayın.</span>
+                    </li>
+                    <li>
+                        <span class="auth-pat-num">3</span>
+                        <span>Tokeni bu panelə yazın. Bir dəfə kifayətdir — növbəti girişlərdə yadda qalır.</span>
+                    </li>
+                </ol>
+            </div>
         </aside>
 
         <div class="auth-stage">
-            <div class="auth-card" id="loginCard">
+            <button type="button" class="auth-text-btn auth-back hidden" id="backToChoice">← Panel seçiminə qayıt</button>
+            <div class="auth-card" id="choiceCard">
+                <p class="auth-card-kicker">Giriş</p>
+                <h2>Panel seçin</h2>
+                <p class="auth-hint">Daxil olmaq istədiyiniz paneli seçin.</p>
+                <div class="auth-choice">
+                    <button type="button" class="auth-choice-btn" id="chooseOps">
+                        <span class="auth-choice-title">Mövcud panel</span>
+                        <span class="auth-choice-sub">Hazırkı struktur — tapşırıqlar, sprint və Jira</span>
+                    </button>
+                    <button type="button" class="auth-choice-btn" id="chooseRehber">
+                        <span class="auth-choice-title">Rəhbərlər üçün panel</span>
+                        <span class="auth-choice-sub">Rəqəmsal inkişafın idarəedilməsi hesabatı</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="auth-card hidden" id="loginCard">
                 <p class="auth-card-kicker">Giriş</p>
                 <h2 id="formTitle">Daxil ol</h2>
-                <p class="auth-hint">Adınız, Jira-dakı tam ad və ya istifadəçi adı. Jira tokenini ilk dəfə yazın — növbəti dəfə boş saxlaya bilərsiniz.</p>
+                <p class="auth-hint">İstifadəçi adı və parol ilə daxil olun. Jira tokeni (PAT) yalnız ilk girişdə tələb olunur.</p>
                 <p class="auth-error" id="authError"></p>
                 <p class="auth-ok" id="authOk"></p>
 
@@ -55,12 +88,13 @@
                         <span>Jira tokeni (PAT)</span>
                         <span class="auth-control auth-pass">
                             <svg class="auth-control-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-                            <input id="jiraPat" name="jiraPat" type="password" autocomplete="off" placeholder="İlk dəfə yazın, sonra boş saxlaya bilərsiniz">
+                            <input id="jiraPat" name="jiraPat" type="password" autocomplete="off" placeholder="Yalnız ilk girişdə tələb olunur">
                             <button type="button" class="auth-pass-toggle" data-pass="jiraPat" aria-label="Tokeni göstər" aria-pressed="false" title="Tokeni göstər">
                                 <svg class="auth-eye-show" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/><circle cx="12" cy="12" r="3"/></svg>
                                 <svg class="auth-eye-hide hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3l18 18M10.585 10.587A2 2 0 0012 14a2 2 0 001.414-.586M9.88 9.88A3 3 0 0112 9c1.657 0 3 1.343 3 3 0 .53-.137 1.028-.38 1.46M6.228 6.228A10.45 10.45 0 0112 5c4.478 0 8.268 2.943 9.542 7a10.45 10.45 0 01-1.724 3.128M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228A10.45 10.45 0 0112 19c-4.478 0-8.268-2.943-9.542-7a10.45 10.45 0 011.724-3.128"/></svg>
                             </button>
                         </span>
+                        <span class="auth-field-help">Token jira.idda.az profilində «Personal Access Tokens» bölməsindən alınır. Bir dəfə yazılması kifayətdir.</span>
                     </label>
                     <div class="auth-toolbar">
                         <label class="auth-check" for="rememberMe">
@@ -158,10 +192,35 @@
         });
     }
     bindPasswordToggles();
-    function goHome() { window.location.href = '/'; }
+    var selectedPanel = 'ops';
+    var loginHintEl = document.querySelector('#loginCard .auth-hint');
+    var loginHintDefault = loginHintEl ? loginHintEl.textContent : '';
+    var brandSubEl = document.querySelector('.auth-sub');
+    var brandSubDefault = brandSubEl ? brandSubEl.textContent : '';
+    function panelHome(panel) {
+        return panel === 'rehber' ? '/rehber' : '/';
+    }
+    function goHome() { window.location.href = panelHome(selectedPanel); }
+    function applyPanelCopy() {
+        var rehber = selectedPanel === 'rehber';
+        document.getElementById('jiraPatField').classList.toggle('hidden', rehber);
+        document.querySelector('.auth-shell').classList.toggle('is-rehber', rehber);
+        if (loginHintEl) {
+            loginHintEl.textContent = rehber
+                ? 'İstifadəçi adı və parol ilə daxil olun.'
+                : loginHintDefault;
+        }
+        if (brandSubEl) {
+            brandSubEl.textContent = rehber
+                ? 'Rəqəmsal inkişafın idarəedilməsi hesabatı üçün rəhbər paneli.'
+                : brandSubDefault;
+        }
+    }
     function showPanel(which) {
+        document.getElementById('choiceCard').classList.toggle('hidden', which !== 'choice');
         document.getElementById('loginCard').classList.toggle('hidden', which !== 'login');
         document.getElementById('resetCard').classList.toggle('hidden', which !== 'reset');
+        document.getElementById('backToChoice').classList.toggle('hidden', which === 'choice');
         document.querySelector('.auth-shell').classList.toggle('is-reset', which === 'reset');
         showError('authError', '');
         showError('resetError', '');
@@ -170,10 +229,23 @@
             var fromLogin = document.getElementById('username').value.trim();
             if (fromLogin) document.getElementById('resetUsername').value = fromLogin;
             document.getElementById('resetUsername').focus();
-        } else {
+        } else if (which === 'login') {
+            applyPanelCopy();
             document.getElementById('password').focus();
         }
     }
+    function choosePanel(panel) {
+        selectedPanel = panel === 'rehber' ? 'rehber' : 'ops';
+        applyPanelCopy();
+        showPanel('login');
+    }
+    document.getElementById('chooseOps').addEventListener('click', function() { choosePanel('ops'); });
+    document.getElementById('chooseRehber').addEventListener('click', function() { choosePanel('rehber'); });
+    document.getElementById('backToChoice').addEventListener('click', function() {
+        selectedPanel = 'ops';
+        applyPanelCopy();
+        showPanel('choice');
+    });
     document.getElementById('showResetBtn').addEventListener('click', function() { showPanel('reset'); });
     document.getElementById('showLoginBtn').addEventListener('click', function() { showPanel('login'); });
     var rememberedName = '';
@@ -181,12 +253,16 @@
     if (rememberedName) {
         document.getElementById('username').value = rememberedName;
         document.getElementById('rememberMe').checked = true;
-        document.getElementById('password').focus();
     }
+    var startPanel = '';
+    try { startPanel = new URLSearchParams(window.location.search).get('panel') || ''; } catch (e) {}
+    if (startPanel === 'rehber') choosePanel('rehber');
     fetch('/api/auth/status', { credentials: 'same-origin' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
-            if (data && data.authenticated) goHome();
+            if (data && data.authenticated) {
+                window.location.href = panelHome(data.homePanel);
+            }
         })
         .catch(function() {});
     document.getElementById('loginForm').addEventListener('submit', function(ev) {
@@ -203,7 +279,8 @@
                 username: document.getElementById('username').value.trim(),
                 password: document.getElementById('password').value,
                 jiraPat: document.getElementById('jiraPat').value.trim(),
-                remember: document.getElementById('rememberMe').checked
+                remember: document.getElementById('rememberMe').checked,
+                panel: selectedPanel
             })
         }).then(function(r) {
             return r.json().then(function(data) { return { ok: r.ok, data: data }; });
@@ -224,6 +301,7 @@
                     localStorage.removeItem('jiraAuthRememberUser');
                 }
             } catch (e) {}
+            if (res.data && res.data.homePanel) selectedPanel = res.data.homePanel;
             goHome();
         }).catch(function() {
             btn.disabled = false;
