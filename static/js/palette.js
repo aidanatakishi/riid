@@ -1,13 +1,13 @@
 export var STATUS = {
     done: '#059669',
-    progress: '#2563eb',
-    review: '#0891b2',
-    esd: '#4f46e5',
-    planned: '#64748b',
-    paused: '#d97706',
-    blocked: '#ea580c',
-    rejected: '#e11d48',
-    other: '#94a3b8'
+    progress: '#7c3aed',
+    review: '#6366f1',
+    esd: '#4c1d95',
+    planned: '#94a3b8',
+    paused: '#a78bfa',
+    blocked: '#e11d48',
+    rejected: '#be123c',
+    other: '#c4b5fd'
 };
 
 export var VIS = {
@@ -44,19 +44,19 @@ export var STAR = ['#94a3b8', '#dc2626', '#d97706', '#2563eb', '#059669'];
 
 export var RANK = ['#4c1d95', '#5b21b6', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#c4b5fd', '#ddd6fe'];
 
-export var WORKLOAD = ['#115e59', '#0f766e', '#0d9488', '#14b8a6', '#2dd4bf', '#5eead4', '#99f6e4'];
+export var WORKLOAD = ['#4c1d95', '#5b21b6', '#6d28d9', '#7c3aed', '#8b5cf6', '#a78bfa', '#c4b5fd'];
 
 export var CAT = [
-    '#2563eb',
-    '#c026d3',
-    '#0d9488',
-    '#d97706',
-    '#4f46e5',
-    '#db2777',
-    '#0284c7',
+    '#4c1d95',
+    '#6d28d9',
     '#7c3aed',
-    '#ea580c',
-    '#059669'
+    '#8b5cf6',
+    '#6366f1',
+    '#5b21b6',
+    '#818cf8',
+    '#a78bfa',
+    '#4f46e5',
+    '#7c3aed'
 ];
 
 function foldKey(s) {
@@ -94,14 +94,14 @@ export function seriesColor(name) {
     if (!n || n === 'etiketsiz') return STATUS.other;
     if (n.indexOf('isq') !== -1) return KIND.isq;
     if (n.indexOf('diaqnost') !== -1) return KIND.diag;
-    if (n.indexOf('meqsed') !== -1 || n.indexOf('uygunluq') !== -1) return '#c026d3';
+    if (n.indexOf('meqsed') !== -1 || n.indexOf('uygunluq') !== -1) return KIND.meqsed;
     if (n === 'self' || n.indexOf('ozunu') !== -1) return KIND.self;
     if (n.indexOf('exq') !== -1) return KIND.exq;
     if (n.indexOf('esd') !== -1) return STATUS.esd;
-    if (n.indexOf('iesr') !== -1 || n.indexOf('qeydiyyat') !== -1) return '#0284c7';
-    if (n.indexOf('hnar') !== -1) return '#db2777';
-    if (n.indexOf('iqt') !== -1) return '#0d9488';
-    if (n === 'rk') return '#ea580c';
+    if (n.indexOf('iesr') !== -1 || n.indexOf('qeydiyyat') !== -1) return '#6366f1';
+    if (n.indexOf('hnar') !== -1) return '#7c3aed';
+    if (n.indexOf('iqt') !== -1) return '#8b5cf6';
+    if (n === 'rk') return '#4c1d95';
     return catColorByKey(n);
 }
 

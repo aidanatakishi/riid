@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js';
 import { normalizeStr, showToast, hideSettings } from './utils.js';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, hasTeamComponent } from './model.js';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, hasTeamComponent } from './model.js?v=idda4';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';

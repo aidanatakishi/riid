@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda37';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda40';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -17,11 +17,11 @@ import {
     exqStarTarget,
     exqStarColor,
     exqStarLabel
-} from './model.js';
-import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js';
+} from './model.js?v=idda4';
+import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda3';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
-import { apiFetch, canSeeDiagnostics } from './session.js?v=idda10';
+import { apiFetch, canSeeDiagnostics } from './session.js?v=idda12';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';

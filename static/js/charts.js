@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, getEsdInnerStatus, ESD_INNER_STAGES, getQurumName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js';
-import { applyFilters, filterQurumByStatus, filterQurumList, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
-import { openTaskListSection, renderTaskList, showUserActivity } from './render.js';
-import { STATUS, catColorByKey, seriesColor, workloadColor } from './palette.js';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda5';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
+import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda6';
+import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda3';
 
 var chartRebuildRaf = {};
 var chartRebuildFn = {};
@@ -42,7 +42,8 @@ function uniqueTasksByKey(tasks) {
 }
 
 function directionLabelTasks(dirKey) {
-    return uniqueTasksByKey(countableWorkUnits(state.filteredTasks).filter(function(t) {
+    var source = state.labelChartTasks || state.filteredTasks;
+    return uniqueTasksByKey(countableWorkUnits(source).filter(function(t) {
         var dir = resolveDirection(t);
         return dir && dir.key === dirKey;
     }));
@@ -92,7 +93,9 @@ function syncEsdLegendOpen() {
     var el = document.getElementById('statusChartLegend');
     if (!el) return;
     Array.prototype.forEach.call(el.querySelectorAll('.icra-legend-row'), function(btn) {
-        btn.classList.toggle('is-esd-open', esdPopupOpen && btn.getAttribute('data-status') === 'esd');
+        var key = btn.getAttribute('data-status');
+        btn.classList.toggle('is-active', key === state.currentStatusFilter);
+        btn.classList.toggle('is-esd-open', esdPopupOpen && key === 'esd');
     });
 }
 
@@ -146,18 +149,25 @@ function openStatusGroup(k, ev) {
     if (!k) return;
     if (k === 'esd') {
         if (ev && ev.stopPropagation) ev.stopPropagation();
+        onEsdStatusClicked();
         toggleEsdStagePopup();
         return;
     }
     closeEsdStagePopup();
+    if (state.currentStatusFilter === 'esd') {
+        state.currentStatusFilter = null;
+        state.currentEsdInnerFilter = null;
+        applyFilters();
+    }
     if (k === 'blocked') {
         rememberListAction({ kind: 'difficulties' });
         showDifficulties();
         return;
     }
+    var pool = state.statusChartTasks || state.filteredTasks;
     var list = k === 'other'
-        ? collectOtherDashboardUnits(state.filteredTasks)
-        : countableWorkUnits(state.filteredTasks).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
+        ? collectOtherDashboardUnits()
+        : countableWorkUnits(pool).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
     rememberListAction({ kind: 'chartStatus', group: k });
     renderTaskList(list, (STATUS_GROUP_NAMES[k] || k) + ' - Tapşırıqları', { keepNested: true });
     openTaskListSection();
@@ -169,7 +179,7 @@ function renderStatusLegend(keys, data, colors, total) {
     el.innerHTML = keys.map(function(k, i) {
         var n = data[i] || 0;
         var pct = total ? Math.round((n / total) * 100) : 0;
-        return '<button type="button" class="icra-legend-row" data-status="' + k + '">'
+        return '<button type="button" class="icra-legend-row' + (k === state.currentStatusFilter ? ' is-active' : '') + '" data-status="' + k + '">'
             + '<span class="icra-legend-dot" style="background:' + colors[i] + '"></span>'
             + '<span class="icra-legend-name">' + escapeEsdChip(STATUS_GROUP_NAMES[k] || k) + '</span>'
             + '<span class="icra-legend-meta"><b>' + n + '</b><em>' + pct + '%</em></span>'
@@ -206,7 +216,8 @@ export function renderEsdStatusBreakdown(tasks) {
     var order = (ESD_INNER_STAGES || []).map(function(s) { return s.id; });
     var extras = Object.keys(counts).filter(function(id) { return order.indexOf(id) === -1; }).sort();
     var ids = order.concat(extras);
-    var html = '<button type="button" class="esd-status-row is-all" onclick="filterEsdInnerStatus(\'all\')" title="Bütün ESD tapşırıqları">'
+    var selectedInner = state.currentStatusFilter === 'esd' ? (state.currentEsdInnerFilter || 'all') : '';
+    var html = '<button type="button" class="esd-status-row is-all' + (selectedInner === 'all' ? ' is-selected' : '') + '" onclick="filterEsdInnerStatus(\'all\')" title="Bütün ESD tapşırıqları">'
         + '<span class="esd-status-dot"></span><span>Hamısı</span><b>' + esdTasks.length + '</b></button>';
     html += ids.map(function(id) {
         var row = counts[id];
@@ -214,7 +225,8 @@ export function renderEsdStatusBreakdown(tasks) {
         var label = (meta && meta.label) || row.label || id;
         var arg = String(id).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
         var slug = escapeEsdChip(String(id).replace(/[^a-z0-9]+/gi, '-'));
-        return '<button type="button" class="esd-status-row is-' + slug + '"'
+        var isSel = selectedInner === id;
+        return '<button type="button" class="esd-status-row is-' + slug + (isSel ? ' is-selected' : '') + '"'
             + ' onclick="filterEsdInnerStatus(\'' + arg + '\')"'
             + ' title="ESD Statusu: ' + escapeEsdChip(label) + '">'
             + '<span class="esd-status-dot"></span>'
@@ -303,6 +315,7 @@ function drawStatusChart(tasks) {
         },
         plugins: [centerTextPlugin]
     });
+    scheduleChartFill(state.statusChart);
 }
 
 export function renderAssigneeChart(tasks) {
@@ -310,88 +323,159 @@ export function renderAssigneeChart(tasks) {
 }
 
 function drawAssigneeChart(tasks) {
-    var counts = {};
-    countableWorkUnits(tasks).forEach(function(t) { if (t.fields.assignee && t.fields.assignee.displayName) { var n = t.fields.assignee.displayName; counts[n] = (counts[n] || 0) + 1; } });
-    var labels = Object.keys(counts).sort(function(a, b) { return counts[b] - counts[a]; });
-    var data = labels.map(function(n) { return counts[n]; });
-    var colors = labels.map(function(_, i) { return workloadColor(i, labels.length); });
+    var units = countableWorkUnits(tasks);
+    var peopleCounts = {};
+    var byPersonPri = {};
+    var priSet = {};
+    units.forEach(function(t) {
+        var person = t.fields.assignee && t.fields.assignee.displayName;
+        if (!person) return;
+        var pri = getTaskPriorityName(t);
+        peopleCounts[person] = (peopleCounts[person] || 0) + 1;
+        priSet[pri] = true;
+        if (!byPersonPri[person]) byPersonPri[person] = {};
+        byPersonPri[person][pri] = (byPersonPri[person][pri] || 0) + 1;
+    });
+    var labels = Object.keys(peopleCounts).sort(function(a, b) { return peopleCounts[b] - peopleCounts[a]; });
+    var priorities = Object.keys(priSet).sort(comparePriorityNames);
     var canvas = document.getElementById('assigneeChart');
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
     var ex = Chart.getChart(ctx); if (ex) ex.destroy();
-    var barValuesPlugin = {
-        id: 'assigneeBarValues',
-        afterDatasetsDraw: function(chart) {
-            var c = chart.ctx;
-            var meta = chart.getDatasetMeta(0);
-            if (!meta || !meta.data) return;
-            c.save();
-            c.font = '600 12px Inter';
-            c.textBaseline = 'middle';
-            meta.data.forEach(function(bar, i) {
-                var n = data[i];
-                if (n == null) return;
-                var inside = bar.x > chart.chartArea.left + 28;
-                var x = inside ? bar.x - 8 : bar.x + 6;
-                c.textAlign = inside ? 'right' : 'left';
-                c.fillStyle = inside ? '#ffffff' : '#475569';
-                c.fillText(String(n), x, bar.y);
-            });
-            c.restore();
-        }
-    };
+    if (!labels.length) {
+        fitChartHeight('assigneeChart', 0, false);
+        state.assigneeChart = null;
+        return;
+    }
+    var datasets = priorities.map(function(pri) {
+        return {
+            label: pri,
+            data: labels.map(function(person) { return (byPersonPri[person] && byPersonPri[person][pri]) || 0; }),
+            backgroundColor: getPriorityColor(pri),
+            borderWidth: 0,
+            borderSkipped: false,
+            barPercentage: 0.86,
+            categoryPercentage: 0.9
+        };
+    }).filter(function(ds) {
+        return ds.data.some(function(n) { return n > 0; });
+    });
+    fitChartHeight('assigneeChart', labels.length + 2, true);
+    function applyAssigneePriority(person, pri) {
+        state.currentAssigneeFilter = person || null;
+        state.currentPriorityFilter = pri || null;
+        rememberListAction({ kind: 'assigneePriority', person: person || '', priority: pri || '' });
+        applyFilters();
+        var list = countableWorkUnits(state.filteredTasks);
+        var title = 'İş yükü';
+        if (person && pri) title = person + ' · ' + pri;
+        else if (person) title = person;
+        else if (pri) title = 'Prioritet: ' + pri;
+        renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
+        openTaskListSection();
+    }
     state.assigneeChart = new Chart(ctx, {
         type: 'bar',
-        data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderWidth: 0, borderRadius: 5, barPercentage: 0.88, categoryPercentage: 0.9 }] },
+        data: { labels: labels, datasets: datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             indexAxis: 'y',
-            layout: { padding: { top: 4, right: 14, bottom: 4, left: 0 } },
+            layout: { padding: { top: 4, right: 22, bottom: 4, left: 0 } },
             onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
             onClick: function(e, c) {
                 if (!c.length) return;
-                state.currentAssigneeFilter = labels[c[0].index];
-                rememberListAction({ kind: 'default' });
-                applyFilters();
-                openTaskListSection();
+                var native = e && e.native;
+                if (native && native.stopPropagation) native.stopPropagation();
+                var hit = c[0];
+                var person = labels[hit.index];
+                var ds = datasets[hit.datasetIndex];
+                var pri = ds && ds.label;
+                applyAssigneePriority(person, pri);
             },
             plugins: {
-                legend: { display: false },
+                legend: {
+                    display: true,
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        padding: window.innerWidth < 640 ? 10 : 14,
+                        font: { family: 'Inter', size: window.innerWidth < 640 ? 10 : 11 },
+                        boxWidth: 8,
+                        color: '#475569'
+                    },
+                    onClick: function(evt, item) {
+                        if (evt && evt.native && evt.native.stopPropagation) evt.native.stopPropagation();
+                        var pri = item && item.text;
+                        if (!pri) return;
+                        var nextPri = state.currentPriorityFilter === pri ? null : pri;
+                        applyAssigneePriority(state.currentAssigneeFilter, nextPri);
+                    }
+                },
                 tooltip: {
                     backgroundColor: 'rgba(15, 23, 42, 0.95)',
                     padding: 10,
                     cornerRadius: 8,
                     titleFont: { family: 'Inter', size: 12, weight: 'bold' },
                     bodyFont: { family: 'Inter', size: 11 },
+                    filter: function(item) {
+                        return (item.parsed && item.parsed.x) > 0;
+                    },
                     callbacks: {
-                        label: function(ctx2) { return ' ' + (ctx2.parsed.x || 0) + ' tapşırıq'; }
+                        label: function(ctx2) {
+                            return ' ' + ctx2.dataset.label + ': ' + (ctx2.parsed.x || 0);
+                        },
+                        footer: function(items) {
+                            var idx = items && items[0] ? items[0].dataIndex : -1;
+                            if (idx < 0) return '';
+                            return 'Cəmi ' + (peopleCounts[labels[idx]] || 0) + ' tapşırıq';
+                        }
                     }
                 }
             },
             scales: {
                 x: {
+                    stacked: true,
                     beginAtZero: true,
-                    grace: '10%',
+                    grace: '12%',
                     grid: { display: false, drawBorder: false },
                     ticks: { display: false }
                 },
                 y: {
+                    stacked: true,
                     grid: { display: false, drawBorder: false },
                     ticks: {
                         font: { family: 'Inter', size: 12 },
                         color: '#475569',
                         autoSkip: false,
-                        padding: 8
-                    }
+                        padding: 8,
+                        callback: categoryTickCallback(true)
+                    },
+                    afterFit: yAxisAfterFit
                 }
             }
         },
-        plugins: [barValuesPlugin]
+        plugins: [totalLabelsPlugin]
     });
+    scheduleChartFill(state.assigneeChart);
+}
+
+var DIRECTION_CARD_TITLE = 'İstiqamətlər';
+
+function syncDirectionCardTitle() {
+    var el = document.getElementById('epicChartTitle');
+    var list = document.getElementById('epicChartList');
+    if (!el && list && list.parentElement) {
+        el = list.parentElement.querySelector('h2');
+    }
+    if (!el && list && list.previousElementSibling && list.previousElementSibling.tagName === 'H2') {
+        el = list.previousElementSibling;
+    }
+    if (el) el.textContent = DIRECTION_CARD_TITLE;
 }
 
 export function renderEpicChart(tasks) {
+    syncDirectionCardTitle();
     var counts = {}, dirKeysMap = {}, tasksByDir = {};
     var exc = ['tədbirlərin statistikası', 'tədbirin statistikasi', 'statistika'];
     countableWorkUnits(tasks).forEach(function(t) {
@@ -575,6 +659,9 @@ function drawLabelChart() {
     var datasets = uniqueLabels.map(function(lbl, i) {
         return { label: lbl, data: directionLabels.map(function(dirName) { return dataMatrix[dirName][lbl] || 0; }), backgroundColor: seriesColor(lbl), borderWidth: 0, hoverOffset: 4, borderRadius: 4 };
     });
+    function isEsdSeriesLabel(name) {
+        return normalizeStr(name) === 'esd';
+    }
     var onClickCB = function(e, elements) {
         if (elements.length > 0) {
             var index = elements[0].index;
@@ -583,7 +670,13 @@ function drawLabelChart() {
             var selectedLabel = datasets[datasetIndex].label;
             var dirObj = state.allDirections.find(function(d) { return d.fields.summary === selectedDir; });
             if (dirObj) {
-                var fTasks = tasksForChartLabel(directionLabelTasks(dirObj.key), selectedLabel);
+                var fTasks = isEsdSeriesLabel(selectedLabel)
+                    ? uniqueTasksByKey(countableWorkUnits(state.filteredTasks).filter(function(t) {
+                        var dir = resolveDirection(t);
+                        if (!dir || dir.key !== dirObj.key) return false;
+                        return getStatusGroup(t.fields.status.name) === 'esd';
+                    }))
+                    : tasksForChartLabel(directionLabelTasks(dirObj.key), selectedLabel);
                 rememberListAction({ kind: 'label', dirKey: dirObj.key, dirName: selectedDir, label: selectedLabel });
                 renderTaskList(fTasks, selectedDir + ' - Etiket: ' + selectedLabel, { keepNested: true });
                 if (fTasks.length === 0) showToast('Bu istiqamət və etiket üçün tapşırıq tapılmadı.', 'info');
@@ -595,8 +688,14 @@ function drawLabelChart() {
         var index = item.datasetIndex;
         var ci = legend.chart;
         var clickedLabel = ci.data.datasets[index].label;
-        if (state.activeLabelFilter === clickedLabel) { state.activeLabelFilter = null; ci.data.datasets.forEach(function(ds, i) { ci.setDatasetVisibility(i, true); }); }
-        else { state.activeLabelFilter = clickedLabel; ci.data.datasets.forEach(function(ds, i) { ci.setDatasetVisibility(i, ds.label === clickedLabel); }); }
+        var onlyThis = ci.data.datasets.every(function(ds, i) {
+            return i === index || ci.getDatasetMeta(i).hidden;
+        }) && !ci.getDatasetMeta(index).hidden;
+        if (onlyThis) {
+            ci.data.datasets.forEach(function(ds, i) { ci.setDatasetVisibility(i, true); });
+        } else {
+            ci.data.datasets.forEach(function(ds, i) { ci.setDatasetVisibility(i, ds.label === clickedLabel); });
+        }
         ci.update();
     };
     drawStackedChart('labelChart', 'bar', directionLabels, datasets, onClickCB, true, legendCB);
@@ -660,6 +759,11 @@ export function fitChartHeight(canvasId, barCount, horizontal) {
     var canvas = document.getElementById(canvasId);
     if (!canvas || !canvas.parentElement) return;
     var box = canvas.parentElement;
+    if (box.closest && box.closest('.dash-charts-row')) {
+        box.style.height = '';
+        box.style.minHeight = '';
+        return;
+    }
     if (!horizontal || !barCount) {
         box.style.height = '';
         box.style.minHeight = '';
@@ -671,6 +775,13 @@ export function fitChartHeight(canvasId, barCount, horizontal) {
     var needed = Math.max(minH, barCount * row + 28);
     box.style.height = needed + 'px';
     box.style.minHeight = needed + 'px';
+}
+
+function scheduleChartFill(chart) {
+    if (!chart) return;
+    requestAnimationFrame(function() {
+        try { chart.resize(); } catch (e) {}
+    });
 }
 
 function rememberChart(id, chart) {
@@ -941,8 +1052,8 @@ export function resizeDashboardCharts() {
     if (narrow !== lastNarrowLayout) {
         lastNarrowLayout = narrow;
         if (state.filteredTasks && state.filteredTasks.length) {
-            renderStatusChart(state.filteredTasks);
-            renderAssigneeChart(state.filteredTasks);
+            renderStatusChart(state.statusChartTasks || state.filteredTasks);
+            renderAssigneeChart(state.assigneeChartTasks || state.filteredTasks);
         }
         if (state.epicChartTasks) renderEpicChart(state.epicChartTasks);
         if (state.qurumChartTasks) renderQurumChart(state.qurumChartTasks);
@@ -964,3 +1075,5 @@ window.addEventListener('resize', function() {
     clearTimeout(chartResizeTimer);
     chartResizeTimer = setTimeout(resizeDashboardCharts, 180);
 });
+
+syncDirectionCardTitle();

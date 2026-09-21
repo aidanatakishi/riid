@@ -1,14 +1,18 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getHistoricalStatus, getQurumName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js';
-import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, closeEsdStagePopup } from './charts.js?v=idda25';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js';
-import { updateReportButtonLabel, duePeriodLabel } from './report.js';
-import { renderAssessmentSections } from './assessments.js?v=idda37';
+import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda4';
+import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, closeEsdStagePopup } from './charts.js?v=idda35';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda6';
+import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda7';
+import { renderAssessmentSections } from './assessments.js?v=idda40';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
 var AZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun', 'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
+var CHART_STATUS_NAMES = {
+    done: 'İcra edilib', progress: 'İcradadır', review: 'Rəy gözlənilir', esd: 'ESD',
+    planned: 'Planlaşdırılıb', blocked: 'Bloklanıb', rejected: 'İmtina', paused: 'Dayandırılıb', other: 'Digər'
+};
 var dateDraft = { start: '', end: '', viewYear: 0, viewMonth: 0 };
 
 function todayParts() {
@@ -252,17 +256,7 @@ function tasksWithoutStartDate() {
         }
         if (getTaskStartDate(t)) return false;
         if (!isTaskType(t)) return false;
-        if (state.currentDirectionFilter) {
-            var dir = resolveDirection(t);
-            if (!dir || dir.key !== state.currentDirectionFilter) return false;
-        }
-        if (state.currentQurumFilter) {
-            var q = getQurumName(t) || 'Təyin edilməyib';
-            if (!sameQurum(q, state.currentQurumFilter)) return false;
-        }
-        if (state.currentAssigneeFilter) {
-            if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
-        }
+        if (!matchesDashContextFilters(t)) return false;
         var st = normalizeStr(t.fields.status.name);
         if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
         if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
@@ -285,18 +279,7 @@ function tasksWithoutDueDate() {
         if (!useDateFilter && sprintVal && sprintVal !== 'all') {
             if (!issueBelongsToSprint(t, sprintVal)) return false;
         }
-        if (state.currentDirectionFilter) {
-            var dir = resolveDirection(t);
-            if (!dir || dir.key !== state.currentDirectionFilter) return false;
-        }
-        if (state.currentQurumFilter) {
-            var q = getQurumName(t) || 'Təyin edilməyib';
-            if (!sameQurum(q, state.currentQurumFilter)) return false;
-        }
-        if (state.currentAssigneeFilter) {
-            if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
-        }
-        return true;
+        return matchesDashContextFilters(t);
     });
 }
 
@@ -445,18 +428,25 @@ export function resetAllFilters() {
     var qurumSearch = document.getElementById('qurumSearch');
     if (qurumSearch) qurumSearch.value = '';
     state.currentAssigneeFilter = null;
+    state.currentPriorityFilter = null;
     state.currentDirectionFilter = null;
     state.currentQurumFilter = null;
+    state.currentStatusFilter = null;
+    state.currentEsdInnerFilter = null;
     state.activeLabelFilter = null;
     state.currentPage = 1;
     rememberListAction(null);
+    closeEsdStagePopup();
     localStorage.removeItem('dgd_filter_sprint');
     localStorage.removeItem('dgd_filter_startDate');
     localStorage.removeItem('dgd_filter_endDate');
     localStorage.removeItem('dgd_filter_assignee');
     localStorage.removeItem('dgd_filter_direction');
     localStorage.removeItem('dgd_filter_qurum');
-    var badges = ['userFilterBadge', 'directionFilterBadge', 'qurumFilterBadge'];
+    localStorage.removeItem('dgd_filter_status');
+    localStorage.removeItem('dgd_filter_esd_inner');
+    localStorage.removeItem('dgd_filter_label');
+    var badges = ['userFilterBadge', 'priorityFilterBadge', 'directionFilterBadge', 'qurumFilterBadge', 'statusFilterBadge', 'labelFilterBadge'];
     badges.forEach(function(id) {
         var el = document.getElementById(id);
         if (el) { el.classList.add('hidden'); el.classList.remove('flex'); }
@@ -502,21 +492,6 @@ export function applyFilters() {
         return true;
     });
 
-    state.filteredTasks = state.sprintDateFiltered.filter(function(t) {
-        if (state.currentDirectionFilter) {
-            var dir = resolveDirection(t);
-            if (!dir || dir.key !== state.currentDirectionFilter) return false;
-        }
-        if (state.currentQurumFilter) {
-            var q = getQurumName(t) || 'Təyin edilməyib';
-            if (!sameQurum(q, state.currentQurumFilter)) return false;
-        }
-        if (state.currentAssigneeFilter) {
-            if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
-        }
-        return true;
-    });
-
     var sprintSelect = document.getElementById('sprintFilter');
     var sprintNames = sprintSelect ? Array.from(sprintSelect.options).slice(1).map(function(o) { return o.value; }) : [];
     var currentSprint = currentSprintName(sprintNames);
@@ -524,8 +499,9 @@ export function applyFilters() {
     var nextSprint = (selIdx > 0) ? sprintNames[selIdx - 1] : null;
     var isHistorical = !useDateFilter && sprintVal && sprintVal !== 'all' && currentSprint && sprintVal !== currentSprint;
 
+    var datedTasks = state.sprintDateFiltered;
     if (isHistorical) {
-        state.filteredTasks = state.filteredTasks.map(function(t) {
+        datedTasks = datedTasks.map(function(t) {
             var histStatus = getHistoricalStatus(t, nextSprint, sprintVal);
             if (histStatus !== t.fields.status.name) {
                 var newT = Object.assign({}, t);
@@ -537,16 +513,22 @@ export function applyFilters() {
         });
     }
 
-    state.epicChartTasks = countableWorkUnits(state.sprintDateFiltered.filter(function(t) {
-        if (state.currentQurumFilter) { var q = getQurumName(t) || 'Təyin edilməyib'; if (!sameQurum(q, state.currentQurumFilter)) return false; }
-        if (state.currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false; }
-        return true;
+    state.filteredTasks = datedTasks.filter(function(t) { return matchesDashContextFilters(t); });
+    state.epicChartTasks = countableWorkUnits(datedTasks.filter(function(t) {
+        return matchesDashContextFilters(t, { direction: true });
     }));
-    state.qurumChartTasks = countableWorkUnits(state.sprintDateFiltered.filter(function(t) {
-        if (state.currentDirectionFilter) { var dir = resolveDirection(t); if (!dir || dir.key !== state.currentDirectionFilter) return false; }
-        if (state.currentAssigneeFilter) { if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false; }
-        return true;
+    state.qurumChartTasks = countableWorkUnits(datedTasks.filter(function(t) {
+        return matchesDashContextFilters(t, { qurum: true });
     }));
+    state.statusChartTasks = datedTasks.filter(function(t) {
+        return matchesDashContextFilters(t, { status: true });
+    });
+    state.labelChartTasks = datedTasks.filter(function(t) {
+        return matchesDashContextFilters(t, { label: true });
+    });
+    state.assigneeChartTasks = datedTasks.filter(function(t) {
+        return matchesDashContextFilters(t, { assignee: true, priority: true });
+    });
 
     if (state.currentDirectionFilter) {
         var b = document.getElementById('directionFilterBadge');
@@ -573,6 +555,47 @@ export function applyFilters() {
         document.getElementById('userFilterBadge').classList.add('hidden');
         document.getElementById('userFilterBadge').classList.remove('flex');
     }
+    var priBadge = document.getElementById('priorityFilterBadge');
+    var priNameEl = document.getElementById('priorityFilterName');
+    if (priBadge && priNameEl) {
+        if (state.currentPriorityFilter) {
+            priBadge.classList.remove('hidden');
+            priBadge.classList.add('flex');
+            priNameEl.innerText = 'Prioritet: ' + state.currentPriorityFilter;
+        } else {
+            priBadge.classList.add('hidden');
+            priBadge.classList.remove('flex');
+        }
+    }
+    var statusBadge = document.getElementById('statusFilterBadge');
+    var statusNameEl = document.getElementById('statusFilterName');
+    if (statusBadge && statusNameEl) {
+        if (state.currentStatusFilter) {
+            var stLabel = CHART_STATUS_NAMES[state.currentStatusFilter] || state.currentStatusFilter;
+            if (state.currentStatusFilter === 'esd' && state.currentEsdInnerFilter) {
+                var innerMeta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === state.currentEsdInnerFilter; })[0];
+                if (innerMeta && innerMeta.label) stLabel += ' · ' + innerMeta.label;
+            }
+            statusBadge.classList.remove('hidden');
+            statusBadge.classList.add('flex');
+            statusNameEl.innerText = 'Status: ' + stLabel;
+        } else {
+            statusBadge.classList.add('hidden');
+            statusBadge.classList.remove('flex');
+        }
+    }
+    var labelBadge = document.getElementById('labelFilterBadge');
+    var labelNameEl = document.getElementById('labelFilterName');
+    if (labelBadge && labelNameEl) {
+        if (state.activeLabelFilter) {
+            labelBadge.classList.remove('hidden');
+            labelBadge.classList.add('flex');
+            labelNameEl.innerText = 'Etiket: ' + state.activeLabelFilter;
+        } else {
+            labelBadge.classList.add('hidden');
+            labelBadge.classList.remove('flex');
+        }
+    }
 
     renderStats(state.filteredTasks);
     updateCollapsedCounts();
@@ -588,10 +611,6 @@ var VIEW_SECTION_IDS = [
     'weeklyContent', 'pausedContent', 'cetinliklerContent', 'taskListContent', 'assessmentHubContent'
 ];
 var VIEW_STORAGE_KEY = 'dgd_view';
-var CHART_STATUS_NAMES = {
-    done: 'İcra edilib', progress: 'İcradadır', review: 'Rəy gözlənilir', esd: 'ESD',
-    planned: 'Planlaşdırılıb', blocked: 'Bloklanıb', rejected: 'İmtina', paused: 'Dayandırılıb', other: 'Digər'
-};
 
 export function rememberListAction(action) {
     state.listViewAction = action || null;
@@ -661,6 +680,22 @@ function replayListViewAction(action) {
             openTaskListSection();
             return true;
         }
+        if (action.kind === 'assigneePriority') {
+            if (action.person) state.currentAssigneeFilter = action.person;
+            state.currentPriorityFilter = action.priority || null;
+            var apList = countableWorkUnits(state.filteredTasks).filter(function(t) {
+                if (action.person && (!t.fields.assignee || t.fields.assignee.displayName !== action.person)) return false;
+                if (action.priority && getTaskPriorityName(t) !== action.priority) return false;
+                return true;
+            });
+            var apTitle = 'İş yükü';
+            if (action.person && action.priority) apTitle = action.person + ' · ' + action.priority;
+            else if (action.person) apTitle = action.person;
+            else if (action.priority) apTitle = 'Prioritet: ' + action.priority;
+            renderTaskList(apList, apTitle + ' (' + apList.length + ')', { keepNested: true });
+            openTaskListSection();
+            return true;
+        }
         if (action.kind === 'dueWeek') {
             if (action.mode === 'done') showDueThisWeekDoneTasks();
             else if (action.mode === 'open') showDueThisWeekOpenTasks();
@@ -672,7 +707,19 @@ function replayListViewAction(action) {
         if (action.kind === 'sprintCompare') { filterSprintComparison(action.sprintName, action.type); return true; }
         if (action.kind === 'difficulties') { showDifficulties(); return true; }
         if (action.kind === 'dailyUser') { selectDailyUser(action.userName); return true; }
-        if (action.kind === 'esdInner') { filterEsdInnerStatus(action.stageId); return true; }
+        if (action.kind === 'esdInner') {
+            var esdList = countableWorkUnits(state.filteredTasks);
+            var esdStage = String(action.stageId || 'all');
+            var esdTitle = 'ESD tapşırıqları';
+            if (esdStage && esdStage !== 'all') {
+                var esdMeta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === esdStage; })[0];
+                var esdLabel = (esdMeta && esdMeta.label) || esdStage;
+                esdTitle = 'ESD · ' + esdLabel;
+            }
+            renderTaskList(esdList, esdTitle + ' (' + esdList.length + ')', { keepNested: true });
+            openTaskListSection({ scroll: false });
+            return true;
+        }
         if (action.kind === 'chartStatus') {
             var k = action.group;
             if (k === 'blocked') { showDifficulties(); return true; }
@@ -748,9 +795,9 @@ function scheduleFilterPaint() {
     if (filterPaintRaf) cancelAnimationFrame(filterPaintRaf);
     filterPaintRaf = requestAnimationFrame(function() {
         filterPaintRaf = 0;
-        renderStatusChart(state.filteredTasks);
-        renderEsdStatusBreakdown(state.filteredTasks);
-        renderAssigneeChart(state.filteredTasks);
+        renderStatusChart(state.statusChartTasks || state.filteredTasks);
+        renderEsdStatusBreakdown(state.statusChartTasks || state.filteredTasks);
+        renderAssigneeChart(state.assigneeChartTasks || state.filteredTasks);
         renderEpicChart(state.epicChartTasks);
         var runLazy = function() {
             renderVisibleLazySections();
@@ -849,6 +896,9 @@ export function saveFiltersToStorage() {
         localStorage.setItem('dgd_filter_assignee', state.currentAssigneeFilter || '');
         localStorage.setItem('dgd_filter_direction', state.currentDirectionFilter || '');
         localStorage.setItem('dgd_filter_qurum', state.currentQurumFilter || '');
+        localStorage.removeItem('dgd_filter_status');
+        localStorage.removeItem('dgd_filter_esd_inner');
+        localStorage.setItem('dgd_filter_label', state.activeLabelFilter || '');
     } catch(e) {}
 }
 
@@ -857,13 +907,44 @@ export function loadFiltersFromStorage() {
     state.currentDirectionFilter = localStorage.getItem('dgd_filter_direction') || null;
     var storedQurum = localStorage.getItem('dgd_filter_qurum') || null;
     state.currentQurumFilter = storedQurum ? (canonicalQurumName(storedQurum) || storedQurum) : null;
+    state.currentStatusFilter = null;
+    state.currentEsdInnerFilter = null;
+    try {
+        localStorage.removeItem('dgd_filter_status');
+        localStorage.removeItem('dgd_filter_esd_inner');
+    } catch (e) {}
+    state.activeLabelFilter = localStorage.getItem('dgd_filter_label') || null;
+    if (!state.activeLabelFilter || normalizeStr(state.activeLabelFilter) === 'esd') {
+        state.activeLabelFilter = null;
+        try { localStorage.removeItem('dgd_filter_label'); } catch (e2) {}
+    }
     updateSprintFilterState();
 }
 
-export function clearUserFilter() { 
-    state.currentAssigneeFilter = null; 
+function closeTaskListToDefault() {
+    var listEl = document.getElementById('taskListContent');
+    if (!listEl) return;
+    listEl.classList.add('hidden');
+    listEl.classList.remove('slide-down');
+    var icon = document.getElementById('icon-taskListContent');
+    if (icon) icon.style.transform = 'rotate(0deg)';
+    var toggleBtn = document.querySelector('[aria-controls="taskListContent"]');
+    if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'false');
+}
+
+export function clearUserFilter() {
+    state.currentAssigneeFilter = null;
     localStorage.removeItem('dgd_filter_assignee');
-    applyFilters(); 
+    rememberListAction(null);
+    closeTaskListToDefault();
+    applyFilters();
+}
+
+export function clearPriorityFilter() {
+    state.currentPriorityFilter = null;
+    rememberListAction(null);
+    closeTaskListToDefault();
+    applyFilters();
 }
 
 export function clearDirectionFilter() { 
@@ -876,6 +957,38 @@ export function clearQurumFilter() {
     state.currentQurumFilter = null; 
     localStorage.removeItem('dgd_filter_qurum');
     applyFilters(); 
+}
+
+export function applyEsdDashboardFilter(stageId) {
+    var stage = (!stageId || stageId === 'all') ? null : String(stageId);
+    state.currentStatusFilter = 'esd';
+    state.currentEsdInnerFilter = stage;
+    applyFilters();
+}
+
+export function onEsdStatusClicked() {
+    if (state.currentStatusFilter !== 'esd') {
+        rememberListAction(null);
+        closeTaskListToDefault();
+        applyEsdDashboardFilter(null);
+    }
+}
+
+export function clearStatusFilter() {
+    state.currentStatusFilter = null;
+    state.currentEsdInnerFilter = null;
+    localStorage.removeItem('dgd_filter_status');
+    localStorage.removeItem('dgd_filter_esd_inner');
+    closeEsdStagePopup();
+    rememberListAction(null);
+    closeTaskListToDefault();
+    applyFilters();
+}
+
+export function clearLabelFilter() {
+    state.activeLabelFilter = null;
+    localStorage.removeItem('dgd_filter_label');
+    applyFilters();
 }
 
 export function setQurumFilter(qName) {
@@ -1099,22 +1212,23 @@ export function showDueThisWeekTasks() {
 
 export function filterEsdInnerStatus(stageId) {
     closeEsdStagePopup();
-    var units = countableWorkUnits(state.filteredTasks).filter(function(t) {
-        return getStatusGroup(t.fields.status.name) === 'esd';
-    });
+    if (!state._replayingList) applyEsdDashboardFilter(stageId);
+    var list = countableWorkUnits(state.filteredTasks);
     var stage = String(stageId || 'all');
-    var list = units;
     var title = 'ESD tapşırıqları';
     if (stage && stage !== 'all') {
-        list = units.filter(function(t) {
-            var inner = getEsdInnerStatus(t);
-            return inner && inner.id === stage;
-        });
         var meta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === stage; })[0];
         var label = (meta && meta.label) || (list[0] && getEsdInnerStatus(list[0]) && getEsdInnerStatus(list[0]).label) || stage;
         title = 'ESD · ' + label;
     }
-    rememberListAction({ kind: 'esdInner', stageId: stage });
+    if (!list.length) {
+        if (!state._replayingList) {
+            rememberListAction(null);
+            showToast(title + ' üçün tapşırıq yoxdur.', 'info');
+        }
+        return;
+    }
+    if (!state._replayingList) rememberListAction({ kind: 'esdInner', stageId: stage });
     renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
     openTaskListSection();
 }

@@ -7,8 +7,8 @@
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
     <title>Giriş — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/tokens.css?v=idda2">
-    <link rel="stylesheet" href="/static/css/auth.css?v=idda107">
+    <link rel="stylesheet" href="/static/css/tokens.css?v=idda3">
+    <link rel="stylesheet" href="/static/css/auth.css?v=idda108">
 </head>
 <body class="auth-page">
     <div class="auth-shell">
@@ -236,6 +236,15 @@
     }
     function choosePanel(panel) {
         selectedPanel = panel === 'rehber' ? 'rehber' : 'ops';
+        if (alreadyAuth) {
+            fetch('/api/auth/panel', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ panel: selectedPanel })
+            }).finally(function() { goHome(); });
+            return;
+        }
         applyPanelCopy();
         showPanel('login');
     }
@@ -255,13 +264,20 @@
         document.getElementById('rememberMe').checked = true;
     }
     var startPanel = '';
-    try { startPanel = new URLSearchParams(window.location.search).get('panel') || ''; } catch (e) {}
-    if (startPanel === 'rehber') choosePanel('rehber');
+    var chooseMode = false;
+    var alreadyAuth = false;
+    try {
+        var params = new URLSearchParams(window.location.search);
+        startPanel = params.get('panel') || '';
+        chooseMode = params.get('choose') === '1';
+    } catch (e) {}
+    if (startPanel === 'rehber' && !chooseMode) choosePanel('rehber');
     fetch('/api/auth/status', { credentials: 'same-origin' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data && data.authenticated) {
-                window.location.href = panelHome(data.homePanel);
+                alreadyAuth = true;
+                if (!chooseMode) window.location.href = panelHome(data.homePanel);
             }
         })
         .catch(function() {});

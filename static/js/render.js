@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda4';
 import { filterSprintComparison } from './filters.js';
-import { duePeriodLabel } from './report.js';
+import { duePeriodLabel } from './report.js?v=idda7';
 
 export function renderStats(tasks) {
     var allUnits = countableWorkUnits(tasks);
@@ -50,7 +50,6 @@ export function renderStats(tasks) {
     if (totalCompletionRateEl) totalCompletionRateEl.innerText = completionRate + '%';
     
     var planned = validTasks.filter(function(t) { return isNextWeekBoxTask(t); }).length;
-    var other = collectOtherDashboardUnits().length;
     var backlog = collectBacklogDashboardUnits().length;
 
     var lateTasks = validTasks.filter(function(t) { return getDateStatus(t) === 'late'; }).length;
@@ -72,7 +71,6 @@ export function renderStats(tasks) {
     }
     animateValue('blockedTasks', 0, blocked, kpiMs);
     animateValue('rejectedTasks', 0, rejected, kpiMs);
-    animateValue('otherTasks', 0, other, kpiMs);
     animateValue('backlogTasks', 0, backlog, kpiMs);
     animateValue('lateTasks', 0, lateTasks, kpiMs);
     state.isInitialLoad = false;
@@ -118,18 +116,6 @@ export function renderStats(tasks) {
     if (blockedCard) {
         if (blocked > 0 || rejected > 0) blockedCard.classList.add('pulse-danger');
         else blockedCard.classList.remove('pulse-danger');
-    }
-
-    var otherCard = document.getElementById('otherCard');
-    var statsGrid = document.getElementById('statsGrid');
-    if (otherCard && statsGrid) {
-        if (other > 0) {
-            otherCard.classList.remove('hidden');
-            statsGrid.classList.add('has-other');
-        } else {
-            otherCard.classList.add('hidden');
-            statsGrid.classList.remove('has-other');
-        }
     }
 }
 
@@ -561,6 +547,7 @@ export function renderTaskList(tasks, title, opts) {
         var leadCls = 'tl-lead' + (hasNested ? ' tl-chevron' : '') + (isSubtask && !hasNested ? ' tl-lead--rail' : '');
         var chevron = '<span class="' + leadCls + '" aria-hidden="true">' + leadInner + '</span>';
         var showType = issueTypeName && !isGenericTaskTypeName(issueTypeName, isSubtask);
+        var priorityName = getTaskPriorityName(t);
         var parentHint = (isSubtask && parentIssue && parentIssue.key)
             ? '<span class="tl-parent-ref">Üst tapşırıq: ' + escapeTaskListHtml(parentIssue.key) + '</span>'
             : '';
@@ -577,6 +564,7 @@ export function renderTaskList(tasks, title, opts) {
             + '<span class="tl-key">' + escapeTaskListHtml(t.key) + '</span>'
             + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
             + esdInnerBadgeHtml(t)
+            + (priorityName ? '<span class="tl-priority">' + escapeTaskListHtml(priorityName) + '</span>' : '')
             + (showType ? '<span class="tl-type">' + escapeTaskListHtml(issueTypeName) + '</span>' : '')
             + parentHint
             + '</div>'
@@ -655,16 +643,18 @@ export function changePage(page) {
     renderTaskList(state.taskListSource, state.taskListTitle, { keepView: true });
 }
 
-export function openTaskListSection() {
+export function openTaskListSection(opts) {
     var listEl = document.getElementById('taskListContent');
     if (!listEl) return;
+    var alreadyOpen = !listEl.classList.contains('hidden');
     listEl.classList.remove('hidden');
     listEl.classList.add('slide-down');
     var icon = document.getElementById('icon-taskListContent');
     if (icon) icon.style.transform = 'rotate(180deg)';
     var toggleBtn = document.querySelector('[aria-controls="taskListContent"]');
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
-    if (!state.restoreQuiet) listEl.scrollIntoView({ behavior: 'smooth' });
+    var skipScroll = state.restoreQuiet || state._replayingList || alreadyOpen || (opts && opts.scroll === false);
+    if (!skipScroll) listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 export function restoreNestedPanels(ids) {
@@ -888,7 +878,7 @@ export function renderSprintComparison() {
         var delta = compare ? deltaHtml(done, compare.dueDone, 'good-up') : '';
         var name = scEscape(stats.jName);
         return '<div class="sc-metric sc-metric--due sc-duecombo" data-sprint="' + name + '" data-sc-type="due"'
-            + ' data-tip="Bu həftə bitməli və gecikən tapşırıqlar. Yaşıl rəqəm — yekunlaşanlar.">'
+            + ' data-tip="Bu həftə bitməli — bitmə vaxtı həmin sprint həftəsinə düşən tapşırıqlar. Yaşıl rəqəm — yekunlaşanlar.">'
             + '<span class="sc-metric-top">'
             + '<span class="sc-metric-label">Həftə ərzində bitməli</span>'
             + '<span class="sc-metric-nums">'

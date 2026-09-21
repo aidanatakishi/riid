@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { getStatusGroup } from './model.js';
+import { getStatusGroup } from './model.js?v=idda4';
 
 export function showToast(message, type) {
     if (state.restoreQuiet) return;
@@ -153,7 +153,7 @@ export function getIssueTypeIcon(typeName) {
 
 export function getStatusColor(statusName) {
     var g = getStatusGroup(statusName);
-    return { 'planned': 'bg-slate-500', 'progress': 'bg-blue-600', 'review': 'bg-cyan-600', 'esd': 'bg-indigo-600', 'blocked': 'bg-orange-600', 'paused': 'bg-amber-500', 'rejected': 'bg-rose-600', 'done': 'bg-emerald-600', 'other': 'bg-slate-400' }[g];
+    return { 'planned': 'bg-slate-400', 'progress': 'bg-violet-600', 'review': 'bg-indigo-500', 'esd': 'bg-violet-900', 'blocked': 'bg-rose-600', 'paused': 'bg-violet-300', 'rejected': 'bg-rose-700', 'done': 'bg-emerald-600', 'other': 'bg-violet-200' }[g];
 }
 
 export function truncateChangeValue(str, max) {

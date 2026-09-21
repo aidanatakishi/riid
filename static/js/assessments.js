@@ -46,8 +46,8 @@ import {
     isTaskOrSubtaskType,
     isDiagOverallLabel,
     parseDiagUmumiNetice
-} from './model.js';
-import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js';
+} from './model.js?v=idda4';
+import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda3';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
 var searchState = { diag: '', isq: '', self: '', exq: '', meqsed: '' };
@@ -328,6 +328,175 @@ export function prefetchAssessmentHubViews() {
         }
     }
     step();
+}
+
+var REHBER_NA = 'Məlumat mövcud deyil';
+
+function rehberStatusName(r) {
+    var name = r && r.task && r.task.fields && r.task.fields.status && r.task.fields.status.name;
+    name = String(name || '').trim();
+    return name || REHBER_NA;
+}
+
+function rehberScoreLabel(n) {
+    if (n == null || !isFinite(n)) return REHBER_NA;
+    if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+    return String(Math.round(n * 10) / 10);
+}
+
+function rehberPickRow(rows, scoreFn) {
+    var best = null;
+    var i;
+    for (i = 0; i < (rows || []).length; i++) {
+        var r = rows[i];
+        var score = scoreFn(r);
+        var year = r && r.year != null && isFinite(r.year) ? Number(r.year) : -1;
+        var time = Number(r && r.time) || 0;
+        var cand = { r: r, score: score, year: year, time: time, has: score != null };
+        if (!best) {
+            best = cand;
+            continue;
+        }
+        if (cand.has && !best.has) best = cand;
+        else if (cand.has === best.has) {
+            if (cand.year !== best.year) {
+                if (cand.year > best.year) best = cand;
+            } else if (cand.time >= best.time) best = cand;
+        }
+    }
+    return best;
+}
+
+function rehberDiagStatusBucket(r) {
+    var group = rowStatusGroup(r);
+    if (group === 'done') return 'done';
+    if (group === 'progress') return 'progress';
+    if (group === 'other') return 'planned';
+    return '';
+}
+
+function rehberSelfBucket(group) {
+    if (group === 'done') return 'checked';
+    if (group === 'review' || group === 'esd') return 'checking';
+    return 'ongoing';
+}
+
+function rehberSelfRank(bucket) {
+    if (bucket === 'checked') return 2;
+    if (bucket === 'checking') return 1;
+    return 0;
+}
+
+function rehberGroupRows(rows) {
+    var by = {};
+    (rows || []).forEach(function(r, i) {
+        var key = qurumRowKey(r, i);
+        if (!by[key]) by[key] = { key: key, qurum: (r && r.qurum) || '—', rows: [] };
+        if (r && r.qurum && (!by[key].qurum || by[key].qurum === '—')) by[key].qurum = r.qurum;
+        by[key].rows.push(r);
+    });
+    return by;
+}
+
+export function getRehberEvalSnapshot() {
+    var diagRows = collectCategoryTasks('diag');
+    var selfRows = collectCategoryTasks('self');
+    var diagByQurum = rehberGroupRows(diagRows);
+    var selfByQurum = rehberGroupRows(selfRows);
+    var latestYear = null;
+    diagRows.forEach(function(r) {
+        if (r && r.year != null && isFinite(r.year)) {
+            var y = Number(r.year);
+            if (latestYear == null || y > latestYear) latestYear = y;
+        }
+    });
+    var cycleRows = !latestYear ? diagRows : diagRows.filter(function(r) {
+        if (r && r.year != null && isFinite(r.year)) return Number(r.year) === latestYear;
+        return true;
+    });
+    var diagStats = { done: 0, progress: 0, planned: 0 };
+    var diagSeen = { done: {}, progress: {}, planned: {} };
+    cycleRows.forEach(function(r, i) {
+        var bucket = rehberDiagStatusBucket(r);
+        if (!bucket) return;
+        var key = qurumRowKey(r, i);
+        if (diagSeen[bucket][key]) return;
+        diagSeen[bucket][key] = true;
+        diagStats[bucket] += 1;
+    });
+    var years = {};
+    diagRows.forEach(function(r) {
+        if (r && r.year != null && isFinite(r.year) && r.year >= 2015 && r.year <= 2035) {
+            years[Number(r.year)] = true;
+        }
+    });
+    var yearList = Object.keys(years).map(Number).sort(function(a, b) { return a - b; });
+    var diagByYear = yearList.map(function(year) {
+        var inYear = diagRows.filter(function(r) { return Number(r.year) === year; });
+        var grouped = rehberGroupRows(inYear);
+        var items = Object.keys(grouped).map(function(key) {
+            var rec = grouped[key];
+            var best = rehberPickRow(rec.rows, diagNumericScore);
+            var r = best && best.r;
+            var score = best && best.score;
+            return {
+                qurum: rec.qurum || REHBER_NA,
+                score: score,
+                scoreLabel: rehberScoreLabel(score),
+                status: rehberStatusName(r),
+                hasScore: score != null
+            };
+        }).sort(function(a, b) {
+            return String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
+        });
+        var allScored = items.length > 0 && items.every(function(it) { return it.hasScore; });
+        return {
+            year: year,
+            resultHeader: allScored ? 'Nəticə' : 'Diaqnostika nəticəsi',
+            rows: items
+        };
+    });
+    var selfStats = { checked: 0, checking: 0, ongoing: 0 };
+    var selfTable = [];
+    var selfBars = [];
+    var ongoingNames = [];
+    Object.keys(selfByQurum).forEach(function(key) {
+        var rec = selfByQurum[key];
+        var best = rehberPickRow(rec.rows, selfNumericScore);
+        var r = best && best.r;
+        var group = rowStatusGroup(r);
+        var bucket = rehberSelfBucket(group);
+        var i;
+        for (i = 0; i < rec.rows.length; i++) {
+            var b = rehberSelfBucket(rowStatusGroup(rec.rows[i]));
+            if (rehberSelfRank(b) > rehberSelfRank(bucket)) bucket = b;
+        }
+        selfStats[bucket] += 1;
+        var qurum = rec.qurum || REHBER_NA;
+        var score = best && best.score;
+        selfTable.push({
+            qurum: qurum,
+            status: rehberStatusName(r),
+            score: score,
+            scoreLabel: rehberScoreLabel(score)
+        });
+        if (score != null) selfBars.push({ qurum: qurum, score: score, scoreLabel: rehberScoreLabel(score) });
+        if (bucket === 'ongoing') ongoingNames.push(qurum);
+    });
+    selfTable.sort(function(a, b) {
+        return String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
+    });
+    selfBars.sort(function(a, b) { return b.score - a.score; });
+    ongoingNames.sort(function(a, b) { return a.localeCompare(b, 'az'); });
+    return {
+        na: REHBER_NA,
+        diagStats: diagStats,
+        diagByYear: diagByYear,
+        selfStats: selfStats,
+        selfTable: selfTable,
+        selfBars: selfBars,
+        selfOngoing: ongoingNames
+    };
 }
 
 function serializeHubRow(section, r, i) {

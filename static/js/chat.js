@@ -30,8 +30,8 @@ import {
     isActiveExecutionGroup,
     getBlockReason,
     getTaskDueDate
-} from './model.js';
-import { exportTasksToWord } from './report.js';
+} from './model.js?v=idda4';
+import { exportTasksToWord } from './report.js?v=idda7';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {

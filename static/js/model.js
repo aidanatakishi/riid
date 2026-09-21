@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr } from './utils.js';
+import { normalizeStr } from './utils.js?v=idda4';
 
 function getIssueTypeName(t) {
     if (!t || !t.fields || !t.fields.issuetype) return '';
@@ -74,6 +74,67 @@ export function countableWorkUnits(tasks) {
         out.push(t);
     });
     return out;
+}
+
+export var PRIORITY_UNSET = 'Məlumat mövcud deyil';
+
+var PRIORITY_RANK = {
+    blocker: 0,
+    critical: 0,
+    highest: 0,
+    enyuksek: 0,
+    enyuxsek: 0,
+    high: 1,
+    major: 1,
+    yuksek: 1,
+    yuxsek: 1,
+    medium: 2,
+    normal: 2,
+    orta: 2,
+    low: 3,
+    minor: 3,
+    asagi: 3,
+    lowest: 4,
+    trivial: 4,
+    enasagi: 4
+};
+var PRIORITY_COLORS = ['#4c1d95', '#6d28d9', '#8b5cf6', '#a78bfa', '#c4b5fd'];
+
+function foldPriorityKey(s) {
+    return compactIssueTypeName(s);
+}
+
+export function getTaskPriorityName(t) {
+    var p = t && t.fields ? t.fields.priority : null;
+    var name = '';
+    if (p && typeof p === 'object') name = String(p.name || '').trim();
+    else if (typeof p === 'string') name = p.trim();
+    return name || PRIORITY_UNSET;
+}
+
+export function priorityRank(name) {
+    var key = foldPriorityKey(name);
+    if (!key || key === foldPriorityKey(PRIORITY_UNSET)) return 9;
+    if (Object.prototype.hasOwnProperty.call(PRIORITY_RANK, key)) return PRIORITY_RANK[key];
+    return 6;
+}
+
+export function comparePriorityNames(a, b) {
+    var ra = priorityRank(a);
+    var rb = priorityRank(b);
+    if (ra !== rb) return ra - rb;
+    return String(a || '').localeCompare(String(b || ''), 'az');
+}
+
+export function samePriority(a, b) {
+    return String(a || '') === String(b || '');
+}
+
+export function getPriorityColor(name) {
+    var rank = priorityRank(name);
+    if (rank === 9) return '#94a3b8';
+    if (rank >= 0 && rank < PRIORITY_COLORS.length) return PRIORITY_COLORS[rank];
+    return '#7c3aed';
 }
 
 /** Jira Scrum lövhə sütunları: Planlaşdırılıb, İcradadır, Rəy, ESD, Bloklanıb, İmtina, İcra edilib. */
@@ -407,19 +468,25 @@ export function getBakuWeekRange(weekOffset) {
     return { start: monday, end: sunday };
 }
 
+/** Bitmə vaxtı yalnız customfield_10807. */
+export function getBitmeDate(t) {
+    if (!t || !t.fields) return null;
+    var due = parsePhaseDate(t.fields['customfield_10807']);
+    if (!due) return null;
+    due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+    due.setHours(0, 0, 0, 0);
+    return due;
+}
+
 export function isDueThisWeek(t) {
-    if (!t || !t.fields) return false;
-    var due = getTaskDueDate(t);
-    var week = getBakuWeekRange(0);
-    if (due && due >= week.start && due <= week.end) return true;
-    return isOpenOverdue(t);
+    return bitmeInWindow(t, getBakuWeekRange(0));
 }
 
 export function getTaskDueDate(t) {
     if (!t || !t.fields) return null;
-    var raw = t.fields['customfield_10807'];
-    if (raw == null || raw === '') raw = t.fields['duedate'];
-    var due = parsePhaseDate(raw);
+    var bitme = getBitmeDate(t);
+    if (bitme) return bitme;
+    var due = parsePhaseDate(t.fields['duedate']);
     if (!due) return null;
     due = new Date(due.getFullYear(), due.getMonth(), due.getDate());
     due.setHours(0, 0, 0, 0);
@@ -428,7 +495,7 @@ export function getTaskDueDate(t) {
 
 /** Bitmə tarixi yalnız customfield_10807 — Jira duedate ehtiyatı yoxdur. */
 export function hasBitmeDate(t) {
-    return !!parsePhaseDate(t && t.fields && t.fields['customfield_10807']);
+    return !!getBitmeDate(t);
 }
 
 /** Növbəti həftə bitmə tarixi — yalnız customfield_10807 (duedate fallback yox). */
@@ -547,13 +614,42 @@ function parseLocalDay(raw) {
     return isNaN(dt.getTime()) ? null : dt;
 }
 
+function mondayOfCalendarWeek(d) {
+    var day = parseLocalDay(d);
+    if (!day) return null;
+    var wd = day.getDay();
+    var diff = wd === 0 ? -6 : 1 - wd;
+    var mon = new Date(day.getFullYear(), day.getMonth(), day.getDate() + diff);
+    mon.setHours(0, 0, 0, 0);
+    return mon;
+}
+
+function calendarWeekContaining(d) {
+    var mon = mondayOfCalendarWeek(d);
+    if (!mon) return null;
+    var sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+    sun.setHours(23, 59, 59, 999);
+    return { start: mon, end: sun };
+}
+
+/** Sprintə uyğun təqvim həftəsi (bazar ertəsi–bazar). */
+export function getSprintWeekRange(sprintName) {
+    var range = getSprintDateRange(sprintName);
+    if (!range || !range.start) return null;
+    return calendarWeekContaining(range.start);
+}
+
+function bitmeInWindow(t, win) {
+    if (!win || !win.start) return false;
+    var due = getBitmeDate(t);
+    if (!due) return false;
+    return isDateInReportPeriod(due, win.start, win.end);
+}
+
 export function isDueInSprint(t, sprintName) {
     if (!sprintName || sprintName === 'all') return false;
-    if (!getTaskDueDate(t)) return false;
     if (getSprintNames(t).indexOf(sprintName) === -1) return false;
-    var range = getSprintDateRange(sprintName);
-    if (!range || !range.start || !range.end) return false;
-    return isDueInDateRange(t, range.start, range.end);
+    return bitmeInWindow(t, getSprintWeekRange(sprintName));
 }
 
 function resolvedDuringSprint(t, sprintName) {
@@ -599,49 +695,55 @@ function getSelectedDueWindow() {
     return { start: range.start, end: range.end };
 }
 
-export function isDueInSelectedWeek(t) {
-    var win = getSelectedDueWindow();
-    if (win) {
-        if (isDueInDateRange(t, win.start, win.end)) return true;
-        return selectedPeriodIncludesToday(win) && isOpenOverdue(t);
+function getDueThisWeekWindow() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var startIso = startEl && startEl.value;
+    var endIso = endEl && endEl.value;
+    if (startIso || endIso) {
+        var start = parseLocalDay(startIso);
+        var end = parseLocalDay(endIso);
+        if (start && end) {
+            var days = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+            if (days >= 5 && days <= 9) return calendarWeekContaining(start);
+            if (end) end.setHours(23, 59, 59, 999);
+            return { start: start, end: end };
+        }
+        return { start: start, end: end };
     }
-    return isDueThisWeek(t);
+    var sprintName = getSelectedSprintName();
+    if (sprintName) {
+        var sprintWeek = getSprintWeekRange(sprintName);
+        if (sprintWeek) return sprintWeek;
+    }
+    return getBakuWeekRange(0);
+}
+
+export function isDueInSelectedWeek(t) {
+    return bitmeInWindow(t, getDueThisWeekWindow());
 }
 
 function dueInRangePool() {
-    var win = getSelectedDueWindow();
-    var source = win ? (state.allTasks || []) : (state.filteredTasks || []);
+    var win = getDueThisWeekWindow();
     var sprintName = getSelectedSprintName();
-    var allowOverdue = selectedPeriodIncludesToday(win);
+    var source = state.allTasks || [];
     return source.filter(function(t) {
-        if (!t || !t.fields) return false;
-        var overdueCarry = allowOverdue && isOpenOverdue(t) && isTaskOrSubtaskType(t);
-        if (!isTaskType(t) && !overdueCarry) return false;
+        if (!t || !t.fields || !t.fields.status) return false;
+        if (!isTaskOrSubtaskType(t)) return false;
         var st = normalizeStr(t.fields.status.name || '');
         var g = getStatusGroup(st);
-        if (g === 'rejected') return false;
-        if (!overdueCarry) {
-            if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
-            if (st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti')) return false;
+        if (g === 'rejected' || g === 'paused') return false;
+        if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
+        if (!matchesDashContextFilters(t)) return false;
+        if (sprintName) {
+            var onSprint = getSprintNames(t).indexOf(sprintName) !== -1;
+            if (!onSprint && isSubtaskType(t)) {
+                var parent = getParentIssue(t);
+                onSprint = !!(parent && getSprintNames(parent).indexOf(sprintName) !== -1);
+            }
+            if (!onSprint) return false;
         }
-        if (win) {
-            if (state.currentDirectionFilter) {
-                var dir = resolveDirection(t);
-                if (!dir || dir.key !== state.currentDirectionFilter) return false;
-            }
-            if (state.currentQurumFilter) {
-                var q = getQurumName(t) || QURUM_UNASSIGNED;
-                if (!sameQurum(q, state.currentQurumFilter)) return false;
-            }
-            if (state.currentAssigneeFilter) {
-                if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
-            }
-            if (isDueInDateRange(t, win.start, win.end)) return true;
-            if (!overdueCarry) return false;
-            if (sprintName && !issueBelongsToSprint(t, sprintName)) return false;
-            return true;
-        }
-        return isDueThisWeek(t);
+        return bitmeInWindow(t, win);
     });
 }
 
@@ -1581,17 +1683,48 @@ export function otherDashboardSprintName() {
     return getSelectedSprintName() || '';
 }
 
-function matchesDashContextFilters(t) {
-    if (state.currentDirectionFilter) {
+function taskChartLabelNames(t) {
+    var raw = (t && t.fields && t.fields.labels) ? t.fields.labels : [];
+    return raw.map(function(lbl) {
+        if (lbl && typeof lbl === 'object') return String(lbl.name || lbl.value || '').trim();
+        return String(lbl || '').trim();
+    }).filter(Boolean);
+}
+
+function taskMatchesSelectedLabel(t, selectedLabel) {
+    if (!selectedLabel) return true;
+    var names = taskChartLabelNames(t);
+    if (selectedLabel === 'Etiketsiz') return names.length === 0;
+    return names.indexOf(selectedLabel) !== -1;
+}
+
+export function matchesDashContextFilters(t, skip) {
+    skip = skip || {};
+    if (!t || !t.fields) return false;
+    if (!skip.direction && state.currentDirectionFilter) {
         var dir = resolveDirection(t);
         if (!dir || dir.key !== state.currentDirectionFilter) return false;
     }
-    if (state.currentQurumFilter) {
+    if (!skip.qurum && state.currentQurumFilter) {
         var q = getQurumName(t) || QURUM_UNASSIGNED;
         if (!sameQurum(q, state.currentQurumFilter)) return false;
     }
-    if (state.currentAssigneeFilter) {
+    if (!skip.assignee && state.currentAssigneeFilter) {
         if (!t.fields.assignee || t.fields.assignee.displayName !== state.currentAssigneeFilter) return false;
+    }
+    if (!skip.priority && state.currentPriorityFilter) {
+        if (getTaskPriorityName(t) !== state.currentPriorityFilter) return false;
+    }
+    if (!skip.status && state.currentStatusFilter) {
+        var g = getStatusGroup(t.fields.status && t.fields.status.name);
+        if (g !== state.currentStatusFilter) return false;
+        if (state.currentStatusFilter === 'esd' && state.currentEsdInnerFilter) {
+            var inner = getEsdInnerStatus(t);
+            if (!inner || inner.id !== state.currentEsdInnerFilter) return false;
+        }
+    }
+    if (!skip.label && state.activeLabelFilter) {
+        if (!taskMatchesSelectedLabel(t, state.activeLabelFilter)) return false;
     }
     return true;
 }
@@ -3498,12 +3631,13 @@ export function exqStarFromPercent(p) {
     return 5;
 }
 
+/** Növbəti ulduz səviyyəsinin yuxarı sərhədi: 41–60 → 80, 61–80 → 100. */
 export function exqStarTarget(score) {
     var star = exqStarFromPercent(score);
     if (star == null) return null;
     var next = exqStarBand(star + 1);
     if (!next) return 100;
-    return next.lo;
+    return next.hi;
 }
 
 export function exqStarBand(star) {

@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda4';
 
 let _docxLibPromise = null;
 
@@ -160,6 +160,30 @@ function mondayOnOrBefore(d) {
     return m;
 }
 
+/** Yalnız həftəlik Word: sprint həftəsinin 1-ci günü (b.e.) və 5-ci günü (cümə). Dashboard həftəsinə toxunmur. */
+function clipToWorkweekEnds(start, end) {
+    var s = startOfDay(start);
+    var e = startOfDay(end);
+    if (!s || !e) return { start: s, end: e };
+    // Jira sprint sonu tez-tez növbəti b.e. (eksclusive) olur — əvvəlki həftənin cüməsinə qaytar.
+    if (e.getDay() === 1 && e.getTime() > s.getTime()) {
+        e = new Date(e.getFullYear(), e.getMonth(), e.getDate() - 1);
+        e.setHours(0, 0, 0, 0);
+    }
+    var startMon = mondayOnOrBefore(s);
+    var days = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+    if (days <= 9) {
+        var weekFri = new Date(startMon.getFullYear(), startMon.getMonth(), startMon.getDate() + 4);
+        weekFri.setHours(0, 0, 0, 0);
+        return { start: startMon, end: weekFri };
+    }
+    var endMon = mondayOnOrBefore(e);
+    var endFri = new Date(endMon.getFullYear(), endMon.getMonth(), endMon.getDate() + 4);
+    endFri.setHours(0, 0, 0, 0);
+    if (endFri < startMon) return { start: s, end: e };
+    return { start: startMon, end: endFri };
+}
+
 function listCoveredCalendarWeeks(start, end) {
     var out = [];
     var cursor = mondayOnOrBefore(start);
@@ -238,6 +262,9 @@ function getSprintWeeklyExport() {
         start = startOfDay(baku.start);
         end = startOfDay(baku.end);
     }
+    var work = clipToWorkweekEnds(start, end);
+    start = work.start;
+    end = work.end;
     return {
         info: weekInfoFromDates(start, end, { sprintName: sprintName }),
         opts: {
@@ -454,8 +481,48 @@ export async function exportTasksToWord(title) {
 
     function isPausedTask(t) {
         if (!t || !t.fields || !t.fields.status) return false;
+        if (getStatusGroup(t.fields.status.name) === 'paused') return true;
         var st = normalizeStr(t.fields.status.name);
         return st.includes('dayandır') || st.includes('dayandir') || st.includes('müvəqqəti') || st.includes('muveqqeti');
+    }
+
+    function statusGroupTransitionDates(t, group) {
+        var dates = [];
+        var histories = (t && t.changelog && t.changelog.histories) ? t.changelog.histories : [];
+        histories.forEach(function(h) {
+            (h.items || []).forEach(function(item) {
+                if (!item.field || String(item.field).toLowerCase() !== 'status') return;
+                if (getStatusGroup(item.toString || '') !== group) return;
+                var d = parsePhaseDate(h.created);
+                if (d) dates.push(d);
+            });
+        });
+        dates.sort(function(a, b) { return a.getTime() - b.getTime(); });
+        return dates;
+    }
+
+    function wasCompletedInReportPeriod(t, start, end) {
+        if (!t || !t.fields || !t.fields.status) return false;
+        if (getStatusGroup(t.fields.status.name) !== 'done') return false;
+        var resolved = parsePhaseDate(t.fields.resolutiondate);
+        if (resolved) return isDateInReportPeriod(resolved, start, end);
+        var doneDates = statusGroupTransitionDates(t, 'done');
+        if (doneDates.length) return isDateInReportPeriod(doneDates[doneDates.length - 1], start, end);
+        return false;
+    }
+
+    function isEsdSigningDelay(t) {
+        if (!t || !t.fields || !t.fields.status) return false;
+        if (getStatusGroup(t.fields.status.name) !== 'esd') return false;
+        var due = getEffectiveReportBitmeDate(t);
+        if (!due) return false;
+        var esdDates = statusGroupTransitionDates(t, 'esd');
+        var esdAt = esdDates.length ? esdDates[0] : null;
+        if (!esdAt) return true;
+        var dueDay = startOfDay(due);
+        var esdDay = startOfDay(esdAt);
+        if (!dueDay || !esdDay) return true;
+        return esdDay.getTime() <= dueDay.getTime();
     }
 
     function hasDiffDash(t) {
@@ -465,13 +532,15 @@ export async function exportTasksToWord(title) {
     }
 
     function collectDashboardKpis(units, dueFn) {
-        units = units || [];
+        units = (units || []).filter(function(t) { return t && !isPausedTask(t); });
         dueFn = dueFn || isDueInSelectedWeek;
         var due = 0, blocked = 0, done = 0, planned = 0;
-        var doneInPeriod = 0, rejected = 0, notDoneDue = 0, duePool = 0;
+        var doneInPeriod = 0, rejected = 0, notDoneDue = 0, duePool = 0, esdDelayCount = 0;
         units.forEach(function(t) {
             if (!t || !t.fields || !t.fields.status) return;
+            if (isPausedTask(t)) return;
             var g = getStatusGroup(t.fields.status.name);
+            if (g === 'paused') return;
             var diff = hasDiffDash(t);
             var inDue = !!dueFn(t);
             if (g === 'done') done++;
@@ -480,7 +549,10 @@ export async function exportTasksToWord(title) {
             if (g !== 'done' && g !== 'rejected' && !diff && inDue) due++;
             if (isNextWeekBoxTask(t)) planned++;
             if (g === 'done' && inDue) doneInPeriod++;
-            if (g !== 'done' && g !== 'rejected' && inDue) notDoneDue++;
+            if (g !== 'done' && g !== 'rejected' && inDue) {
+                notDoneDue++;
+                if (isEsdSigningDelay(t)) esdDelayCount++;
+            }
             if (inDue && g !== 'rejected') duePool++;
         });
         var total = units.length;
@@ -495,14 +567,15 @@ export async function exportTasksToWord(title) {
             doneInPeriod: doneInPeriod,
             rejected: rejected,
             notDoneDue: notDoneDue,
+            esdDelayCount: esdDelayCount,
             carryover: carryover,
             dueDisplay: String(doneInPeriod) + ' / ' + String(duePool)
         };
     }
 
     function collectVisibleDashboardKpis() {
-        var tasks = state.filteredTasks || [];
-        var validTasks = countableWorkUnits(tasks);
+        var tasks = (state.filteredTasks || []).filter(function(t) { return !isPausedTask(t); });
+        var validTasks = jiraBoardWorkUnits(tasks).filter(function(t) { return !isPausedTask(t); });
         function hasDiff(t) {
             var g = getStatusGroup(t.fields.status.name || '');
             return hasValidDifficulty(t) && g !== 'done' && g !== 'rejected';
@@ -521,10 +594,16 @@ export async function exportTasksToWord(title) {
         var rejected = tasks.filter(function(t) {
             return isTaskType(t) && getStatusGroup(t.fields.status.name || '') === 'rejected';
         }).length;
-        var due = collectDueThisWeekTasks().length;
-        var doneInPeriod = collectDueThisWeekDoneTasks().length;
+        var duePool = collectDueThisWeekTasks().filter(function(t) { return !isPausedTask(t); });
+        var due = duePool.length;
+        var doneInPeriod = collectDueThisWeekDoneTasks().filter(function(t) { return !isPausedTask(t); }).length;
         var notDoneDue = due - doneInPeriod;
         if (notDoneDue < 0) notDoneDue = 0;
+        var esdDelayCount = 0;
+        duePool.forEach(function(t) {
+            if (getStatusGroup(t.fields.status.name || '') === 'done') return;
+            if (isEsdSigningDelay(t)) esdDelayCount++;
+        });
         var carryover = total - done;
         if (carryover < 0) carryover = 0;
         return {
@@ -536,6 +615,7 @@ export async function exportTasksToWord(title) {
             doneInPeriod: doneInPeriod,
             rejected: rejected,
             notDoneDue: notDoneDue,
+            esdDelayCount: esdDelayCount,
             carryover: carryover,
             dueDisplay: String(doneInPeriod) + ' / ' + String(due)
         };
@@ -601,6 +681,13 @@ export async function exportTasksToWord(title) {
             parts.push(w.overdueEmpty);
         } else {
             parts.push(w.overduePrefix + kpis.notDoneDue + ' tapşırıq var.');
+            if (kpis.esdDelayCount > 0) {
+                if (kpis.esdDelayCount === kpis.notDoneDue) {
+                    parts.push('Bu tapşırıqlar ESD-də vizalanma və imzalanma prosesi səbəbindən gecikmişdir.');
+                } else {
+                    parts.push('Bunlardan ' + kpis.esdDelayCount + '-i ESD-də vizalanma və imzalanma prosesi səbəbindən gecikmişdir.');
+                }
+            }
         }
         if (kpis.blocked === 0 && kpis.rejected === 0) {
             parts.push('Hazırda çətinlik mövcud deyil və imtina edilən tapşırıq yoxdur.');
@@ -675,6 +762,11 @@ export async function exportTasksToWord(title) {
             ] }) ]
         }));
         target.push(new Paragraph({ text: '', spacing: { after: 200 } }));
+    }
+
+    function directionDisplayName(t) {
+        var dir = resolveDirection(t);
+        return dir ? (dir.fields.summary || 'DİGƏR İSTİQAMƏTLƏR').trim() : 'DİGƏR İSTİQAMƏTLƏR';
     }
 
     function resolveIssue(issue) {
@@ -1017,6 +1109,14 @@ export async function exportTasksToWord(title) {
     function getReportBitmeDate(t) {
         if (!t || !t.fields) return null;
         return parsePhaseDate(t.fields['customfield_10807']);
+    }
+
+    function getEffectiveReportBitmeDate(t) {
+        var own = getReportBitmeDate(t);
+        if (own) return own;
+        if (!isSubtaskType(t)) return null;
+        var parent = getParentIssue(t);
+        return parent ? getReportBitmeDate(parent) : null;
     }
 
     function taskMonthDatesInPeriod(t, start, end) {
@@ -1734,20 +1834,196 @@ export async function exportTasksToWord(title) {
         });
     }
 
+    function lastPhaseEntry(t) {
+        var dated = (getDatedPhaseEntries(t) || []).filter(function(e) {
+            return e && String(e.text || '').trim();
+        });
+        if (dated.length) {
+            dated.sort(function(a, b) {
+                var da = a.date ? a.date.getTime() : 0;
+                var db = b.date ? b.date.getTime() : 0;
+                if (da !== db) return da - db;
+                return phaseFieldIndex(a) - phaseFieldIndex(b);
+            });
+            return dated[dated.length - 1];
+        }
+        if (!t || !t.fields) return null;
+        for (var i = PHASE_FIELDS.length - 1; i >= 0; i--) {
+            var text = getPhaseFieldText(t, PHASE_FIELDS[i].text);
+            if (text) {
+                return {
+                    date: parsePhaseDate(t.fields[PHASE_FIELDS[i].date]),
+                    text: text,
+                    fieldIndex: i
+                };
+            }
+        }
+        return null;
+    }
+
+    function weekPhaseLinesForIssue(t, periodStart, periodEnd) {
+        var lines = [];
+        var seen = {};
+        (issueMonthPhaseEntries(t, { start: periodStart, end: periodEnd }) || []).forEach(function(entry) {
+            var line = formatEntryLine(entry);
+            if (!line) return;
+            var key = normalizeStr(line);
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            lines.push(line);
+        });
+        return lines;
+    }
+
+    function collectMatchingUnits(filterFn, sourceTasks) {
+        var seen = {};
+        var out = [];
+        function consider(t) {
+            if (!t || !t.key || seen[t.key]) return;
+            if (isPausedTask(t)) return;
+            if (!isTaskOrSubtaskType(t)) return;
+            if (!issueMatches(t, filterFn)) return;
+            seen[t.key] = true;
+            out.push(t);
+        }
+        (sourceTasks || []).forEach(function(t) {
+            consider(t);
+            collectChildIssues(t).forEach(consider);
+        });
+        return out;
+    }
+
+    function weeklyTitlePara(text, indent) {
+        return new Paragraph({
+            spacing: { before: 80, after: 40 },
+            indent: indent ? { left: indent } : undefined,
+            children: [
+                new TextRun({ text: '–  ', font: REPORT_FONT, size: FONT_SIZE, color: COL_MUTED }),
+                new TextRun({ text: text, bold: true, font: REPORT_FONT, size: FONT_SIZE, color: COL_INK })
+            ]
+        });
+    }
+
+    function weeklyNotePara(line, indent, isLast) {
+        return new Paragraph({
+            spacing: { after: isLast ? 140 : 40, line: 276 },
+            indent: { left: indent || 400 },
+            children: [new TextRun({ text: line, font: REPORT_FONT, size: FONT_PHASE, color: COL_MUTED })]
+        });
+    }
+
+    function weeklyDirHeading(dirName) {
+        return new Paragraph({
+            spacing: { before: 200, after: 80 },
+            shading: { fill: FILL_SOFT, type: ShadingType.CLEAR, color: 'auto' },
+            border: {
+                left: { style: BorderStyle.SINGLE, size: 16, color: COL_INK, space: 8 }
+            },
+            indent: { left: 80 },
+            children: [new TextRun({ text: dirName.toLocaleUpperCase('az'), bold: true, font: REPORT_FONT, size: FONT_SMALL, color: COL_INK })]
+        });
+    }
+
+    function buildHierarchicalWeeklySection(units, lineBuilder) {
+        var dirMap = {};
+        var dirOrder = [];
+        function ensureDir(name) {
+            if (!dirMap[name]) {
+                dirMap[name] = { parents: {}, parentOrder: [], loose: [] };
+                dirOrder.push(name);
+            }
+            return dirMap[name];
+        }
+        function ensureParent(bucket, parentIssue) {
+            var key = parentIssue.key;
+            if (!bucket.parents[key]) {
+                bucket.parents[key] = { task: parentIssue, matched: false, children: [] };
+                bucket.parentOrder.push(key);
+            }
+            return bucket.parents[key];
+        }
+        (units || []).forEach(function(t) {
+            if (!t || isPausedTask(t)) return;
+            var bucket = ensureDir(directionDisplayName(t));
+            if (isSubtaskType(t)) {
+                var parent = getParentIssue(t);
+                if (parent && parent.key && !isPausedTask(parent)) {
+                    ensureParent(bucket, parent).children.push(t);
+                } else {
+                    bucket.loose.push(t);
+                }
+            } else {
+                ensureParent(bucket, t).matched = true;
+            }
+        });
+        dirOrder.sort(function(a, b) { return a.localeCompare(b, 'az'); });
+        var nodes = [];
+        dirOrder.forEach(function(dirName) {
+            var bucket = dirMap[dirName];
+            var dirNodes = [];
+            bucket.parentOrder.forEach(function(pk) {
+                var row = bucket.parents[pk];
+                var parentLines = row.matched ? (lineBuilder(row.task) || []) : [];
+                var childBlocks = row.children.map(function(child) {
+                    return { task: child, lines: lineBuilder(child) || [] };
+                });
+                if (!row.matched && !childBlocks.length) return;
+                dirNodes.push(weeklyTitlePara(taskSummary(row.task) || row.task.key, 0));
+                parentLines.forEach(function(line, idx) {
+                    dirNodes.push(weeklyNotePara(line, 400, idx === parentLines.length - 1 && childBlocks.length === 0));
+                });
+                childBlocks.forEach(function(ch) {
+                    dirNodes.push(weeklyTitlePara(taskSummary(ch.task) || ch.task.key, 400));
+                    ch.lines.forEach(function(line, idx) {
+                        dirNodes.push(weeklyNotePara(line, 720, idx === ch.lines.length - 1));
+                    });
+                });
+            });
+            bucket.loose.forEach(function(t) {
+                dirNodes.push(weeklyTitlePara(taskSummary(t) || t.key, 0));
+                var lines = lineBuilder(t) || [];
+                lines.forEach(function(line, idx) {
+                    dirNodes.push(weeklyNotePara(line, 400, idx === lines.length - 1));
+                });
+            });
+            if (!dirNodes.length) return;
+            nodes.push(weeklyDirHeading(dirName));
+            nodes.push.apply(nodes, dirNodes);
+        });
+        return nodes;
+    }
+
     function buildWeeklyDocument(info, opts) {
         opts = opts || {};
         var sprintName = opts.sprintName || info.sprintName || '';
         var pStart = info.start;
         var pEnd = info.end;
+        if (opts.kind !== 'period' && opts.icmalMode !== 'period') {
+            var clippedWeek = clipToWorkweekEnds(pStart, pEnd);
+            pStart = clippedWeek.start;
+            pEnd = clippedWeek.end;
+        }
         var periodLabel = formatDateObj(pStart) + ' – ' + formatDateObj(pEnd);
         if (sprintName) periodLabel += '  ·  ' + sprintName;
-        var dueFn = function(t) { return isDueInDateRange(t, pStart, pEnd); };
-        var source = state.filteredTasks || [];
-        var weekKpis = (opts.splitWeekKpis || opts.icmalMode === 'period')
-            ? collectDashboardKpis(countableWorkUnits(source.filter(function(t) {
+        var dueFn = function(t) {
+            var bitme = getReportBitmeDate(t);
+            return !!(bitme && isDateInReportPeriod(bitme, pStart, pEnd));
+        };
+        var dueFnContent = function(t) {
+            var bitme = getEffectiveReportBitmeDate(t);
+            return !!(bitme && isDateInReportPeriod(bitme, pStart, pEnd));
+        };
+        var weekSource = (state.filteredTasks || []).filter(function(t) { return !isPausedTask(t); });
+        var boardUnits = jiraBoardWorkUnits(weekSource).filter(function(t) { return !isPausedTask(t); });
+        var weekKpis;
+        if (opts.splitWeekKpis) {
+            var splitUnits = boardUnits.filter(function(t) {
                 return taskBelongsToDateRange(t, pStart, pEnd);
-            })), dueFn)
-            : collectVisibleDashboardKpis();
+            });
+            weekKpis = collectDashboardKpis(splitUnits, dueFn);
+        } else {
+            weekKpis = collectDashboardKpis(boardUnits, dueFn);
+        }
 
         function sectionHeading(num, t, desc) {
             var out = [new Paragraph({
@@ -1766,8 +2042,6 @@ export async function exportTasksToWord(title) {
             }));
             return out;
         }
-
-        var weekSource = state.filteredTasks || [];
 
         function appendWeeklySection(headingNodes, sectionNodes, emptyText) {
             children.push.apply(children, headingNodes);
@@ -1804,14 +2078,19 @@ export async function exportTasksToWord(title) {
 
         appendIcmalAndStats(children, weekKpis, opts.icmalMode || 'week', REPORT_FONT);
 
-        var isDoneFn = function(t) { return getStatusGroup(t.fields.status.name) === 'done'; };
+        var hasWeekPhase = function(t) {
+            return weekPhaseLinesForIssue(t, pStart, pEnd).length > 0;
+        };
+        var isGorulenFn = function(t) {
+            return dueFnContent(t) && wasCompletedInReportPeriod(t, pStart, pEnd) && hasWeekPhase(t);
+        };
         var isNotDoneDueFn = function(t) {
             var g = getStatusGroup(t.fields.status.name);
-            return g !== 'done' && g !== 'rejected' && dueFn(t);
+            return g !== 'done' && g !== 'rejected' && dueFnContent(t);
         };
         var isProgressFn = function(t) {
             var g = getStatusGroup(t.fields.status.name);
-            return (isActiveExecutionGroup(g) || g === 'other') && !dueFn(t);
+            return isActiveExecutionGroup(g) && !dueFnContent(t) && hasWeekPhase(t);
         };
         var isProblemFn = function(t) {
             var g = getStatusGroup(t.fields.status.name);
@@ -1820,19 +2099,32 @@ export async function exportTasksToWord(title) {
         var isPlannedFn = function(t) { return isNextWeekBoxTask(t); };
 
         appendWeeklySection(
-            sectionHeading('1', 'Görülən işlər', 'Hesabat dövründə yekunlaşdırılmış işlər istiqamətlər üzrə.'),
-            buildSection(getPrintTasks(isDoneFn, weekSource), false, pStart, pEnd, isDoneFn, true, true),
+            sectionHeading('1', 'Görülən işlər', 'Bu həftə tamamlanmalı olub yekunlaşdırılmış, cari həftədə mərhələsi yenilənmiş tapşırıq və alt tapşırıqlar.'),
+            buildHierarchicalWeeklySection(collectMatchingUnits(isGorulenFn, weekSource), function(t) {
+                return weekPhaseLinesForIssue(t, pStart, pEnd);
+            }),
             'Bu həftə tamamlanmış iş qeydə alınmayıb.'
         );
         appendWeeklySection(
-            sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə son icra müddəti (deadline) olan, lakin tamamlanmamış tapşırıqlar.'),
-            buildSection(getPrintTasks(isNotDoneDueFn, weekSource), false, pStart, pEnd, isNotDoneDueFn, true, false),
+            sectionHeading('2', 'Nəyi edə bilmədik', 'Bu həftə tamamlanması planlaşdırılan, lakin yekunlaşmayan tapşırıq və alt tapşırıqlar.'),
+            buildHierarchicalWeeklySection(collectMatchingUnits(isNotDoneDueFn, weekSource), function(t) {
+                var lines = [];
+                var last = lastPhaseEntry(t);
+                var line = formatEntryLine(last);
+                if (line) lines.push(line);
+                if (isEsdSigningDelay(t)) {
+                    lines.push('Tapşırıq ESD-də vizalanma və imzalanma prosesi səbəbindən gecikmişdir.');
+                }
+                return lines;
+            }),
             'Bu həftə bitməli olub, lakin tamamlanmayan tapşırıq yoxdur.'
         );
         appendWeeklySection(
-            sectionHeading('3', 'İcra mərhələsində olan və yarımçıq qalanlar', 'Planlaşdırılmış, lakin hələ də icra mərhələsində olan işlər.'),
-            buildSection(getPrintTasks(isProgressFn, weekSource), false, pStart, pEnd, isProgressFn, true, true),
-            'İcra mərhələsində yarımçıq qalan tapşırıq yoxdur.'
+            sectionHeading('3', 'İcra Mərhələsində olan tapşırıqlar', 'Bu həftə üçün planlaşdırılmayan, icrada olan və cari həftədə mərhələsi yenilənmiş tapşırıq və alt tapşırıqlar.'),
+            buildHierarchicalWeeklySection(collectMatchingUnits(isProgressFn, weekSource), function(t) {
+                return weekPhaseLinesForIssue(t, pStart, pEnd);
+            }),
+            'İcra mərhələsində tapşırıq qeydə alınmayıb.'
         );
         appendWeeklySection(
             sectionHeading('4', 'Mövcud çətinliklər', 'İcra prosesində qarşılaşılan çətinliklər, bloklanan və imtina edilmiş işlər.'),
@@ -1946,6 +2238,8 @@ export async function exportTasksToWord(title) {
         var weekFailed = false;
         for (var wi = 0; wi < weekRange.weeks.length; wi++) {
             var weekOne = weekRange.weeks[wi];
+            var weekClip = clipToWorkweekEnds(weekOne.start, weekOne.end);
+            weekOne = weekInfoFromDates(weekClip.start, weekClip.end);
             var weekOk = await downloadGeneratedDoc(
                 buildWeeklyDocument(weekOne, {
                     kind: 'week',

@@ -7,13 +7,14 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Blueprint, request, jsonify, session
+from flask import Blueprint, request, jsonify, session, send_file
 from werkzeug.utils import secure_filename
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
 from chat_llm import answer_chat, chat_llm_ready
 import chat_llm
 from diag_excel import parse_diag_excel
+from rehber_excel import TABS, TAB_LABELS, parse_tab, build_template, template_filename
 from report_pptx import parse_report_file, normalize_report_kind
 from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people
 from jql import build_date_filter_jql, generate_recommendations
@@ -106,7 +107,11 @@ def viewer_jira_pat(user=None):
 
 
 def has_jira_token(user=None):
-    return bool(viewer_jira_pat(user))
+    if viewer_jira_pat(user):
+        return True
+    if session.get('home_panel') == 'rehber':
+        return bool(get_shared_jira_pat())
+    return False
 
 
 def remember_project_key(data):
@@ -130,7 +135,8 @@ def login_payload(user):
         'canSeeDiagnostics': can_see_diagnostics(),
         'hasToken': has_jira_token(user),
         'canManageUsers': can_manage_users(user),
-        'canManageTech': can_manage_tech(user)
+        'canManageTech': can_manage_tech(user),
+        'homePanel': session.get('home_panel') or 'ops'
     }
 
 
@@ -175,7 +181,7 @@ def wants_remember(data):
     return str(raw or '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
-def bind_session(user, remember=False):
+def bind_session(user, remember=False, panel='ops'):
     session.clear()
     session.permanent = bool(remember)
     session['user_id'] = user.get('id')
@@ -187,6 +193,7 @@ def bind_session(user, remember=False):
     session['team'] = normalize_team(user.get('team'))
     session['current_team'] = session['team']
     session['remember'] = bool(remember)
+    session['home_panel'] = 'rehber' if str(panel or '').strip().lower() == 'rehber' else 'ops'
     if session['role'] in ('admin', 'superadmin'):
         session['diag_admin'] = True
 
@@ -328,8 +335,22 @@ def auth_status():
         return options_ok()
     return jsonify({
         'authenticated': is_logged_in(),
-        'needsSetup': not has_users()
+        'needsSetup': not has_users(),
+        'homePanel': (session.get('home_panel') or 'ops') if is_logged_in() else None
     })
+
+
+@api.route('/api/auth/panel', methods=['POST', 'OPTIONS'])
+@login_required
+def auth_set_panel():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    panel = 'rehber' if str(data.get('panel') or '').strip().lower() == 'rehber' else 'ops'
+    session['home_panel'] = panel
+    return jsonify({'ok': True, 'homePanel': panel}), 200
 
 
 @api.route('/api/auth/setup', methods=['POST', 'OPTIONS'])
@@ -352,18 +373,21 @@ def auth_login():
     if not user:
         return jsonify({'error': 'İstifadəçi adı və ya parol səhvdir'}), 401
     incoming = str(data.get('jiraPat') or data.get('pat') or data.get('token') or '').strip()
+    panel = str(data.get('panel') or '').strip().lower()
+    if panel != 'rehber':
+        panel = 'ops'
     if incoming:
         save_user_jira_pat(user.get('id'), incoming)
     elif not user_jira_pat(user) and (user.get('role') == 'superadmin'):
         shared = get_shared_jira_pat()
         if shared:
             save_user_jira_pat(user.get('id'), shared)
-    if not user_jira_pat(user):
+    if panel != 'rehber' and not user_jira_pat(user):
         return jsonify({
             'error': 'Jira tokeninizi yazın. Bir dəfə yadda qalır, növbəti girişdə lazım olmayacaq.',
             'needsToken': True
         }), 400
-    bind_session(user, wants_remember(data))
+    bind_session(user, wants_remember(data), panel)
     return jsonify(login_payload(user)), 200
 
 
@@ -442,7 +466,8 @@ def auth_me():
         'canSeeDiagnostics': can_see_diagnostics(),
         'hasToken': has_jira_token(user),
         'canManageUsers': can_manage_users(user),
-        'canManageTech': can_manage_tech(user)
+        'canManageTech': can_manage_tech(user),
+        'homePanel': session.get('home_panel') or 'ops'
     }), 200
 
 
@@ -646,7 +671,10 @@ def resolve_credentials(data):
     base_url = (JIRA_BASE_URL or '').rstrip('/')
     if is_superadmin() and str(data.get('baseUrl') or '').strip():
         base_url = str(data.get('baseUrl') or '').rstrip('/')
-    return base_url, viewer_jira_pat()
+    pat = viewer_jira_pat()
+    if not pat and session.get('home_panel') == 'rehber':
+        pat = get_shared_jira_pat()
+    return base_url, pat
 
 
 @api.route('/api/config', methods=['GET'])
@@ -1413,4 +1441,156 @@ def set_report_kind(file_id):
         'kind': kind,
         'reports': flatten_reports(index)
     }), 200
+
+
+REHBER_UPLOAD_DIR = os.path.join(BASE_DIR, 'uploads', 'rehber')
+REHBER_INDEX_PATH = os.path.join(BASE_DIR, 'data', 'rehber_uploads.json')
+REHBER_ALLOWED_EXT = {'.xlsx', '.xlsm', '.csv'}
+
+
+def rehber_index():
+    if not os.path.isfile(REHBER_INDEX_PATH):
+        return {'tabs': {}}
+    try:
+        with open(REHBER_INDEX_PATH, 'r', encoding='utf-8') as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            tabs = data.get('tabs')
+            if isinstance(tabs, dict):
+                return {'tabs': tabs}
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {'tabs': {}}
+
+
+def save_rehber_index(data):
+    os.makedirs(os.path.dirname(REHBER_INDEX_PATH), exist_ok=True)
+    with open(REHBER_INDEX_PATH, 'w', encoding='utf-8') as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+
+
+def live_rehber_tab(tab, item):
+    stored = (item or {}).get('stored')
+    path = os.path.join(REHBER_UPLOAD_DIR, stored) if stored else ''
+    if path and os.path.isfile(path):
+        try:
+            parsed = parse_tab(path, tab)
+            if parsed:
+                return parsed
+        except Exception:
+            pass
+    return (item or {}).get('data') or None
+
+
+def public_rehber_tab(tab, item):
+    if not item:
+        return {'tab': tab, 'label': TAB_LABELS.get(tab, tab), 'file': None, 'data': None}
+    return {
+        'tab': tab,
+        'label': TAB_LABELS.get(tab, tab),
+        'file': {
+            'id': item.get('id'),
+            'name': item.get('name'),
+            'uploadedAt': item.get('uploadedAt')
+        },
+        'data': live_rehber_tab(tab, item)
+    }
+
+
+def normalize_rehber_tab(raw):
+    key = str(raw or '').strip().lower()
+    return key if key in TABS else ''
+
+
+@api.route('/api/rehber/data', methods=['GET', 'OPTIONS'])
+@login_required
+def rehber_data():
+    index = rehber_index()
+    tabs = index.get('tabs') or {}
+    return jsonify({
+        'tabs': {tab: public_rehber_tab(tab, tabs.get(tab)) for tab in TABS}
+    }), 200
+
+
+@api.route('/api/rehber/template/<tab>', methods=['GET', 'OPTIONS'])
+@login_required
+def rehber_template(tab):
+    key = normalize_rehber_tab(tab)
+    if not key:
+        return jsonify({'error': 'Naməlum tab'}), 404
+    buf = build_template(key)
+    return send_file(
+        buf,
+        as_attachment=True,
+        download_name=template_filename(key),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+
+@api.route('/api/rehber/upload', methods=['POST', 'OPTIONS'])
+@login_required
+def rehber_upload():
+    key = normalize_rehber_tab(request.form.get('tab') or request.args.get('tab'))
+    if not key:
+        return jsonify({'error': 'Tab seçin'}), 400
+    fh = request.files.get('file')
+    if not fh or not fh.filename:
+        return jsonify({'error': 'Excel faylı seçin (.xlsx)'}), 400
+    ext = os.path.splitext(fh.filename or '')[1].lower()
+    if ext not in REHBER_ALLOWED_EXT:
+        return jsonify({'error': 'Yalnız .xlsx / .xlsm / .csv qəbul olunur'}), 400
+    os.makedirs(REHBER_UPLOAD_DIR, exist_ok=True)
+    file_id = uuid.uuid4().hex
+    safe = secure_filename(fh.filename) or (key + ext)
+    stored = file_id + '_' + safe
+    path = os.path.join(REHBER_UPLOAD_DIR, stored)
+    fh.save(path)
+    try:
+        parsed = parse_tab(path, key)
+    except Exception as exc:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        return jsonify({'error': str(exc)}), 400
+    index = rehber_index()
+    prev = (index.get('tabs') or {}).get(key)
+    if prev and prev.get('stored'):
+        old = os.path.join(REHBER_UPLOAD_DIR, prev.get('stored'))
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    rec = {
+        'id': file_id,
+        'name': fh.filename,
+        'stored': stored,
+        'uploadedAt': datetime.now(timezone.utc).isoformat(),
+        'data': parsed
+    }
+    index.setdefault('tabs', {})[key] = rec
+    save_rehber_index(index)
+    return jsonify(public_rehber_tab(key, rec)), 200
+
+
+@api.route('/api/rehber/uploads/<tab>', methods=['DELETE', 'OPTIONS'])
+@login_required
+def rehber_delete(tab):
+    key = normalize_rehber_tab(tab)
+    if not key:
+        return jsonify({'error': 'Naməlum tab'}), 404
+    index = rehber_index()
+    tabs = index.get('tabs') or {}
+    found = tabs.pop(key, None)
+    if not found:
+        return jsonify({'error': 'Fayl tapılmadı'}), 404
+    save_rehber_index(index)
+    stored = found.get('stored')
+    if stored:
+        path = os.path.join(REHBER_UPLOAD_DIR, stored)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+    return jsonify({'ok': True, 'tab': public_rehber_tab(key, None)}), 200
 

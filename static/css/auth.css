@@ -531,3 +531,11 @@ body.auth-page {
 @media (max-width: 720px) {
     .auth-grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 480px) {
+    body.auth-page { padding: 0.5rem; }
+    .auth-shell { border-radius: 20px; }
+    .auth-brand { padding: 1.15rem 1.05rem 1rem; }
+    .auth-brand h1 { font-size: 1.25rem; }
+    .auth-pat-steps li { font-size: 0.72rem; }
+    .auth-stage { padding: 1.1rem 0.95rem 1.05rem; }
+}

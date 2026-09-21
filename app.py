@@ -54,7 +54,7 @@ ensure_requirements()
 from datetime import timedelta
 from urllib.parse import urlparse
 
-from flask import Flask, render_template, request, redirect, session, jsonify
+from flask import Flask, render_template, request, redirect, session, jsonify, send_from_directory
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import (
@@ -76,7 +76,12 @@ from config import (
 from routes import api, can_see_diagnostics, is_app_admin
 from users import bootstrap_users, ensure_superadmin, sync_display_names
 
-app = Flask(__name__)
+ROOT = os.path.dirname(os.path.abspath(__file__))
+app = Flask(
+    __name__,
+    template_folder=os.path.join(ROOT, 'templates'),
+    static_folder=os.path.join(ROOT, 'static'),
+)
 
 
 def _persist_secret_key():
@@ -172,6 +177,8 @@ def require_login():
         return None
     if path.startswith('/api/'):
         return jsonify({'error': 'Giriş lazımdır'}), 401
+    if 'rehber' in path:
+        return redirect('/login?panel=rehber')
     return redirect('/login')
 
 
@@ -210,9 +217,17 @@ def serve_dashboard():
 
 @app.route('/login')
 def serve_login():
-    if session.get('user_id'):
+    if session.get('user_id') and request.args.get('choose') != '1':
+        if session.get('home_panel') == 'rehber':
+            return redirect('/rehber')
         return redirect('/')
     return render_template('login.html')
+
+
+@app.route('/rehber')
+@app.route('/rehber/')
+def serve_rehber():
+    return send_from_directory(app.template_folder, 'rehber.html')
 
 
 @app.route('/settings')
