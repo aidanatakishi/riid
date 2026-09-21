@@ -1,65 +1,54 @@
-# Rəqəmsal İdarəetmə Paneli (RİİD)
+# RIID — Digital Management Panel
 
-İRİA (Rəqəmsal İdarəetmə Departamenti) üçün Jira paneli. Task, sprint, çətinlik, qurum və qiymətləndirmə analitikasını göstərir.
+Internal Jira dashboard for IRIA (Digital Management Department).
 
-Repo: https://github.com/aidanatakishi/riid
+## Why it exists
 
-## Yükləmək
+The team needs one place to see Jira work instead of opening tickets one by one:
 
-**Tam ZIP (Windows):** [Releases → riid-main.zip](https://github.com/aidanatakishi/riid/releases/latest)
+- operational dashboard: tasks, sprints, workload, status, assessments
+- leadership page (`/rehber`): evaluation from Jira; other sections update from Excel uploads
 
-Ölçü təxminən 300+ KB olmalıdır. GitHub-un yaşıl **Code → Download ZIP** bəzən yarımçıq düşür — onu istifadə etməyin.
+Login has two choices: current panel (`/`) or leadership panel (`/rehber`).
 
-**Git:**
+## How to run
+
+You need Python 3 on PATH.
 
 ```
 git clone https://github.com/aidanatakishi/riid.git
 cd riid
 ```
 
-## İşə salmaq
+Windows: double-click `run.bat`  
+or:
 
-Kompüterdə Python 3 lazımdır (`Add python.exe to PATH`).
+```
+python app.py
+```
 
-- Windows: `run.bat`
-- və ya: `python app.py`
-
-İlk dəfə əskik paketlər avtomatik quraşır. Sonra brauzerdə:
+Missing packages install on first start. Then open:
 
 http://127.0.0.1:5000
 
-### Giriş
+Sign in with an existing account. On the ops panel, paste your Jira token once if asked. Do not put tokens or passwords in Git.
 
-- Lokal boş quraşdırma: terminalda `admin / admin123` və `user / user123` yaranır.
-- Production: `.env`-də `ADMIN_PASSWORD` yazın (ən azı 8 simvol).
-- Yeni hesabları **Tənzimləmələr → İstifadəçilər** səhifəsindən admin yaradır.
+### Production server
 
-Hər istifadəçi öz Jira tokenini (PAT) ilk girişdə yazır. Token `data/secrets.json`-da qalır, Git-ə düşmür.
+Copy `.env.example` to `.env` on the server (never commit `.env`). Set production flags there.
 
-## Production
-
-Prod server Jira-ya (`jira.idda.az`) çatmalıdır.
-
-1. `.env` yazın (`.env.example` əsasında): `APP_ENV=production`, `FLASK_DEBUG=false`, `TRUST_PROXY=true`, `SECRET_KEY`, `ADMIN_PASSWORD` (yalnız `users.json` boşdursa).
-2. Daxili HTTP-dirsə `SESSION_COOKIE_SECURE=false` saxlayın. HTTPS reverse proxy varsa `true`.
-3. Windows: `run-prod.bat` (waitress). Linux: `gunicorn --preload --bind 0.0.0.0:5000 --workers 2 --timeout 180 app:app`. Docker: `docker compose up -d --build`.
-4. `data/` və `uploads/` qovluqlarını yedəkləyin.
-5. `/api/health` `{"ok": true}` qaytarmalıdır.
-
-## Struktur
+Windows:
 
 ```
-app.py                 Flask giriş nöqtəsi
-config.py              Jira URL, layihə, field ID-ləri
-routes.py              API
-jira_client.py         Jira HTTP
-users.py               Hesablar
-templates/             HTML
-static/js/             Panel və qiymətləndirmə
-static/css/
-data/users.json        Hesab siyahısı (token yoxdur)
+run-prod.bat
 ```
 
-## Qeyd
+Linux:
 
-Server `0.0.0.0` ilə açılır — eyni ofis şəbəkəsində `http://SİZİN-IP:5000` işləyir.
+```
+gunicorn --preload --bind 0.0.0.0:5000 --workers 2 --timeout 180 app:app
+```
+
+Open `http://SERVER_IP:5000`. Check `http://127.0.0.1:5000/api/health` — it should return `{"ok": true}`.
+
+The server must reach Jira on the network. Keep `data/` and `uploads/` backed up.
