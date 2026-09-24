@@ -11,6 +11,7 @@ export const state = {
     currentQurumFilter: null,
     currentStatusFilter: null,
     currentEsdInnerFilter: null,
+    currentReviewPartyFilter: null,
     sprintDateFiltered: [],
     epicChartTasks: [],
     qurumChartTasks: [],

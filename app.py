@@ -200,7 +200,12 @@ def add_cors_headers(resp):
         resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     path = request.path or '/'
     if path.startswith('/static/'):
-        resp.headers['Cache-Control'] = 'public, max-age=2592000'
+        if is_production():
+            resp.headers['Cache-Control'] = 'public, max-age=2592000'
+        else:
+            resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            resp.headers['Pragma'] = 'no-cache'
+            resp.headers['Expires'] = '0'
         return resp
     ctype = str(resp.content_type or '')
     if 'text/html' in ctype:

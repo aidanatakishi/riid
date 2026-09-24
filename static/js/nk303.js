@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda40';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda45';
 import {
     parseDiagUmumiNetice,
     getDiagHeadline,
@@ -17,7 +17,7 @@ import {
     exqStarTarget,
     exqStarColor,
     exqStarLabel
-} from './model.js?v=idda4';
+} from './model.js?v=idda7';
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda3';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';

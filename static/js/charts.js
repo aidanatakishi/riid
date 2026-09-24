@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda5';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js';
-import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda6';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda7';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda33';
+import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda7';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda3';
 
 var chartRebuildRaf = {};
@@ -74,6 +74,14 @@ function esdInnerStageMeta(id) {
     return null;
 }
 
+function reviewPartyMeta(id) {
+    var i;
+    for (i = 0; i < (REVIEW_PARTY_OPTIONS || []).length; i++) {
+        if (REVIEW_PARTY_OPTIONS[i].id === id) return REVIEW_PARTY_OPTIONS[i];
+    }
+    return null;
+}
+
 function escapeEsdChip(s) {
     return String(s == null ? '' : s)
         .replace(/&/g, '&amp;')
@@ -82,12 +90,17 @@ function escapeEsdChip(s) {
         .replace(/"/g, '&quot;');
 }
 
-var STATUS_GROUP_NAMES = { 'done': 'İcra edilib', 'progress': 'İcradadır', 'review': 'Rəy gözlənilir', 'esd': 'ESD', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'paused': 'Dayandırılıb', 'other': 'Digər' };
+var STATUS_GROUP_NAMES = { 'done': 'İcra edilib', 'progress': 'İcradadır', 'review': 'Rəy gözlənilir', 'esd': 'ESD', 'planned': 'Planlaşdırılıb', 'blocked': 'Bloklanıb', 'rejected': 'İmtina', 'other': 'Digər' };
+var STATUS_CHART_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'rejected', 'other'];
 var STATUS_GROUP_COLORS = STATUS;
 
 var esdPopupOpen = false;
 var esdPopupBound = false;
 var esdIgnoreUntil = 0;
+var reviewPopupOpen = false;
+var reviewPopupWanted = false;
+var reviewPopupBound = false;
+var reviewIgnoreUntil = 0;
 
 function syncEsdLegendOpen() {
     var el = document.getElementById('statusChartLegend');
@@ -96,6 +109,7 @@ function syncEsdLegendOpen() {
         var key = btn.getAttribute('data-status');
         btn.classList.toggle('is-active', key === state.currentStatusFilter);
         btn.classList.toggle('is-esd-open', esdPopupOpen && key === 'esd');
+        btn.classList.toggle('is-review-open', reviewPopupOpen && key === 'review');
     });
 }
 
@@ -125,7 +139,74 @@ function openEsdStagePopup() {
 
 function toggleEsdStagePopup() {
     if (esdPopupOpen) closeEsdStagePopup();
-    else openEsdStagePopup();
+    else {
+        closeReviewPartyPopup();
+        openEsdStagePopup();
+    }
+}
+
+export function closeReviewPartyPopup() {
+    reviewPopupOpen = false;
+    reviewPopupWanted = false;
+    var panel = document.getElementById('reviewPartyPanel');
+    if (panel) {
+        panel.classList.add('hidden');
+        panel.setAttribute('hidden', '');
+        panel.setAttribute('aria-hidden', 'true');
+    }
+    syncEsdLegendOpen();
+}
+
+function openReviewPartyPopup() {
+    var panel = document.getElementById('reviewPartyPanel');
+    var chips = document.getElementById('reviewPartyChips');
+    if (!panel || !chips) return false;
+    if (!chips.innerHTML && !openReviewPartyPopup._filling) {
+        openReviewPartyPopup._filling = true;
+        try { renderReviewPartyBreakdown(state.statusChartTasks || state.filteredTasks, true); }
+        finally { openReviewPartyPopup._filling = false; }
+    }
+    if (!chips.innerHTML) return false;
+    reviewPopupOpen = true;
+    reviewPopupWanted = true;
+    reviewIgnoreUntil = Date.now() + 350;
+    panel.classList.remove('hidden');
+    panel.removeAttribute('hidden');
+    panel.setAttribute('aria-hidden', 'false');
+    syncEsdLegendOpen();
+    bindReviewPopupDismiss();
+    return true;
+}
+
+function showReviewTasksAndPopup() {
+    closeEsdStagePopup();
+    var secondClick = state.currentStatusFilter === 'review';
+    reviewPopupWanted = true;
+    onReviewStatusClicked();
+    renderReviewPartyBreakdown(state.statusChartTasks || state.filteredTasks, true);
+    openReviewPartyPopup();
+    if (!secondClick) return;
+    var list = countableWorkUnits(state.filteredTasks);
+    rememberListAction({ kind: 'reviewParty', partyId: state.currentReviewPartyFilter || 'all' });
+    renderTaskList(list, 'Rəy gözlənilir - Tapşırıqları', { keepNested: true });
+    openTaskListSection();
+}
+
+function bindReviewPopupDismiss() {
+    if (reviewPopupBound) return;
+    reviewPopupBound = true;
+    document.addEventListener('click', function(ev) {
+        if (!reviewPopupOpen) return;
+        if (Date.now() < reviewIgnoreUntil) return;
+        var panel = document.getElementById('reviewPartyPanel');
+        var t = ev && ev.target;
+        if (panel && panel.contains(t)) return;
+        if (t && t.closest && t.closest('.icra-legend-row[data-status="review"]')) return;
+        closeReviewPartyPopup();
+    });
+    document.addEventListener('keydown', function(ev) {
+        if ((ev.key === 'Escape' || ev.key === 'Esc') && reviewPopupOpen) closeReviewPartyPopup();
+    });
 }
 
 function bindEsdPopupDismiss() {
@@ -149,14 +230,22 @@ function openStatusGroup(k, ev) {
     if (!k) return;
     if (k === 'esd') {
         if (ev && ev.stopPropagation) ev.stopPropagation();
+        closeReviewPartyPopup();
         onEsdStatusClicked();
         toggleEsdStagePopup();
         return;
     }
+    if (k === 'review') {
+        if (ev && ev.stopPropagation) ev.stopPropagation();
+        showReviewTasksAndPopup();
+        return;
+    }
     closeEsdStagePopup();
-    if (state.currentStatusFilter === 'esd') {
+    closeReviewPartyPopup();
+    if (state.currentStatusFilter === 'esd' || state.currentStatusFilter === 'review') {
         state.currentStatusFilter = null;
         state.currentEsdInnerFilter = null;
+        state.currentReviewPartyFilter = null;
         applyFilters();
     }
     if (k === 'blocked') {
@@ -241,12 +330,65 @@ export function renderEsdStatusBreakdown(tasks) {
     else closeEsdStagePopup();
 }
 
+export function renderReviewPartyBreakdown(tasks, keepOpen) {
+    var panel = document.getElementById('reviewPartyPanel');
+    var chips = document.getElementById('reviewPartyChips');
+    if (!panel || !chips) return;
+    var reviewTasks = countableWorkUnits(tasks).filter(function(t) {
+        return getStatusGroup(t.fields.status.name) === 'review';
+    });
+    if (!reviewTasks.length) {
+        chips.innerHTML = '';
+        closeReviewPartyPopup();
+        return;
+    }
+    var counts = {};
+    (REVIEW_PARTY_OPTIONS || []).forEach(function(opt) {
+        counts[opt.id] = { id: opt.id, label: opt.label, n: 0 };
+    });
+    reviewTasks.forEach(function(t) {
+        var party = getReviewParty(t) || { id: 'none', label: 'Məlumat mövcud deyil', roleLabel: 'Məlumat mövcud deyil' };
+        var chipLabel = party.roleLabel || party.label;
+        if (!counts[party.id]) counts[party.id] = { id: party.id, label: chipLabel, n: 0 };
+        counts[party.id].n += 1;
+        if (chipLabel) counts[party.id].label = chipLabel;
+    });
+    var order = (REVIEW_PARTY_OPTIONS || []).map(function(s) { return s.id; });
+    var extras = Object.keys(counts).filter(function(id) { return order.indexOf(id) === -1; }).sort();
+    var ids = order.concat(extras);
+    var selectedParty = state.currentStatusFilter === 'review' ? (state.currentReviewPartyFilter || 'all') : '';
+    var html = '<button type="button" class="esd-status-row is-all' + (selectedParty === 'all' ? ' is-selected' : '') + '" onclick="filterReviewParty(\'all\')" title="Bütün rəy gözlənilən tapşırıqlar">'
+        + '<span class="esd-status-dot"></span><span>Hamısı</span><b>' + reviewTasks.length + '</b></button>';
+    html += ids.map(function(id) {
+        var row = counts[id];
+        var meta = reviewPartyMeta(id);
+        var label = (meta && meta.label) || row.label || id;
+        var arg = String(id).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
+        var slug = escapeEsdChip(String(id).replace(/[^a-z0-9]+/gi, '-'));
+        var isSel = selectedParty === id;
+        return '<button type="button" class="esd-status-row is-' + slug + (isSel ? ' is-selected' : '') + '"'
+            + ' onclick="filterReviewParty(\'' + arg + '\')"'
+            + ' title="Rəy verən tərəf: ' + escapeEsdChip(label) + '">'
+            + '<span class="esd-status-dot"></span>'
+            + '<span>' + escapeEsdChip(label) + '</span><b>' + row.n + '</b></button>';
+    }).join('');
+    chips.innerHTML = html;
+    if (!panel._reviewStopBound) {
+        panel._reviewStopBound = true;
+        panel.addEventListener('click', function(ev) { ev.stopPropagation(); });
+    }
+    if (keepOpen || reviewPopupWanted || reviewPopupOpen) openReviewPartyPopup();
+    else closeReviewPartyPopup();
+}
+
 function drawStatusChart(tasks) {
     var gN = STATUS_GROUP_NAMES;
     var gC = STATUS_GROUP_COLORS;
-    var order = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'rejected', 'other'];
+    var order = STATUS_CHART_ORDER;
     var counts = {};
-    var units = countableWorkUnits(tasks);
+    var units = countableWorkUnits(tasks).filter(function(t) {
+        return getStatusGroup(t.fields && t.fields.status && t.fields.status.name) !== 'paused';
+    });
     units.forEach(function(t) {
         var k = getStatusGroup(t.fields.status.name);
         if (!gN[k] || k === 'paused') return;

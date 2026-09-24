@@ -3,8 +3,8 @@ import { apiFetch } from './session.js?v=idda12';
 import {
     collectActivityDirectionFieldIds,
     collectSelfDisplayFieldIds
-} from './model.js?v=idda4';
-import { getRehberEvalSnapshot } from './assessments.js?v=idda44';
+} from './model.js?v=idda7';
+import { getRehberEvalSnapshot } from './assessments.js?v=idda45';
 
 var NA = 'Məlumat mövcud deyil';
 var START_YEAR = 2023;

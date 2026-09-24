@@ -2753,6 +2753,7 @@ input.assess-search-input:focus {
 .assess-status--review { background: #ecfeff; color: #0e7490; }
 .assess-status--esd { background: #eef2ff; color: #4338ca; }
 .assess-status--esd-inner { background: #e0e7ff; color: #3730a3; font-weight: 700; }
+.assess-status--review-party { background: #cffafe; color: #0e7490; font-weight: 700; }
 .assess-status--blocked { background: #fef2f2; color: #b91c1c; }
 .assess-status--paused { background: #fffbeb; color: #b45309; }
 .assess-status--rejected { background: #fff1f2; color: #be123c; }
@@ -5660,7 +5661,13 @@ body.settings-open { overflow: hidden; }
 .esd-status-row.is-viza .esd-status-dot { background: #ea580c; }
 .esd-status-row.is-gonder .esd-status-dot { background: #059669; }
 .esd-status-row.is-huseyn .esd-status-dot { background: #2563eb; }
+.review-party-panel .esd-status-kicker { color: #0e7490; }
+.esd-status-row.is-dept .esd-status-dot { background: #4f46e5; }
+.esd-status-row.is-div .esd-status-dot { background: #0891b2; }
+.esd-status-row.is-board .esd-status-dot { background: #c026d3; }
+.esd-status-row.is-org .esd-status-dot { background: #059669; }
 .icra-legend-row.is-esd-open,
+.icra-legend-row.is-review-open,
 .icra-legend-row.is-active {
     background: #f3e8ff;
     box-shadow: inset 0 0 0 1px #ddd6fe;

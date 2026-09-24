@@ -421,6 +421,104 @@ export function getEsdInnerStatus(t) {
     return classifyEsdInnerLabel(raw);
 }
 
+/** Jira keçidi «Rəy gözlənilir» olanda tələb olunan «Rəy verən tərəf». */
+export var REVIEW_PARTY_OPTIONS = [
+    { id: 'dept', label: 'Departament müdiri' },
+    { id: 'div', label: 'Şöbə müdiri' },
+    { id: 'board', label: 'İdarə Heyətinin sədr müavini' },
+    { id: 'org', label: 'Qurumun' },
+    { id: 'none', label: 'Məlumat mövcud deyil' }
+];
+
+function isReviewPartyFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('rey veren teref') !== -1) return true;
+    if (folded.indexOf('review party') !== -1) return true;
+    return folded.indexOf('reviewer party') !== -1;
+}
+
+function isReviewUnitFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('daxili struktur') !== -1) return true;
+    return folded.indexOf('internal structure') !== -1;
+}
+
+function collectFieldIdsByName(isMatch, needles) {
+    var ids = [];
+    var seen = {};
+    function add(id) {
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        ids.push(id);
+    }
+    var named = findJiraFieldsByNeedles(needles);
+    var i;
+    for (i = 0; i < named.length; i++) add(named[i].id);
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (isMatch(foldAz(names[key]))) add(key);
+    }
+    return ids;
+}
+
+export function collectReviewPartyFieldIds() {
+    return collectFieldIdsByName(isReviewPartyFieldName, ['rəy verən tərəf', 'rey veren teref', 'review party', 'reviewer party']);
+}
+
+export function collectReviewUnitFieldIds() {
+    return collectFieldIdsByName(isReviewUnitFieldName, ['daxili struktur bölmə', 'daxili struktur bolme', 'internal structure']);
+}
+
+function readNamedFieldRaw(t, ids, isMatch) {
+    if (!t || !t.fields) return '';
+    var i, text;
+    for (i = 0; i < ids.length; i++) {
+        text = fieldValueText(t.fields[ids[i]]);
+        if (text) return text;
+    }
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in t.fields) {
+        if (!Object.prototype.hasOwnProperty.call(t.fields, key)) continue;
+        if (!isMatch(foldAz(names[key] || key))) continue;
+        text = fieldValueText(t.fields[key]);
+        if (text) return text;
+    }
+    return '';
+}
+
+export function classifyReviewParty(raw) {
+    var text = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!text) return { id: 'none', label: 'Məlumat mövcud deyil' };
+    var f = foldAz(text);
+    if (!f || f === 'none' || f === 'null' || f === 'secilmeyib' || f === 'qeyd edilmeyib') {
+        return { id: 'none', label: 'Məlumat mövcud deyil' };
+    }
+    if (f.indexOf('departament') !== -1) return { id: 'dept', label: 'Departament müdiri' };
+    if (f.indexOf('sobe') !== -1) return { id: 'div', label: 'Şöbə müdiri' };
+    if (f.indexOf('hey') !== -1 || f.indexOf('sedr') !== -1 || f.indexOf('muavin') !== -1 || f.indexOf('board') !== -1) {
+        return { id: 'board', label: 'İdarə Heyətinin sədr müavini' };
+    }
+    if (f.indexOf('qurum') !== -1) return { id: 'org', label: 'Qurumun' };
+    return { id: 'opt:' + f.replace(/\s+/g, '-'), label: text };
+}
+
+export function getReviewParty(t) {
+    if (!t || !t.fields || !t.fields.status) return null;
+    if (getStatusGroup(t.fields.status.name || '') !== 'review') return null;
+    var raw = readNamedFieldRaw(t, collectReviewPartyFieldIds(), isReviewPartyFieldName);
+    var unit = readNamedFieldRaw(t, collectReviewUnitFieldIds(), isReviewUnitFieldName);
+    var classified = classifyReviewParty(raw);
+    var roleLabel = classified.label;
+    var label = roleLabel;
+    if (unit && label.indexOf(unit) === -1) {
+        label = classified.id === 'none' ? unit : (roleLabel + ' · ' + unit);
+    }
+    return { id: classified.id, label: label, roleLabel: roleLabel, unit: unit || '' };
+}
+
 function bakuToday() {
     var now = new Date();
     var utc = now.getTime() + (now.getTimezoneOffset() * 60000);
@@ -1722,6 +1820,10 @@ export function matchesDashContextFilters(t, skip) {
             var inner = getEsdInnerStatus(t);
             if (!inner || inner.id !== state.currentEsdInnerFilter) return false;
         }
+        if (state.currentStatusFilter === 'review' && state.currentReviewPartyFilter) {
+            var party = getReviewParty(t);
+            if (!party || party.id !== state.currentReviewPartyFilter) return false;
+        }
     }
     if (!skip.label && state.activeLabelFilter) {
         if (!taskMatchesSelectedLabel(t, state.activeLabelFilter)) return false;
@@ -1794,6 +1896,7 @@ var ASSESS_RESERVED_IDS = {
     customfield_17319: true
 };
 
+export var DIAG_SCORE_FIELD = 'customfield_17315';
 export var SELF_OVERALL_FIELD = 'customfield_17315';
 export var SELF_DIR_FIELDS = [
     { id: 'customfield_17314', title: 'Strategiya üzrə nəticə' },
@@ -3298,31 +3401,7 @@ export function parseDiagUmumiNetice(raw) {
 
 export function getDiagHeadline(t) {
     if (memoHas('diagHeadline', t)) return memoGet('diagHeadline', t);
-    var parsed = parseDiagUmumiNetice(t && t.fields ? t.fields.customfield_17319 : null);
-    var out = '—';
-    if (parsed.overall.score && parsed.overall.score !== '—') {
-        out = parsed.overall.score;
-    } else {
-        var nearby = getDiagScore(t);
-        if (nearby && nearby !== '—') {
-            out = nearby;
-        } else if (parsed.overall.text) {
-            var ot = parsed.overall.text.replace(/\s+/g, ' ').trim();
-            if (ot && !isHeaderOnlyText(ot) && !looksLikeFlattenedTable(ot)) {
-                out = shortenLabel(ot, 80);
-            }
-        }
-        if (out === '—') {
-            var i;
-            for (i = 0; i < parsed.directions.length; i++) {
-                if (parsed.directions[i].score && parsed.directions[i].score !== '—') {
-                    out = parsed.directions[i].score;
-                    break;
-                }
-            }
-        }
-    }
-    return memoSet('diagHeadline', t, out);
+    return memoSet('diagHeadline', t, getDiagScore(t));
 }
 
 export function findJiraFieldsByNeedles(needles) {
@@ -3422,53 +3501,10 @@ function readIssueField(t, id) {
 }
 
 export function getDiagScore(t) {
-    var named = findJiraFieldsByNeedles(['diaqnostika bal', 'diaqnostika balı', 'rəqəmsallaşma bal']);
-    var i;
-    for (i = 0; i < named.length; i++) {
-        if (ASSESS_RESERVED_IDS[named[i].id]) continue;
-        var nv = readIssueField(t, named[i].id);
-        if (!isEmptyJiraValue(nv)) {
-            var ns = formatAssessmentScore(nv);
-            if (ns !== '—') return ns;
-        }
-    }
-    var names = state.jiraFieldNames || {};
-    var key;
-    for (key in names) {
-        if (ASSESS_RESERVED_IDS[key]) continue;
-        var fn = foldAz(names[key]);
-        if (fn.indexOf('diaqnostika') !== -1 && (fn.indexOf('bal') !== -1 || fn.indexOf('score') !== -1)) {
-            var dv = readIssueField(t, key);
-            if (!isEmptyJiraValue(dv)) {
-                var ds = formatAssessmentScore(dv);
-                if (ds !== '—') return ds;
-            }
-        }
-    }
-    for (i = 0; i < ASSESS_NEARBY_IDS.length; i++) {
-        var nid = ASSESS_NEARBY_IDS[i];
-        var nn = fieldNameFold(nid);
-        if (nn && (nn.indexOf('isq') !== -1 || nn.indexOf('exq') !== -1 || nn.indexOf('ozunuqiymetlendirme') !== -1 || nn.indexOf('elektron') !== -1)) continue;
-        if (nn && nn.indexOf('xidmet') !== -1 && nn.indexOf('say') !== -1) continue;
-        var nearbyVal = readIssueField(t, nid);
-        var nearbyNum = coerceScoreNumber(nearbyVal);
-        if (nearbyNum != null && (nn.indexOf('bal') !== -1 || nn.indexOf('diaqnostika') !== -1 || nn.indexOf('netice') !== -1 || !nn)) {
-            if (nn.indexOf('ozunu') !== -1) continue;
-            return formatAssessmentScore(nearbyVal);
-        }
-    }
-    var raw19 = readIssueField(t, 'customfield_17319');
-    var simple19 = coerceScoreNumber(raw19);
-    var blocks = parseAssessmentNetice(raw19);
-    if (simple19 != null && blocks.length <= 1) return formatAssessmentScore(raw19);
-    for (i = 0; i < blocks.length; i++) {
-        var lf = foldAz(blocks[i].label);
-        if (lf.indexOf('umumi') !== -1 || lf.indexOf('yekun') !== -1 || lf.indexOf('cem') !== -1 || lf.indexOf('total') !== -1 || lf.indexOf('bal') !== -1) {
-            var bn = coerceScoreNumber(blocks[i].value);
-            if (bn != null) return formatAssessmentScore(blocks[i].value);
-        }
-    }
-    return '—';
+    var raw = readIssueField(t, DIAG_SCORE_FIELD);
+    if (isEmptyJiraValue(raw)) return '—';
+    var formatted = formatAssessmentScore(raw);
+    return formatted || '—';
 }
 
 function isSelfAssessFieldName(folded) {

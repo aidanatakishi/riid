@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda4';
-import { filterSprintComparison } from './filters.js';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda7';
+import { filterSprintComparison } from './filters.js?v=idda33';
 import { duePeriodLabel } from './report.js?v=idda7';
 
 export function renderStats(tasks) {
@@ -152,6 +152,11 @@ export function getDifficultyCardHtml(t, type) {
         statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-1 rounded">ESD'
             + (esdInner && esdInner.id !== 'none' ? ': ' + escapeTaskListHtml(esdInner.label) : '')
             + '</span>';
+    } else if (statusGroup === 'review') {
+        var reviewParty = getReviewParty(t);
+        statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-cyan-50 text-cyan-800 border border-cyan-100 px-2 py-1 rounded">Rəy: '
+            + escapeTaskListHtml((reviewParty && reviewParty.label) || 'Məlumat mövcud deyil')
+            + '</span>';
     } else if (statusGroup === 'blocked') {
         statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded">Status: Bloklanıb</span>';
     }
@@ -200,6 +205,10 @@ function taskMatchesListSearch(t, query) {
         (function() {
             var inner = getEsdInnerStatus(t);
             return inner ? inner.label : '';
+        })(),
+        (function() {
+            var party = getReviewParty(t);
+            return party ? (party.label + ' ' + (party.roleLabel || '')) : '';
         })()
     ].map(function(v) { return normalizeStr(v || ''); }).join(' ');
     return hay.indexOf(q) !== -1;
@@ -210,6 +219,13 @@ function esdInnerBadgeHtml(t) {
     if (!inner) return '';
     return '<span class="assess-status assess-status--esd-inner" title="ESD Statusu">'
         + escapeTaskListHtml(inner.label) + '</span>';
+}
+
+function reviewPartyBadgeHtml(t) {
+    var party = getReviewParty(t);
+    if (!party) return '';
+    return '<span class="assess-status assess-status--review-party" title="Rəy verən tərəf">'
+        + escapeTaskListHtml('Rəy: ' + party.label) + '</span>';
 }
 
 function taskListStatusClass(name) {
@@ -348,6 +364,7 @@ function nestedChildItemHtml(issue, isSub, relLabel) {
         + '<span class="tl-key">' + escapeTaskListHtml(full.key) + '</span>'
         + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
         + esdInnerBadgeHtml(full)
+        + reviewPartyBadgeHtml(full)
         + '<span class="tl-nested-summary">' + escapeTaskListHtml(summary) + '</span>'
         + (assigneeName ? '<span class="tl-nested-who">' + escapeTaskListHtml(assigneeName) + '</span>' : '')
         + (relLabel ? '<span class="tl-nested-rel">' + escapeTaskListHtml(relLabel) + '</span>' : '')
@@ -564,6 +581,7 @@ export function renderTaskList(tasks, title, opts) {
             + '<span class="tl-key">' + escapeTaskListHtml(t.key) + '</span>'
             + '<span class="' + taskListStatusClass(statusName) + '">' + escapeTaskListHtml(statusName) + '</span>'
             + esdInnerBadgeHtml(t)
+            + reviewPartyBadgeHtml(t)
             + (priorityName ? '<span class="tl-priority">' + escapeTaskListHtml(priorityName) + '</span>' : '')
             + (showType ? '<span class="tl-type">' + escapeTaskListHtml(issueTypeName) + '</span>' : '')
             + parentHint

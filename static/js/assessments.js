@@ -46,7 +46,7 @@ import {
     isTaskOrSubtaskType,
     isDiagOverallLabel,
     parseDiagUmumiNetice
-} from './model.js?v=idda4';
+} from './model.js?v=idda7';
 import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda3';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
@@ -1591,10 +1591,10 @@ function renderDiag(rows) {
     if (!rows.length) return emptyHtml();
     var body = rows.map(function(r) {
         var t = r.task;
-        var headline = getDiagHeadline(t);
+        var score = getDiagScore(t);
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'Diaqnostika balı', html: scoreBadge(headline) },
+            { label: 'Diaqnostika balı', html: scoreBadge(score) },
             { label: 'Göndərilmə tarixi', cls: 'assess-hub-cell--date', html: sendDateHtml(t) },
             { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
@@ -4115,8 +4115,9 @@ function diagModalBodyHtml(r) {
     var t = r.task;
     var parsed = parseDiagUmumiNetice(t.fields && t.fields.customfield_17319);
     var parts = [];
-    var overallScore = parsed.overall.score && parsed.overall.score !== '—' && !isJiraTableHeaderDump(parsed.overall.score)
-        ? parsed.overall.score : '';
+    var fieldScore = getDiagScore(t);
+    var overallScore = fieldScore && fieldScore !== '—' && !isJiraTableHeaderDump(fieldScore)
+        ? fieldScore : '';
     var overallText = parsed.overall.text || '';
     if (isJiraTableHeaderDump(overallText)) overallText = '';
     var extras = (parsed.extras || []).filter(function(e) {
