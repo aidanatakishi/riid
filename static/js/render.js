@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda7';
-import { filterSprintComparison } from './filters.js?v=idda33';
-import { duePeriodLabel } from './report.js?v=idda7';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda9';
+import { filterSprintComparison } from './filters.js?v=idda35';
+import { duePeriodLabel } from './report.js?v=idda8';
 
 export function renderStats(tasks) {
     var allUnits = countableWorkUnits(tasks);

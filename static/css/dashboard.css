@@ -3065,6 +3065,7 @@ body.assess-modal-open { overflow: hidden; }
 }
 .assess-dir-grid--isq {
     gap: 0.4rem;
+    grid-template-columns: 1fr 1fr;
 }
 .assess-isq-meta {
     display: grid;
@@ -5129,6 +5130,28 @@ body.settings-open { overflow: hidden; }
     .dash-stats.has-other { grid-template-columns: 1fr; }
     .dash-kpis,
     .dash-kpis.has-other { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 900px) {
+    .assess-dir-grid,
+    .assess-dir-grid--isq { grid-template-columns: 1fr 1fr; }
+    .assess-ld-radar-chart { height: 13.2rem; }
+    .assess-modal-overlay { padding: 0.65rem; }
+    .assess-ld-panel .meqsed-ld-unit-kpis { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 639px) {
+    .assess-dir-grid { grid-template-columns: 1fr; }
+    .assess-dir-grid--isq { grid-template-columns: 1fr 1fr; }
+    .assess-ld-radar-chart { height: 12rem; }
+    .assess-modal-overlay { padding: 0; align-items: stretch; }
+    .assess-modal-panel,
+    .assess-modal-panel--compact {
+        max-width: none;
+        max-height: 100dvh;
+        border-radius: 0;
+        min-height: 100dvh;
+    }
+    .toast { top: 12px; right: 12px; left: 12px; max-width: none; }
 }
 
 .sr-only {

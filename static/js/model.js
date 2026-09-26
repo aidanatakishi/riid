@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr } from './utils.js?v=idda4';
+import { normalizeStr } from './utils.js?v=idda6';
 
 function getIssueTypeName(t) {
     if (!t || !t.fields || !t.fields.issuetype) return '';
@@ -1874,6 +1874,21 @@ var DIAG_NETICE_HEADINGS = [
     'Əməliyyat modelləri üzrə nəticə'
 ];
 
+export var DIAG_CRITERIA_DEFS = [
+    { id: 'strat_coord', dirId: 'strategiya', title: 'Rəqəmsal strategiya və əlaqələndirmə', short: 'Strategiya', needles: ['reqemsal strategiya ve elaqelendirme', 'reqemsal strategiya'] },
+    { id: 'svc_digital', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlər', short: 'Rəq. xidmətlər', needles: ['reqemsal xidmetler'] },
+    { id: 'svc_access', dirId: 'xidmetler', title: 'Əlçatanlıq və istifadəçi təcrübəsi', short: 'Əlçatanlıq', needles: ['elcatanliq ve istifadeci', 'elcatanliq', 'istifadeci tecrubesi'] },
+    { id: 'svc_org', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlərin təşkili və təkmilləşdirilməsi', short: 'Xidmət təşkili', needles: ['xidmetlerin teskili ve tekmillesdirilmesi', 'xidmetlerin teskili'] },
+    { id: 'tech_infra', dirId: 'texniki', title: 'İnformasiya infrastrukturu', short: 'İnfrastruktur', needles: ['informasiya infrastrukturu'] },
+    { id: 'tech_ai', dirId: 'texniki', title: 'Süni intellekt həllərinin tətbiqi, hazırlıq və analitika', short: 'Süni intellekt', needles: ['suni intellekt hellerinin', 'suni intellekt'] },
+    { id: 'tech_data', dirId: 'texniki', title: 'Məlumat idarəetməsi', short: 'Məlumat', needles: ['melumat idareetmesi'] },
+    { id: 'tech_coop', dirId: 'texniki', title: 'Əməkdaşlıq və inteqrasiya', short: 'İnteqrasiya', needles: ['emekdasliq ve inteqrasiya'] },
+    { id: 'tech_auto', dirId: 'texniki', title: 'Daxili idarəetmə proseslərinin avtomatlaşdırılması', short: 'Avtomatlaşdırma', needles: ['daxili idareetme proseslerinin', 'daxili proseslerin avtomatlasdirilmasi'] },
+    { id: 'ops_struct', dirId: 'emeliyyat', title: 'Təşkilati struktur', short: 'Struktur', needles: ['teskilati struktur'] },
+    { id: 'ops_skills', dirId: 'emeliyyat', title: 'Bilik və bacarıqların artırılması', short: 'Bilik', needles: ['bilik ve bacariq'] },
+    { id: 'ops_legal', dirId: 'emeliyyat', title: 'Hüquqi tənzimləmə', short: 'Hüquqi', needles: ['huquqi tenzimleme'] }
+];
+
 export var ISQ_DIR_DEFS = [
     { id: 'strategy', title: 'Strateji və idarəçilik sənədləri', short: 'Strateji' },
     { id: 'procedure', title: 'Prosedurlar və təlimatlar', short: 'Prosedur' },
@@ -2419,6 +2434,7 @@ var assessChildIndex = null;
 var assessChildIndexRef = null;
 var assessMemo = typeof WeakMap !== 'undefined' ? {
     diagParse: new WeakMap(),
+    diagInfo: new WeakMap(),
     diagHeadline: new WeakMap(),
     isqParse: new WeakMap(),
     isqInfo: new WeakMap(),
@@ -2429,16 +2445,25 @@ var assessMemo = typeof WeakMap !== 'undefined' ? {
 var fieldNeedleCache = {};
 var fieldNeedleNamesRef = null;
 
+function memoBucket(map) {
+    if (!assessMemo) return null;
+    if (!assessMemo[map] && typeof WeakMap !== 'undefined') assessMemo[map] = new WeakMap();
+    return assessMemo[map] || null;
+}
+
 function memoHas(map, obj) {
-    return !!(assessMemo && obj && typeof obj === 'object' && assessMemo[map].has(obj));
+    var bucket = memoBucket(map);
+    return !!(bucket && obj && typeof obj === 'object' && bucket.has(obj));
 }
 
 function memoGet(map, obj) {
-    return assessMemo[map].get(obj);
+    var bucket = memoBucket(map);
+    return bucket && obj && typeof obj === 'object' ? bucket.get(obj) : undefined;
 }
 
 function memoSet(map, obj, val) {
-    if (assessMemo && obj && typeof obj === 'object') assessMemo[map].set(obj, val);
+    var bucket = memoBucket(map);
+    if (bucket && obj && typeof obj === 'object') bucket.set(obj, val);
     return val;
 }
 
@@ -2937,11 +2962,63 @@ export function isDiagOverallLabel(label) {
     return isOverallNeticeLabel(label);
 }
 
+function isOfficialDirHeading(label) {
+    var f = foldAz(label);
+    if (!f) return false;
+    if (f.indexOf('uzre netice') !== -1) return true;
+    var shorts = {
+        strategiya: DIAG_NETICE_HEADINGS[0],
+        xidmetler: DIAG_NETICE_HEADINGS[2],
+        'texniki texnoloji': DIAG_NETICE_HEADINGS[1],
+        'texniki texnoloji infrastruktur': DIAG_NETICE_HEADINGS[1],
+        'emeliyyat modeli': DIAG_NETICE_HEADINGS[3],
+        'emeliyyat modelleri': DIAG_NETICE_HEADINGS[3]
+    };
+    return !!shorts[f];
+}
+
+export function matchDiagCriterion(label) {
+    var f = foldAz(label);
+    if (!f) return null;
+    if (f.indexOf('uzre netice') !== -1) return null;
+    if (f.indexOf('diaqnostika') !== -1 && (f.indexOf('umumi') !== -1 || f.indexOf('yekun') !== -1)) return null;
+    var i;
+    var best = null;
+    var bestLen = -1;
+    for (i = 0; i < DIAG_CRITERIA_DEFS.length; i++) {
+        var d = DIAG_CRITERIA_DEFS[i];
+        var titleF = foldAz(d.title);
+        if (f === titleF) {
+            return d;
+        }
+        if (titleF && f.indexOf(titleF) !== -1 && titleF.length > bestLen) {
+            best = d;
+            bestLen = titleF.length;
+        }
+        var n;
+        for (n = 0; n < (d.needles || []).length; n++) {
+            var needle = d.needles[n];
+            if (!needle) continue;
+            if ((f === needle || f.indexOf(needle) !== -1) && needle.length > bestLen) {
+                best = d;
+                bestLen = needle.length;
+            }
+        }
+    }
+    return best;
+}
+
 function knownDirectionTitle(label) {
     if (!label) return null;
+    if (matchDiagCriterion(label)) return null;
     if (isOverallNeticeLabel(label)) return null;
-    var canon = canonicalNeticeLabel(label);
+    var f = foldAz(label);
     var i;
+    for (i = 0; i < DIAG_NETICE_HEADINGS.length; i++) {
+        if (f === foldAz(DIAG_NETICE_HEADINGS[i])) return DIAG_NETICE_HEADINGS[i];
+    }
+    if (!isOfficialDirHeading(label)) return null;
+    var canon = canonicalNeticeLabel(label);
     for (i = 0; i < DIAG_NETICE_HEADINGS.length; i++) {
         if (canon === DIAG_NETICE_HEADINGS[i]) return DIAG_NETICE_HEADINGS[i];
         if (foldAz(canon) === foldAz(DIAG_NETICE_HEADINGS[i])) return DIAG_NETICE_HEADINGS[i];
@@ -3309,6 +3386,32 @@ export function parseDiagUmumiNetice(raw) {
         if (score && isHeaderOnlyText(score)) score = null;
         var text = split.text;
         if (isDiagHeaderNoise(label, text, scoreHint)) return;
+        var crit = matchDiagCriterion(label);
+        if (crit) {
+            var prevCrit;
+            var ci;
+            for (ci = 0; ci < extras.length; ci++) {
+                if (extras[ci].critId === crit.id) {
+                    prevCrit = extras[ci];
+                    break;
+                }
+            }
+            var merged = mergeDirSlot(prevCrit, score, text);
+            if (prevCrit) {
+                prevCrit.score = merged.score;
+                prevCrit.text = merged.text;
+            } else {
+                extras.push({
+                    title: crit.title,
+                    score: merged.score || '—',
+                    text: merged.text || '',
+                    dirId: crit.dirId,
+                    critId: crit.id
+                });
+                unmapped.push(crit.title);
+            }
+            return;
+        }
         var title = knownDirectionTitle(label);
         if (title) {
             dirMap[title] = mergeDirSlot(dirMap[title], score, text);
@@ -3322,7 +3425,7 @@ export function parseDiagUmumiNetice(raw) {
             }
             return;
         }
-        var extraTitle = canonicalNeticeLabel(label) || String(label || 'Digər');
+        var extraTitle = String(label || '').replace(/^§\s*/, '').replace(/:\s*$/, '').trim() || 'Digər';
         if (isHeaderOnlyText(extraTitle) || isColumnHeaderToken(extraTitle) || isOverallNeticeLabel(extraTitle)) {
             if (isOverallNeticeLabel(extraTitle) || isOverallNeticeLabel(label)) {
                 if (score && score !== '—' && !overallScore) overallScore = score;
@@ -3396,6 +3499,68 @@ export function parseDiagUmumiNetice(raw) {
         }),
         extras: extras,
         unmapped: unmapped
+    });
+}
+
+function fillDiagDirsFromNamedFields(t, dirMap) {
+    if (!t || !dirMap) return;
+    SELF_DIR_FIELDS.forEach(function(d) {
+        var raw = readIssueField(t, d.id);
+        if (isEmptyJiraValue(raw)) return;
+        var n = coerceScoreNumber(raw);
+        if (n == null) return;
+        dirMap[d.title] = mergeDirSlot(dirMap[d.title], formatAssessmentScore(n), '');
+    });
+}
+
+export function getDiagInfo(t) {
+    if (memoHas('diagInfo', t)) return memoGet('diagInfo', t);
+    var parsed = parseDiagUmumiNetice(readUmumiNeticeRaw(t));
+    var dirMap = {};
+    (parsed.directions || []).forEach(function(d) {
+        dirMap[d.title] = { score: d.score, text: d.text };
+    });
+    fillDiagDirsFromNamedFields(t, dirMap);
+    var directions = DIAG_NETICE_HEADINGS.map(function(title) {
+        var d = dirMap[title] || { score: '—', text: '' };
+        var text = d.text || '';
+        if (isHeaderOnlyText(text) || isOverallTitleDump(text)) text = '';
+        return { title: title, score: d.score || '—', text: text };
+    });
+    var critMap = {};
+    (parsed.extras || []).forEach(function(e) {
+        var crit = (e.critId && DIAG_CRITERIA_DEFS.filter(function(c) { return c.id === e.critId; })[0])
+            || matchDiagCriterion(e.title);
+        if (!crit) return;
+        critMap[crit.id] = mergeDirSlot(critMap[crit.id], e.score, e.text);
+    });
+    var criteria = DIAG_CRITERIA_DEFS.map(function(c) {
+        var slot = critMap[c.id] || { score: '—', text: '' };
+        return {
+            id: c.id,
+            dirId: c.dirId,
+            title: c.title,
+            short: c.short,
+            score: slot.score || '—',
+            text: slot.text || ''
+        };
+    });
+    var extras = (parsed.extras || []).filter(function(e) {
+        return !e.critId && !matchDiagCriterion(e.title);
+    });
+    var overallScore = parsed.overall && parsed.overall.score;
+    if (!overallScore || overallScore === '—') {
+        var fieldScore = getDiagScore(t);
+        if (fieldScore && fieldScore !== '—') overallScore = fieldScore;
+    }
+    return memoSet('diagInfo', t, {
+        overall: {
+            score: overallScore || '—',
+            text: (parsed.overall && parsed.overall.text) || ''
+        },
+        directions: directions,
+        criteria: criteria,
+        extras: extras
     });
 }
 

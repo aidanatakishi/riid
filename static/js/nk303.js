@@ -1,8 +1,11 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda45';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda47';
 import {
     parseDiagUmumiNetice,
+    getDiagInfo,
     getDiagHeadline,
     getDiagScore,
+    DIAG_CRITERIA_DEFS,
+    matchDiagCriterion,
     getStatusGroup,
     qurumMatchKey,
     getRawPhaseEntries,
@@ -17,11 +20,11 @@ import {
     exqStarTarget,
     exqStarColor,
     exqStarLabel
-} from './model.js?v=idda7';
+} from './model.js?v=idda9';
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda3';
 import { normalizeStr, showToast } from './utils.js';
 import { state } from './state.js';
-import { apiFetch, canSeeDiagnostics } from './session.js?v=idda12';
+import { apiFetch, canSeeDiagnostics } from './session.js?v=idda13';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
@@ -287,7 +290,7 @@ function maturityTarget(score) {
     if (i < 0) return null;
     var next = MATS[i + 1];
     if (!next) return 100;
-    return (next.lo + next.hi) / 2;
+    return next.hi;
 }
 
 function maturityOf(score) {
@@ -515,9 +518,27 @@ function orgSortTime(o) {
     return Number(o && o.time) || 0;
 }
 
+function extraFromParsed(e, crit) {
+    var sc = num(e && e.score);
+    var title = (crit && crit.title) || (e && e.title) || 'Meyar';
+    return {
+        title: title,
+        score: sc,
+        scoreRaw: e && e.score && e.score !== '—' ? String(e.score) : '',
+        text: String((e && e.text) || '').trim(),
+        current: '',
+        deficiency: '',
+        criterion: title,
+        sub: '',
+        dirId: (crit && crit.dirId) || (e && e.dirId) || dirIdFromTitle(title),
+        critId: (crit && crit.id) || (e && e.critId) || ''
+    };
+}
+
 function parseRow(row, index) {
     var t = row && row.task;
-    var parsed = parseDiagUmumiNetice(t && t.fields && t.fields.customfield_17319);
+    var info = getDiagInfo(t);
+    var parsed = info || parseDiagUmumiNetice(t && t.fields && t.fields.customfield_17319);
     var headline = num(getDiagHeadline(t));
     if (headline == null) headline = num(getDiagScore(t));
     var dirScores = {};
@@ -540,21 +561,12 @@ function parseRow(row, index) {
         qrsg = avg(dirVals);
         qrsgOfficial = true;
     }
-    var extras = ((parsed && parsed.extras) || []).filter(function(e) {
-        return e && e.title && String(e.title).trim();
-    }).map(function(e) {
-        var sc = num(e.score);
-        return {
-            title: e.title,
-            score: sc,
-            scoreRaw: e.score && e.score !== '—' ? String(e.score) : '',
-            text: String(e.text || '').trim(),
-            current: '',
-            deficiency: '',
-            criterion: '',
-            sub: '',
-            dirId: dirIdFromTitle(e.title)
-        };
+    var extras = ((parsed && parsed.criteria) || []).map(function(e) {
+        return extraFromParsed(e, e.id ? e : matchDiagCriterion(e.title));
+    });
+    ((parsed && parsed.extras) || []).forEach(function(e) {
+        if (!e || !e.title || !String(e.title).trim()) return;
+        extras.push(extraFromParsed(e, matchDiagCriterion(e.title)));
     });
     var statusName = (t && t.fields && t.fields.status && t.fields.status.name) || '—';
     var group = getStatusGroup(statusName) || 'other';
@@ -611,16 +623,18 @@ function excelOrgFromUpload(raw, index) {
         dirGaps[d.id] = String((raw.dirGaps && raw.dirGaps[d.id]) || '').trim();
     });
     var extras = (raw.extras || []).map(function(e) {
+        var crit = matchDiagCriterion(e.criterion || e.title);
         return {
-            title: e.title || 'Meyar',
+            title: (crit && crit.title) || e.title || 'Meyar',
             score: num(e.score),
             scoreRaw: e.score != null && e.score !== '' ? String(e.score) : '',
             text: String(e.text || e.current || e.deficiency || '').trim(),
             current: String(e.current || '').trim(),
             deficiency: String(e.deficiency || '').trim(),
-            criterion: String(e.criterion || '').trim(),
+            criterion: (crit && crit.title) || String(e.criterion || '').trim(),
             sub: String(e.sub || '').trim(),
-            dirId: e.dirId || dirIdFromTitle(e.title)
+            dirId: e.dirId || (crit && crit.dirId) || dirIdFromTitle(e.title),
+            critId: e.critId || (crit && crit.id) || ''
         };
     });
     var qrsg = num(raw.qrsg);
@@ -822,6 +836,24 @@ function buildModel() {
             n: vals.length
         };
     });
+    var critAgg = (DIAG_CRITERIA_DEFS || []).map(function(c) {
+        var vals = orgs.map(function(o) {
+            var hit = ((o && o.extras) || []).filter(function(e) {
+                return (e.critId && e.critId === c.id)
+                    || fold(e.criterion) === fold(c.title)
+                    || fold(e.title) === fold(c.title);
+            })[0];
+            return hit && hit.score != null ? hit.score : null;
+        }).filter(function(n) { return n != null; });
+        return {
+            id: c.id,
+            dirId: c.dirId,
+            name: c.title,
+            short: c.short,
+            avg: avg(vals),
+            n: vals.length
+        };
+    });
     var rankedDirs = dirAgg.filter(function(d) { return d.avg != null; }).slice().sort(function(a, b) { return a.avg - b.avg; });
     var rankedOrgs = orgs.slice().sort(function(a, b) {
         var as = a.qrsg == null ? -1 : a.qrsg;
@@ -875,6 +907,7 @@ function buildModel() {
         byMat: byMat,
         byVis: byVis,
         dirAgg: dirAgg,
+        critAgg: critAgg,
         weakestDir: rankedDirs[0] || null,
         strongestDir: rankedDirs.length ? rankedDirs[rankedDirs.length - 1] : null,
         rankedOrgs: rankedOrgs,
@@ -1466,13 +1499,9 @@ function orgTableHtml(model, rows) {
 }
 
 function nextOfficial(score) {
-    if (score == null || !isFinite(score)) return { target: null, gap: null };
-    var mat = maturityOf(score);
-    if (!mat) return { target: null, gap: null };
-    var i = MATS.indexOf(mat);
-    if (i < 0) return { target: null, gap: null };
-    if (i === MATS.length - 1) return { target: 100, gap: Math.max(0, 100 - score) };
-    return { target: MATS[i + 1].lo, gap: Math.max(0, MATS[i + 1].lo - score) };
+    var target = maturityTarget(score);
+    if (target == null) return { target: null, gap: null };
+    return { target: target, gap: Math.max(0, target - score) };
 }
 
 function isHighPriorityGap(g) {
@@ -1753,26 +1782,46 @@ function dirCompareRows(dirAgg) {
     });
 }
 
+function critCompareRows(critAgg) {
+    return (critAgg || []).map(function(d) {
+        return {
+            id: d.id,
+            dirId: d.dirId,
+            name: d.name,
+            short: d.short || d.name,
+            now: d.avg != null ? d.avg : null,
+            target: maturityTarget(d.avg)
+        };
+    });
+}
+
+function compareChartRows(model) {
+    var crits = critCompareRows(model && model.critAgg);
+    if (crits.some(function(d) { return d.now != null; })) return crits;
+    return dirCompareRows(model && model.dirAgg);
+}
+
 function radarCompareHtml(model) {
     var now = model.countryAvg;
     var goal = maturityTarget(now);
     var gap = now != null && goal != null ? Math.max(0, goal - now) : null;
     var nowCol = barColor(now);
     var goalCol = barColor(goal);
-    var rows = dirCompareRows(model.dirAgg);
+    var rows = compareChartRows(model);
+    var useCrit = rows.length > 4;
     var tiles = rows.map(function(d) {
         var met = d.now != null && d.target != null && d.now >= d.target;
         var col = barColor(d.now);
-        return '<article class="nk303-dir-tile' + (met ? ' is-met' : '') + '">'
-            + '<span>' + esc(d.short) + '</span>'
+        return '<article class="nk303-dir-tile' + (useCrit ? ' is-row' : '') + (met ? ' is-met' : '') + '" title="' + esc(d.name || d.short) + '">'
+            + '<span>' + esc(useCrit ? (d.name || d.short) : d.short) + '</span>'
             + '<b' + (d.now == null ? ' class="is-empty"' : ' style="color:' + col + '"') + '>' + esc(fmtScore(d.now)) + '</b>'
-            + '<em>Hədəf: ' + esc(fmtScore(d.target)) + '</em>'
+            + '<em>' + (useCrit ? esc(fmtScore(d.target)) : ('Hədəf: ' + esc(fmtScore(d.target)))) + '</em>'
             + '</article>';
     }).join('');
     return '<section class="nk303-card nk303-card--compare">'
         + '<div class="nk303-compare-head">'
         + '<div>'
-        + '<p class="nk303-kicker">Rəqəmsallaşma istiqamətləri</p>'
+        + '<p class="nk303-kicker">' + (useCrit ? 'Qiymətləndirmə meyarları' : 'Rəqəmsallaşma istiqamətləri') + '</p>'
         + '<h3>Hədəf olunan və Mövcud vəziyyət</h3>'
         + '</div>'
         + compareLegendHtml(nowCol, goalCol)
@@ -1793,9 +1842,9 @@ function radarCompareHtml(model) {
         + '<b' + (gap == null ? ' class="is-empty"' : '') + '>' + esc(fmtScore(gap)) + '</b>'
         + '</article>'
         + '</div>'
-        + '<div class="nk303-chart nk303-chart--compare"><canvas id="nkRadarChart"></canvas></div>'
+        + '<div class="nk303-chart nk303-chart--compare nk303-chart--spider"><canvas id="nkRadarChart" aria-label="Qiymətləndirmə meyarları üzrə spider chart"></canvas></div>'
         + '</div>'
-        + '<div class="nk303-dir-tiles">' + tiles + '</div>'
+        + '<div class="nk303-dir-tiles' + (useCrit ? ' nk303-dir-tiles--crit' : '') + '">' + tiles + '</div>'
         + '</section>';
 }
 
@@ -3014,7 +3063,9 @@ function drawCharts(model) {
         });
     }
     if (document.getElementById('nkRadarChart')) {
-        var dirs = dirCompareRows(model.dirAgg);
+        var dirs = compareChartRows(model);
+        var nowHex = barColor(model.countryAvg);
+        var goalHex = barColor(maturityTarget(model.countryAvg));
         makeChart('nkRadarChart', {
             type: 'radar',
             data: {
@@ -3022,13 +3073,15 @@ function drawCharts(model) {
                 datasets: radarPairDatasets(
                     dirs.map(function(d) { return d.now != null ? d.now : 0; }),
                     dirs.map(function(d) { return d.target != null ? d.target : 0; }),
-                    barColor(model.countryAvg),
-                    barColor(maturityTarget(model.countryAvg))
+                    nowHex,
+                    goalHex
                 )
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: { padding: { top: 8, right: 18, bottom: 8, left: 18 } },
+                elements: { line: { tension: 0, borderJoinStyle: 'round' } },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
@@ -3043,15 +3096,31 @@ function drawCharts(model) {
                     r: {
                         min: 0,
                         max: 100,
+                        beginAtZero: true,
                         ticks: {
                             stepSize: 20,
-                            color: '#94a3b8',
+                            count: 6,
+                            showLabelBackdrop: false,
+                            color: '#64748b',
                             backdropColor: 'transparent',
-                            font: { size: 10, weight: '600' }
+                            font: { size: 10, weight: '600' },
+                            z: 1
                         },
-                        grid: { color: 'rgba(148,163,184,0.35)' },
-                        angleLines: { color: 'rgba(148,163,184,0.35)' },
-                        pointLabels: { color: '#1e3a8a', font: { size: 12, weight: '700' } }
+                        grid: {
+                            circular: false,
+                            color: 'rgba(15, 39, 68, 0.16)',
+                            lineWidth: 1.15
+                        },
+                        angleLines: {
+                            display: true,
+                            color: 'rgba(15, 39, 68, 0.28)',
+                            lineWidth: 1.35
+                        },
+                        pointLabels: {
+                            color: '#0f2744',
+                            font: { size: dirs.length > 4 ? 10 : 13, weight: '800' },
+                            padding: dirs.length > 4 ? 6 : 10
+                        }
                     }
                 }
             }
@@ -3993,9 +4062,11 @@ function hubBodyHtml(view) {
         : (view.section === 'exq' ? 'Yekun nəticə' : 'Ümumi nəticə');
     var midRightTitle = view.section === 'isq'
         ? (st.radarTitle || 'Ulduz səviyyələri')
-        : (isRadar ? 'Rəqəmsallaşma istiqamətləri'
-            : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
-                : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu')));
+        : (view.section === 'diag'
+            ? (st.radarTitle || 'Qiymətləndirmə meyarları')
+            : (isRadar ? 'Rəqəmsallaşma istiqamətləri'
+                : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
+                    : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu'))));
     var radarLegend = view.section === 'isq'
         ? (isqRadarTarget
             ? compareLegendHtml(ISQ_RADAR_NOW, ISQ_RADAR_GOAL)
@@ -4154,7 +4225,7 @@ function drawHubCharts(view) {
                         },
                         grid: { color: 'rgba(148,163,184,0.35)' },
                         angleLines: { color: 'rgba(148,163,184,0.35)' },
-                        pointLabels: { color: '#334155', font: { size: 11, weight: '700' } }
+                        pointLabels: { color: '#334155', font: { size: dirs.length > 4 ? 10 : 11, weight: '700' } }
                     }
                 }
             }

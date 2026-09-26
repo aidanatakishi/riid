@@ -18,7 +18,9 @@ import {
     getIsqResult,
     getIsqScore,
     getIsqInfo,
+    getDiagInfo,
     ISQ_DIR_DEFS,
+    DIAG_CRITERIA_DEFS,
     parseExqCriteria,
     computeExqYekun,
     parseAssessmentNetice,
@@ -44,9 +46,8 @@ import {
     hasAssessmentResult,
     belongsToDept,
     isTaskOrSubtaskType,
-    isDiagOverallLabel,
-    parseDiagUmumiNetice
-} from './model.js?v=idda7';
+    isDiagOverallLabel
+} from './model.js?v=idda9';
 import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda3';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
@@ -2374,9 +2375,14 @@ function collectDiagListStats(rows) {
         } else {
             stats.noResult += 1;
         }
-        var parsed = parseDiagUmumiNetice(r && r.task && r.task.fields && r.task.fields.customfield_17319);
-        var dirs = (parsed && parsed.directions) || [];
-        if (!dirTitles.length && dirs.length) {
+        var info = getDiagInfo(r && r.task);
+        var hasCritScore = ((info && info.criteria) || []).some(function(d) {
+            return parseScoreForSort(d && d.score) != null;
+        });
+        var dirs = hasCritScore ? (info.criteria || []) : ((info && info.directions) || []);
+        if (hasCritScore) {
+            dirTitles = (DIAG_CRITERIA_DEFS || []).map(function(c) { return c.title; });
+        } else if (!dirTitles.length && dirs.length) {
             dirTitles = dirs.map(function(d) { return d.title; });
         }
         dirs.forEach(function(d) {
@@ -2398,14 +2404,16 @@ function collectDiagListStats(rows) {
             return avgOf(dirByQurum[qk][title]);
         }).filter(function(n) { return n != null && isFinite(n); });
         var dirAvg = avgOf(qurumAvgs);
+        var crit = (DIAG_CRITERIA_DEFS || []).filter(function(c) { return c.title === title; })[0];
         return {
             title: title,
-            short: diagDirShortLabel(title),
+            short: (crit && crit.short) || diagDirShortLabel(title),
             avg: dirAvg,
             target: diagMaturityTarget(dirAvg),
             qurumN: qurumAvgs.length
         };
     });
+    stats.radarTitle = (stats.dirRadar.length > 4) ? 'Qiymətləndirmə meyarları' : 'Rəqəmsallaşma istiqamətləri';
     var ranked = stats.dirRadar.filter(function(d) { return d.avg != null && isFinite(d.avg); })
         .slice().sort(function(a, b) { return b.avg - a.avg; });
     stats.bestDirection = ranked.length ? ranked[0] : null;
@@ -2423,9 +2431,9 @@ function diagDirShortLabel(title) {
 
 function diagMaturityTarget(score) {
     if (score == null || !isFinite(score)) return null;
-    if (score < 25) return (25 + 49) / 2;
-    if (score < 50) return (50 + 74) / 2;
-    if (score < 75) return (75 + 100) / 2;
+    if (score < 25) return 49;
+    if (score < 50) return 74;
+    if (score < 75) return 100;
     return 100;
 }
 
@@ -2862,7 +2870,7 @@ function diagListDashHtml(stats) {
     var hasRadar = radar.some(function(d) { return d.avg != null && isFinite(d.avg); });
     var best = stats.bestDirection;
     var left = '<div class="diag-radar-panel">'
-        + '<p class="assess-ld-block-label">Rəqəmsallaşma istiqamətləri</p>'
+        + '<p class="assess-ld-block-label">' + escapeHtml(stats.radarTitle || 'Rəqəmsallaşma istiqamətləri') + '</p>'
         + exqScoreMeterHtml(stats.avg, { label: 'Ölkə üzrə ortalama bal' })
         + (best
             ? '<div class="diag-best-dir">'
@@ -3869,7 +3877,7 @@ function drawDiagRadarChart(stats) {
                     angleLines: { color: 'rgba(148, 163, 184, 0.28)' },
                     pointLabels: {
                         color: '#334155',
-                        font: { size: 11, weight: '700' }
+                        font: { size: dirs.length > 4 ? 10 : 11, weight: '700' }
                     }
                 }
             }
@@ -4113,14 +4121,18 @@ function fillModalChrome(r, kicker, showDueDate) {
 
 function diagModalBodyHtml(r) {
     var t = r.task;
-    var parsed = parseDiagUmumiNetice(t.fields && t.fields.customfield_17319);
+    var info = getDiagInfo(t);
     var parts = [];
     var fieldScore = getDiagScore(t);
     var overallScore = fieldScore && fieldScore !== '—' && !isJiraTableHeaderDump(fieldScore)
         ? fieldScore : '';
-    var overallText = parsed.overall.text || '';
+    if (!overallScore && info && info.overall && info.overall.score && info.overall.score !== '—'
+        && !isJiraTableHeaderDump(info.overall.score)) {
+        overallScore = info.overall.score;
+    }
+    var overallText = (info && info.overall && info.overall.text) || '';
     if (isJiraTableHeaderDump(overallText)) overallText = '';
-    var extras = (parsed.extras || []).filter(function(e) {
+    var extras = ((info && info.extras) || []).filter(function(e) {
         return e && e.title && !isJiraTableHeaderDump(e.title) && !isJiraTableHeaderDump(e.score)
             && !isDiagOverallLabel(e.title);
     });
@@ -4131,14 +4143,24 @@ function diagModalBodyHtml(r) {
             + (overallText ? '<p class="assess-modal-overall-text">' + escapeHtml(overallText) + '</p>' : '')
             + '</div>');
     }
-    var dirHtml = parsed.directions.map(function(d) { return directionCard(d, overallText); }).join('')
-        + extras.map(function(e) { return directionCard(e, overallText); }).join('');
+    var dirHtml = ((info && info.directions) || []).map(function(d) { return directionCard(d, overallText); }).join('');
     if (dirHtml) {
         parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə istiqamətləri</h4>');
         parts.push('<div class="assess-dir-grid">' + dirHtml + '</div>');
     }
+    var critHtml = ((info && info.criteria) || []).map(function(d) { return directionCard(d, overallText); }).join('');
+    if (critHtml) {
+        parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə meyarları</h4>');
+        parts.push('<div class="assess-dir-grid assess-dir-grid--isq">' + critHtml + '</div>');
+    }
+    var extraHtml = extras.map(function(e) { return directionCard(e, overallText); }).join('');
+    if (extraHtml) {
+        parts.push('<h4 class="assess-modal-section-title">Əlavə meyarlar</h4>');
+        parts.push('<div class="assess-dir-grid">' + extraHtml + '</div>');
+    }
     var hasAny = overallScore || overallText
-        || parsed.directions.some(function(d) { return (d.score && d.score !== '—') || d.text; })
+        || ((info && info.directions) || []).some(function(d) { return (d.score && d.score !== '—') || d.text; })
+        || ((info && info.criteria) || []).some(function(d) { return (d.score && d.score !== '—') || d.text; })
         || extras.length;
     if (!hasAny) {
         return '<p class="assess-modal-empty">Ümumi nəticə qeyd edilməyib.</p>';

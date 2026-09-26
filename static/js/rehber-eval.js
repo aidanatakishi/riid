@@ -1,10 +1,10 @@
 import { state } from './state.js';
-import { apiFetch } from './session.js?v=idda12';
+import { apiFetch } from './session.js?v=idda13';
 import {
     collectActivityDirectionFieldIds,
     collectSelfDisplayFieldIds
-} from './model.js?v=idda7';
-import { getRehberEvalSnapshot } from './assessments.js?v=idda45';
+} from './model.js?v=idda9';
+import { getRehberEvalSnapshot } from './assessments.js?v=idda47';
 
 var NA = 'Məlumat mövcud deyil';
 var START_YEAR = 2023;

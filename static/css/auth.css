@@ -4,10 +4,11 @@
     --auth-accent: var(--brand-accent, #7c3aed);
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; min-height: 100%; }
+html, body { margin: 0; min-height: 100%; max-width: 100%; overflow-x: hidden; }
 body.auth-page {
     font-family: Inter, system-ui, sans-serif;
     min-height: 100vh;
+    overflow-x: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
