@@ -5172,6 +5172,11 @@ body.settings-open { overflow: hidden; }
     bottom: 1.1rem;
     z-index: 8000;
     font-family: inherit;
+    pointer-events: none;
+}
+.dash-chat-fab,
+.dash-chat-panel {
+    pointer-events: auto;
 }
 .dash-chat-fab {
     display: inline-flex;
@@ -5602,7 +5607,8 @@ body.settings-open { overflow: hidden; }
     padding: 0.85rem;
 }
 @media (max-width: 639px) {
-    .dash-chat { right: 0.7rem; bottom: 0.7rem; left: 0.7rem; }
+    .dash-chat { right: 0.7rem; bottom: 0.7rem; left: auto; }
+    .dash-chat.is-open { left: 0.7rem; right: 0.7rem; }
     .dash-chat-panel { width: 100%; height: min(78vh, 640px); }
     .dash-chat-split { grid-template-columns: 1fr; }
 }

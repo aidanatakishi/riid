@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js';
 import { normalizeStr, showToast, hideSettings } from './utils.js';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda9';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda35';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda36';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';

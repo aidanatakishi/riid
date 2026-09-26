@@ -1219,6 +1219,13 @@ export function showDifficulties() {
     if (!state.restoreQuiet) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
+function openDueWeekTaskList() {
+    openTaskListSection();
+    if (state.restoreQuiet || state._replayingList) return;
+    var listEl = document.getElementById('taskListContent');
+    if (listEl) listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 export function showDueThisWeekDoneTasks() {
     var dueTasks = collectDueThisWeekDoneTasks();
     var label = duePeriodLabel();
@@ -1227,7 +1234,7 @@ export function showDueThisWeekDoneTasks() {
     }
     rememberListAction({ kind: 'dueWeek', mode: 'done' });
     renderTaskList(dueTasks, label + ' — tamamlananlar (' + dueTasks.length + ')', { keepNested: true });
-    openTaskListSection();
+    openDueWeekTaskList();
 }
 
 export function showDueThisWeekOpenTasks() {
@@ -1238,7 +1245,7 @@ export function showDueThisWeekOpenTasks() {
     }
     rememberListAction({ kind: 'dueWeek', mode: 'open' });
     renderTaskList(dueTasks, label + ' — tamamlanmayanlar (' + dueTasks.length + ')', { keepNested: true });
-    openTaskListSection();
+    openDueWeekTaskList();
 }
 
 export function showDueThisWeekTasks() {
@@ -1249,7 +1256,7 @@ export function showDueThisWeekTasks() {
     }
     rememberListAction({ kind: 'dueWeek', mode: 'all' });
     renderTaskList(dueTasks, label + ' — bütün tapşırıqlar (' + dueTasks.length + ')', { keepNested: true });
-    openTaskListSection();
+    openDueWeekTaskList();
 }
 
 export function filterEsdInnerStatus(stageId) {
