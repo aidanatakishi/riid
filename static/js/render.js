@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda9';
-import { filterSprintComparison } from './filters.js?v=idda36';
-import { duePeriodLabel } from './report.js?v=idda8';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda10';
+import { filterSprintComparison } from './filters.js?v=idda38';
+import { duePeriodLabel } from './report.js?v=idda9';
 
 export function renderStats(tasks) {
     var allUnits = countableWorkUnits(tasks);
@@ -544,14 +544,17 @@ export function renderTaskList(tasks, title, opts) {
         }
 
         var dueDateRaw = fields['customfield_10807'] || fields['duedate'];
-        var resolvedDateRaw = fields['resolutiondate'];
         var statusGroup = getStatusGroup(statusName);
         var isDone = statusGroup === 'done';
         var dateStatus = getDateStatus(t);
+        var doneDay = isDone ? getTaskCompletedDay(t) : null;
         var dateBits = '<div class="tl-dates">';
         dateBits += '<span>Bitmə <b>' + fmtDate(dueDateRaw) + '</b></span>';
-        if (isDone) dateBits += '<span class="tl-date-done">Tamamlandı <b>' + fmtDate(resolvedDateRaw) + '</b></span>';
-        else if (dateStatus === 'late') dateBits += '<span class="tl-date-late">Gecikib</span>';
+        if (isDone) {
+            dateBits += '<span class="tl-date-done">Tamamlandı <b>'
+                + (doneDay ? formatDateObj(doneDay) : '—') + '</b></span>';
+            if (dateStatus === 'late') dateBits += '<span class="tl-date-late">Gecikib</span>';
+        } else if (dateStatus === 'late') dateBits += '<span class="tl-date-late">Gecikib</span>';
         else if (dateStatus === 'early') dateBits += '<span class="tl-date-early">Öncə bitə bilər</span>';
         dateBits += '</div>';
 
@@ -664,15 +667,16 @@ export function changePage(page) {
 export function openTaskListSection(opts) {
     var listEl = document.getElementById('taskListContent');
     if (!listEl) return;
-    var alreadyOpen = !listEl.classList.contains('hidden');
     listEl.classList.remove('hidden');
     listEl.classList.add('slide-down');
     var icon = document.getElementById('icon-taskListContent');
     if (icon) icon.style.transform = 'rotate(180deg)';
     var toggleBtn = document.querySelector('[aria-controls="taskListContent"]');
     if (toggleBtn) toggleBtn.setAttribute('aria-expanded', 'true');
-    var skipScroll = state.restoreQuiet || state._replayingList || alreadyOpen || (opts && opts.scroll === false);
-    if (!skipScroll) listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (state.restoreQuiet || state._replayingList || (opts && opts.scroll === false)) return;
+    requestAnimationFrame(function() {
+        listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
 }
 
 export function restoreNestedPanels(ids) {

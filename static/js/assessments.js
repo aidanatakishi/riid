@@ -47,7 +47,7 @@ import {
     belongsToDept,
     isTaskOrSubtaskType,
     isDiagOverallLabel
-} from './model.js?v=idda9';
+} from './model.js?v=idda10';
 import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda3';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];

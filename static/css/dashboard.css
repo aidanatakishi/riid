@@ -4660,6 +4660,14 @@ body.settings-open { overflow: hidden; }
 .dash-stat-body {
     padding: 1rem 1.1rem 0.9rem;
     flex: 1;
+    cursor: pointer;
+}
+.dash-stat-foot,
+.dash-hero-rate,
+.dash-due-label,
+.dash-backlog,
+[data-kpi] {
+    cursor: pointer;
 }
 .dash-stat-head {
     display: flex;

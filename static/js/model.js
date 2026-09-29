@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr } from './utils.js?v=idda6';
+import { normalizeStr } from './utils.js?v=idda7';
 
 function getIssueTypeName(t) {
     if (!t || !t.fields || !t.fields.issuetype) return '';
@@ -1532,8 +1532,7 @@ export function getQurumName(t) {
 }
 
 function getStatusAsOfDate() {
-    var today = new Date();
-    today.setHours(0, 0, 0, 0);
+    var today = bakuToday();
     var win = getSelectedDueWindow();
     if (!win || !win.end) return today;
     var end = parseLocalDay(win.end);
@@ -1546,15 +1545,61 @@ function getStatusAsOfDate() {
     return today;
 }
 
+function bakuCalendarDay(d) {
+    if (!d || isNaN(d.getTime())) return null;
+    var shifted = new Date(d.getTime() + 4 * 3600000);
+    var day = new Date(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate());
+    day.setHours(0, 0, 0, 0);
+    return day;
+}
+
+function instantToBakuDay(raw) {
+    if (!raw) return null;
+    if (raw instanceof Date) return bakuCalendarDay(raw);
+    var str = String(raw).trim();
+    if (!str) return null;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return parseLocalDay(str);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(str) || /[zZ]|[+-]\d{2}:?\d{2}$/.test(str)) {
+        var normalized = str.replace(/([+-]\d{2})(\d{2})$/, '$1:$2');
+        var instant = new Date(normalized);
+        if (!isNaN(instant.getTime())) return bakuCalendarDay(instant);
+    }
+    return parseLocalDay(parsePhaseDate(str) || str);
+}
+
+export function getTaskCompletedDay(t) {
+    if (!t) return null;
+    var bestTs = 0;
+    var bestDay = null;
+    var histories = t.changelog && t.changelog.histories;
+    if (histories) {
+        for (var i = 0; i < histories.length; i++) {
+            var h = histories[i];
+            var items = h.items || [];
+            for (var j = 0; j < items.length; j++) {
+                var item = items[j];
+                if (!item || String(item.field || '').toLowerCase() !== 'status') continue;
+                if (getStatusGroup(item.toString || '') !== 'done') continue;
+                var ts = Date.parse(h.created);
+                if (!isFinite(ts) || ts < bestTs) continue;
+                bestTs = ts;
+                bestDay = instantToBakuDay(h.created);
+            }
+        }
+    }
+    if (bestDay) return bestDay;
+    var f = t.fields || {};
+    return instantToBakuDay(f.resolutiondate) || instantToBakuDay(f.statuscategorychangedate);
+}
+
 export function getDateStatus(t) {
     var dueDay = parseLocalDay(getTaskDueDate(t));
     if (!dueDay) return 'nodate';
     var statusGroup = getStatusGroup(t.fields && t.fields.status ? t.fields.status.name : '');
     if (statusGroup === 'done') {
-        var resolved = parsePhaseDate(t.fields && (t.fields.resolutiondate || t.fields.updated));
-        var resDay = parseLocalDay(resolved);
+        var resDay = getTaskCompletedDay(t);
         if (!resDay) return 'ontime';
-        if (resDay < dueDay) return 'early';
+        if (resDay.getTime() < dueDay.getTime()) return 'early';
         if (resDay.getTime() === dueDay.getTime()) return 'ontime';
         return 'late';
     }

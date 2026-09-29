@@ -1,10 +1,10 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js';
-import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda9';
-import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda41';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda9';
-import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda8';
-import { renderAssessmentSections } from './assessments.js?v=idda47';
+import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda10';
+import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda42';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda11';
+import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda9';
+import { renderAssessmentSections } from './assessments.js?v=idda48';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -1221,9 +1221,43 @@ export function showDifficulties() {
 
 function openDueWeekTaskList() {
     openTaskListSection();
-    if (state.restoreQuiet || state._replayingList) return;
-    var listEl = document.getElementById('taskListContent');
-    if (listEl) listEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function runDashKpi(kpi) {
+    if (kpi === 'all') filterTasks('all');
+    else if (kpi === 'done') filterTasks('done');
+    else if (kpi === 'planned') filterTasks('planned');
+    else if (kpi === 'sprint') filterTasks('sprint');
+    else if (kpi === 'rejected') filterTasks('rejected');
+    else if (kpi === 'backlog') filterTasks('backlog');
+    else if (kpi === 'other') filterTasks('other');
+    else if (kpi === 'difficulties') showDifficulties();
+    else if (kpi === 'late') filterTasksByDateStatus('late');
+    else if (kpi === 'due-all') showDueThisWeekTasks();
+    else if (kpi === 'due-done') showDueThisWeekDoneTasks();
+    else if (kpi === 'due-open') showDueThisWeekOpenTasks();
+}
+
+function bindDashKpiClicks() {
+    if (bindDashKpiClicks.bound) return;
+    bindDashKpiClicks.bound = true;
+    document.addEventListener('click', function(ev) {
+        var el = ev.target && ev.target.closest ? ev.target.closest('[data-kpi]') : null;
+        if (!el) return;
+        var kpi = el.getAttribute('data-kpi');
+        if (!kpi) return;
+        runDashKpi(kpi);
+    }, true);
+    document.addEventListener('keydown', function(ev) {
+        if (ev.key !== 'Enter' && ev.key !== ' ') return;
+        var el = ev.target && ev.target.closest ? ev.target.closest('[data-kpi]') : null;
+        if (!el || el !== ev.target) return;
+        if (el.tagName === 'BUTTON' || el.tagName === 'A') return;
+        var kpi = el.getAttribute('data-kpi');
+        if (!kpi) return;
+        ev.preventDefault();
+        runDashKpi(kpi);
+    });
 }
 
 export function showDueThisWeekDoneTasks() {
@@ -1385,3 +1419,5 @@ document.addEventListener('keydown', function(e) {
     }
     updateDateTriggerLabel();
 })();
+
+bindDashKpiClicks();
