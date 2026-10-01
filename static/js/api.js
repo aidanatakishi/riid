@@ -1,8 +1,8 @@
 import { state } from './state.js';
-import { apiFetch, rememberCurrentProject } from './session.js';
-import { normalizeStr, showToast, hideSettings } from './utils.js';
+import { apiFetch, rememberCurrentProject } from './session.js?v=idda14';
+import { normalizeStr, showToast, hideSettings } from './utils.js?v=idda7';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda10';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda38';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda39';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';

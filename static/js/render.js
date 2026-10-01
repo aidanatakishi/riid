@@ -1,8 +1,8 @@
 import { state } from './state.js';
-import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekTasks, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda10';
-import { filterSprintComparison } from './filters.js?v=idda38';
-import { duePeriodLabel } from './report.js?v=idda9';
+import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda10';
+import { filterSprintComparison } from './filters.js?v=idda39';
+import { duePeriodLabel } from './report.js?v=idda10';
 
 export function renderStats(tasks) {
     var allUnits = countableWorkUnits(tasks);
@@ -34,9 +34,12 @@ export function renderStats(tasks) {
         return isActiveExecutionGroup(getStatusGroup(t.fields.status.name || '')) && !hasDiff(t);
     }).length;
     
-    var dueWeekPool = collectDueThisWeekTasks();
+    var dueWeekPool = collectDueThisWeekPool();
     var sprintDueWeek = dueWeekPool.length;
-    var sprintDueWeekDone = collectDueThisWeekDoneTasks().length;
+    var sprintDueWeekDone = 0;
+    for (var di = 0; di < dueWeekPool.length; di++) {
+        if (getStatusGroup(dueWeekPool[di].fields.status.name || '') === 'done') sprintDueWeekDone++;
+    }
     var completionRate = sprintDueWeek > 0 ? Math.round((sprintDueWeekDone / sprintDueWeek) * 100) : 0;
 
     var compRateEl = document.getElementById('completionRate');
@@ -690,8 +693,8 @@ export function restoreNestedPanels(ids) {
     });
 }
 
-export function showTaskListKind(kind) {
-    if (typeof event !== 'undefined' && event && event.stopPropagation) event.stopPropagation();
+export function showTaskListKind(kind, ev) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
     state.taskListView = kind || 'mixed';
     state.currentPage = 1;
     if (!state.taskListSource.length && state.filteredTasks && state.filteredTasks.length) {
@@ -701,10 +704,15 @@ export function showTaskListKind(kind) {
     openTaskListSection();
 }
 
+var taskListSearchTimer = 0;
 export function onTaskListSearchInput(value) {
     state.taskListSearch = value || '';
     state.currentPage = 1;
-    renderTaskList(state.taskListSource, state.taskListTitle, { keepView: true });
+    if (taskListSearchTimer) clearTimeout(taskListSearchTimer);
+    taskListSearchTimer = setTimeout(function() {
+        taskListSearchTimer = 0;
+        renderTaskList(state.taskListSource, state.taskListTitle, { keepView: true });
+    }, 180);
 }
 
 export function clearTaskListSearch() {

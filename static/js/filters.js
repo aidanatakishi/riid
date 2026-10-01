@@ -1,10 +1,10 @@
 import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js';
+import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda10';
-import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda42';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda11';
-import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda9';
-import { renderAssessmentSections } from './assessments.js?v=idda48';
+import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda43';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda12';
+import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda10';
+import { renderAssessmentSections } from './assessments.js?v=idda49';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -443,6 +443,7 @@ export function resetAllFilters() {
     localStorage.removeItem('dgd_filter_startDate');
     localStorage.removeItem('dgd_filter_endDate');
     localStorage.removeItem('dgd_filter_assignee');
+    localStorage.removeItem('dgd_filter_priority');
     localStorage.removeItem('dgd_filter_direction');
     localStorage.removeItem('dgd_filter_qurum');
     localStorage.removeItem('dgd_filter_status');
@@ -698,7 +699,7 @@ function replayListViewAction(action) {
             });
             var apTitle = 'İş yükü';
             if (action.person && action.priority) apTitle = action.person + ' · ' + action.priority;
-            else if (action.person) apTitle = action.person;
+            else if (action.person) apTitle = action.person + ' — bütün tapşırıqlar';
             else if (action.priority) apTitle = 'Prioritet: ' + action.priority;
             renderTaskList(apList, apTitle + ' (' + apList.length + ')', { keepNested: true });
             openTaskListSection();
@@ -916,6 +917,7 @@ export function saveFiltersToStorage() {
         localStorage.setItem('dgd_filter_startDate', document.getElementById('startDate').value);
         localStorage.setItem('dgd_filter_endDate', document.getElementById('endDate').value);
         localStorage.setItem('dgd_filter_assignee', state.currentAssigneeFilter || '');
+        localStorage.setItem('dgd_filter_priority', state.currentPriorityFilter || '');
         localStorage.setItem('dgd_filter_direction', state.currentDirectionFilter || '');
         localStorage.setItem('dgd_filter_qurum', state.currentQurumFilter || '');
         localStorage.removeItem('dgd_filter_status');
@@ -926,6 +928,7 @@ export function saveFiltersToStorage() {
 
 export function loadFiltersFromStorage() {
     state.currentAssigneeFilter = localStorage.getItem('dgd_filter_assignee') || null;
+    state.currentPriorityFilter = localStorage.getItem('dgd_filter_priority') || null;
     state.currentDirectionFilter = localStorage.getItem('dgd_filter_direction') || null;
     var storedQurum = localStorage.getItem('dgd_filter_qurum') || null;
     state.currentQurumFilter = storedQurum ? (canonicalQurumName(storedQurum) || storedQurum) : null;
@@ -965,6 +968,7 @@ export function clearUserFilter() {
 
 export function clearPriorityFilter() {
     state.currentPriorityFilter = null;
+    localStorage.removeItem('dgd_filter_priority');
     rememberListAction(null);
     closeTaskListToDefault();
     applyFilters();
@@ -1228,6 +1232,7 @@ function runDashKpi(kpi) {
     else if (kpi === 'done') filterTasks('done');
     else if (kpi === 'planned') filterTasks('planned');
     else if (kpi === 'sprint') filterTasks('sprint');
+    else if (kpi === 'open') filterTasks('open');
     else if (kpi === 'rejected') filterTasks('rejected');
     else if (kpi === 'backlog') filterTasks('backlog');
     else if (kpi === 'other') filterTasks('other');
@@ -1368,6 +1373,12 @@ export function filterTasks(type) {
         f = units.filter(function(t) { return isActiveExecutionGroup(getStatusGroup(t.fields.status.name)); });
         title = 'İcradakı (İcradadır, ESD & Rəy) Tapşırıqlar';
     }
+    else if (type === 'open') {
+        f = jiraBoardWorkUnits(state.filteredTasks).filter(function(t) {
+            return getStatusGroup(t.fields.status.name || '') !== 'done';
+        });
+        title = 'Açıq Tapşırıqlar';
+    }
     else if(type==='done') { 
         f = units.filter(function(t) { return getStatusGroup(t.fields.status.name) === 'done'; }); 
         title = 'Tamamlanmış (İcra edilib) Tapşırıqlar'; 
@@ -1380,7 +1391,7 @@ export function filterTasks(type) {
     else if (type === 'backlog') {
         f = collectBacklogDashboardUnits();
         title = 'Backlog — İcraya başlanmayıb';
-        renderTaskList(f, title);
+        renderTaskList(f, title, { keepNested: true });
         if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
         openTaskListSection();
         return;
@@ -1400,7 +1411,7 @@ export function filterTasks(type) {
         return;
     }
     
-    renderTaskList(f, title);
+    renderTaskList(f, title, { keepNested: true });
     if (isSectionOpen('qurumStatContent')) renderQurumChart(f);
     openTaskListSection();
 }

@@ -4,7 +4,7 @@ import {
     collectActivityDirectionFieldIds,
     collectSelfDisplayFieldIds
 } from './model.js?v=idda10';
-import { getRehberEvalSnapshot } from './assessments.js?v=idda48';
+import { getRehberEvalSnapshot } from './assessments.js?v=idda49';
 
 var NA = 'Məlumat mövcud deyil';
 var START_YEAR = 2023;

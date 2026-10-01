@@ -1,8 +1,8 @@
 import { state } from './state.js';
-import { getInitials, normalizeStr, showToast } from './utils.js';
+import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda10';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda38';
-import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda11';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda39';
+import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda12';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda3';
 
 var chartRebuildRaf = {};
@@ -511,7 +511,7 @@ function drawAssigneeChart(tasks) {
         var list = countableWorkUnits(state.filteredTasks);
         var title = 'İş yükü';
         if (person && pri) title = person + ' · ' + pri;
-        else if (person) title = person;
+        else if (person) title = person + ' — bütün tapşırıqlar';
         else if (pri) title = 'Prioritet: ' + pri;
         renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
         openTaskListSection();
@@ -524,16 +524,40 @@ function drawAssigneeChart(tasks) {
             maintainAspectRatio: false,
             indexAxis: 'y',
             layout: { padding: { top: 4, right: 22, bottom: 4, left: 0 } },
-            onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
-            onClick: function(e, c) {
-                if (!c.length) return;
+            onHover: function(e, el, chart) {
+                var canvas = e && e.native && e.native.target;
+                if (!canvas) return;
+                var over = !!(el && el[0]);
+                if (!over && chart && chart.scales && chart.scales.y && typeof e.y === 'number') {
+                    var idxH = chart.scales.y.getValueForPixel(e.y);
+                    over = idxH != null && idxH >= 0 && idxH < labels.length;
+                }
+                canvas.style.cursor = over ? 'pointer' : 'default';
+            },
+            onClick: function(e, c, chart) {
                 var native = e && e.native;
                 if (native && native.stopPropagation) native.stopPropagation();
-                var hit = c[0];
-                var person = labels[hit.index];
-                var ds = datasets[hit.datasetIndex];
-                var pri = ds && ds.label;
-                applyAssigneePriority(person, pri);
+                var person = null;
+                var pri = null;
+                if (c && c.length) {
+                    var hit = c[0];
+                    person = labels[hit.index];
+                    var ds = datasets[hit.datasetIndex];
+                    pri = ds && ds.label;
+                } else if (chart && chart.scales && chart.scales.y && typeof e.y === 'number') {
+                    var idx = chart.scales.y.getValueForPixel(e.y);
+                    if (idx != null && idx >= 0 && idx < labels.length) person = labels[idx];
+                }
+                if (!person) return;
+                if (pri) {
+                    if (state.currentAssigneeFilter === person && state.currentPriorityFilter === pri) {
+                        applyAssigneePriority(person, null);
+                    } else {
+                        applyAssigneePriority(person, pri);
+                    }
+                } else {
+                    applyAssigneePriority(person, null);
+                }
             },
             plugins: {
                 legend: {
@@ -570,7 +594,7 @@ function drawAssigneeChart(tasks) {
                         footer: function(items) {
                             var idx = items && items[0] ? items[0].dataIndex : -1;
                             if (idx < 0) return '';
-                            return 'Cəmi ' + (peopleCounts[labels[idx]] || 0) + ' tapşırıq';
+                            return 'Cəmi ' + (peopleCounts[labels[idx]] || 0) + ' tapşırıq · ada kliklə bütün işlər';
                         }
                     }
                 }

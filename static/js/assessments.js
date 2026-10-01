@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js';
+import { normalizeStr, showToast } from './utils.js?v=idda7';
 import {
     classifyAssessmentCategory,
     formatAssessmentFieldText,

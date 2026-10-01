@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js';
+import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda10';
 
 let _docxLibPromise = null;

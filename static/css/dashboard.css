@@ -4519,7 +4519,6 @@ body.settings-open { overflow: hidden; }
 .dash-hero {
     padding: 1.25rem 1.4rem 1.3rem;
     margin-bottom: 0.75rem;
-    cursor: pointer;
 }
 .dash-hero-inner {
     display: flex;
@@ -4533,6 +4532,7 @@ body.settings-open { overflow: hidden; }
     align-items: center;
     gap: 1rem;
     min-width: 0;
+    cursor: pointer;
 }
 .dash-hero .ic,
 .dash-stat .ic {
@@ -4595,6 +4595,7 @@ body.settings-open { overflow: hidden; }
     background: #eef2f7;
     border-radius: 99px;
     overflow: hidden;
+    cursor: pointer;
 }
 .dash-hero-bar > div {
     display: block;
