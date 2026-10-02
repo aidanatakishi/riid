@@ -206,12 +206,12 @@ async function fetchJiraFieldCatalog(baseUrl, pat) {
     } catch (e) { /* catalog is optional; search still runs */ }
 }
 
-async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
+async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog, fieldsOverride) {
     var root = String(baseUrl || '').replace(/\/+$/, '');
     var allIssues = [];
     var startAt = 0;
     var names = {};
-    var fields = searchFieldsList();
+    var fields = fieldsOverride || searchFieldsList();
     while (true) {
         var params = new URLSearchParams({
             jql: jql,
@@ -252,13 +252,13 @@ async function fetchJiraDirect(baseUrl, pat, jql, expandChangelog) {
     return { issues: allIssues, total: allIssues.length, names: names };
 }
 
-async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
+async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot, fieldsOverride) {
     var projectEl = document.getElementById('projectKey');
     var body = {
         baseUrl: baseUrl,
         jql: jql,
         pat: pat,
-        fields: searchFieldsList(),
+        fields: fieldsOverride || searchFieldsList(),
         projectKey: projectEl ? String(projectEl.value || '').trim().toUpperCase() : ''
     };
     if (expandChangelog) body.expandChangelog = true;
@@ -287,19 +287,20 @@ async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot) {
 var jqlInflight = {};
 var lastJqlCache = { key: '', data: null };
 
-export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
+export async function fetchJQL(baseUrl, pat, jql, expandChangelog, fieldsOverride) {
     if (!hasJiraAuth(pat)) throw new Error('Jira hələ qurulmayıb.');
     await fetchJiraFieldCatalog(baseUrl, pat);
-    var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + searchFieldsList();
+    var fieldsKey = fieldsOverride || searchFieldsList();
+    var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + fieldsKey;
     if (jqlInflight[cacheKey]) return jqlInflight[cacheKey];
-    if (!expandChangelog && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
+    if (!expandChangelog && !fieldsOverride && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
     var run = (async function() {
         var transport = await pickTransport();
         var data;
         try {
             data = transport.type === 'proxy'
-                ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog, transport.root)
-                : await fetchJiraDirect(baseUrl, pat, jql, expandChangelog);
+                ? await fetchJiraProxy(baseUrl, pat, jql, expandChangelog, transport.root, fieldsOverride)
+                : await fetchJiraDirect(baseUrl, pat, jql, expandChangelog, fieldsOverride);
         } catch (err) {
             var msg = err && err.message ? err.message : '';
             if (transport.type === 'direct' && msg.indexOf('qoşulmaq mümkün olmadı') !== -1) {
@@ -308,7 +309,7 @@ export async function fetchJQL(baseUrl, pat, jql, expandChangelog) {
             throw err;
         }
         if (data.names) mergeFieldNames(data.names);
-        if (!expandChangelog) {
+        if (!expandChangelog && !fieldsOverride) {
             lastJqlCache.key = cacheKey;
             lastJqlCache.data = data;
         }
@@ -483,7 +484,84 @@ export async function ensureChangelogs(tasks) {
     }
 }
 
+function mergeFreshIssue(fresh) {
+    if (!fresh || !fresh.key) return;
+    var existing = state.issueIndex[fresh.key] || (state.allTasks || []).filter(function(t) { return t && t.key === fresh.key; })[0];
+    if (!existing) {
+        state.issueIndex[fresh.key] = fresh;
+        return;
+    }
+    if (fresh.fields) {
+        existing.fields = Object.assign({}, existing.fields || {}, fresh.fields);
+    }
+    if (fresh.changelog) existing.changelog = fresh.changelog;
+    state.issueIndex[fresh.key] = existing;
+    var idx = (state.allTasks || []).findIndex(function(t) { return t && t.key === fresh.key; });
+    if (idx !== -1) state.allTasks[idx] = existing;
+}
+
+/** Aylıq hesabat üçün mərhələ sahələri + comment + changelog-u token ilə yeniləyir. */
+export async function ensureReportEnrichment(tasks) {
+    var list = (tasks || []).filter(function(t) { return t && t.key; });
+    if (!list.length) return { ok: false, keys: 0, comments: 0 };
+    if (!hasJiraAuth(readPat()) && !state.hasServerToken) {
+        throw new Error('Jira tokeni yoxdur. Aylıq hesabat üçün Tənzimləmələrdə API token daxil edin.');
+    }
+    var baseUrl = state.currentBaseUrl || readBaseUrl();
+    var pat = readPat();
+    var keys = [];
+    var seen = {};
+    list.forEach(function(t) {
+        if (!t.key || seen[t.key]) return;
+        seen[t.key] = true;
+        keys.push(t.key);
+    });
+    var fields = searchFieldsList();
+    if ((',' + fields + ',').indexOf(',comment,') === -1) fields += ',comment';
+    var chunkSize = 30;
+    var touched = 0;
+    for (var i = 0; i < keys.length; i += chunkSize) {
+        var chunk = keys.slice(i, i + chunkSize);
+        var jql = 'key in (' + chunk.join(',') + ')';
+        var data = await fetchJQL(baseUrl, pat, jql, true, fields);
+        (data.issues || []).forEach(function(fresh) {
+            mergeFreshIssue(fresh);
+            touched += 1;
+        });
+    }
+    var commentHits = 0;
+    try {
+        var transport = await pickTransport();
+        var url = (transport.root || '') + '/api/jira/comments';
+        for (var j = 0; j < keys.length; j += 40) {
+            var cChunk = keys.slice(j, j + 40);
+            var res = await apiFetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ baseUrl: baseUrl, pat: pat, keys: cChunk })
+            });
+            if (!res.ok) continue;
+            var payload = await res.json();
+            var map = (payload && payload.comments) || {};
+            Object.keys(map).forEach(function(key) {
+                var existing = state.issueIndex[key];
+                if (!existing) return;
+                if (!existing.fields) existing.fields = {};
+                existing.fields.comment = {
+                    comments: map[key] || [],
+                    total: (map[key] || []).length
+                };
+                commentHits += (map[key] || []).length;
+            });
+        }
+    } catch (err) {
+        console.warn('Comment enrichment failed', err);
+    }
+    return { ok: true, keys: keys.length, refreshed: touched, comments: commentHits };
+}
+
 state.ensureChangelogs = ensureChangelogs;
+state.ensureReportEnrichment = ensureReportEnrichment;
 
 export async function fetchTodayChanges() {
     var baseUrl = readBaseUrl();

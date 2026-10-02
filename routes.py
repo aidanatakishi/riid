@@ -11,12 +11,12 @@ from flask import Blueprint, request, jsonify, session, send_file
 from werkzeug.utils import secure_filename
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
-from chat_llm import answer_chat, chat_llm_ready
+from chat_llm import answer_chat, chat_llm_ready, polish_monthly_report
 import chat_llm
 from diag_excel import parse_diag_excel
 from rehber_excel import TABS, TAB_LABELS, parse_tab, build_template, template_filename
 from report_pptx import parse_report_file, normalize_report_kind
-from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people
+from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people, fetch_issue_comments_batch
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
     TEAM_IDS,
@@ -719,6 +719,47 @@ def api_chat():
     if text:
         return jsonify({'answer': text, 'source': 'llm', 'model': chat_llm.LAST_MODEL})
     return jsonify({'answer': draft, 'source': 'local', 'error': chat_llm.LAST_ERROR})
+
+
+@api.route('/api/report/polish-month', methods=['POST', 'OPTIONS'])
+@login_required
+def api_polish_month():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    draft = data.get('draft') if isinstance(data.get('draft'), dict) else {}
+    period = str(data.get('period') or '').strip()
+    sample = str(data.get('sampleStyle') or '').strip()
+    if not draft:
+        return jsonify({'error': 'draft boşdur'}), 400
+    if not chat_llm_ready():
+        return jsonify({'draft': draft, 'source': 'local', 'error': 'LLM açarı yoxdur'})
+    polished = polish_monthly_report(period, draft, sample)
+    if polished:
+        return jsonify({'draft': polished, 'source': 'llm', 'model': chat_llm.LAST_MODEL})
+    return jsonify({'draft': draft, 'source': 'local', 'error': chat_llm.LAST_ERROR or 'redaktə alınmadı'})
+
+
+@api.route('/api/jira/comments', methods=['POST', 'OPTIONS'])
+@login_required
+def api_jira_comments():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    remember_project_key(data)
+    base_url, pat = resolve_credentials(data)
+    keys = data.get('keys') if isinstance(data.get('keys'), list) else []
+    keys = [str(k).strip() for k in keys if str(k).strip()]
+    if not all([base_url, pat]) or not keys:
+        return jsonify({"error": "Əksik məlumat"}), 400
+    result, error, status = fetch_issue_comments_batch(base_url, pat, keys[:80])
+    if error:
+        return jsonify(error), status
+    return jsonify(result), 200
 
 
 def build_hierarchy(base_url, pat, parent_key, date_filter, exclude_done=True):

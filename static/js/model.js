@@ -2647,6 +2647,8 @@ function decodeHtmlEntities(s) {
         });
 }
 
+export { decodeHtmlEntities };
+
 function stripMarkupToText(raw) {
     var s = String(raw || '');
     s = s.replace(/<script[\s\S]*?<\/script>/gi, ' ');

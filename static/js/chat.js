@@ -31,7 +31,7 @@ import {
     getBlockReason,
     getTaskDueDate
 } from './model.js?v=idda10';
-import { exportTasksToWord } from './report.js?v=idda10';
+import { exportTasksToWord } from './report.js?v=idda13';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {

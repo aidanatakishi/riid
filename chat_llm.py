@@ -39,6 +39,67 @@ def _keys(override=None):
     return gemini, openai
 
 
+def polish_monthly_report(period, draft, sample_style=None, api_key=None):
+    """Rewrite monthly report draft into official department style. No new facts."""
+    global LAST_MODEL, LAST_ERROR
+    LAST_MODEL = ''
+    LAST_ERROR = ''
+    gemini, openai = _keys(api_key)
+    if not gemini and not openai:
+        LAST_ERROR = 'Açar yoxdur'
+        return None
+    if not isinstance(draft, dict):
+        LAST_ERROR = 'draft yoxdur'
+        return None
+    sample = str(sample_style or '').strip()
+    if len(sample) > 3500:
+        sample = sample[:3500]
+    period_s = str(period or '').strip()
+    prompt = (
+        'Sən Qiymətləndirmə və komplayens şöbəsinin rəsmi aylıq hesabat redaktorusan.\n'
+        'Verilmiş JSON faktları rəsmi aylıq hesabat üslubunda yenidən yaz.\n'
+        'Bu axın yanvar–dekabr bütün aylara eyni qaydada şamil olunur; heç bir ayı xüsusi seçmə.\n'
+        'Qaydalar:\n'
+        '- Yalnız verilmiş faktlardan istifadə et; yeni qurum, tarix, rəqəm uydurma.\n'
+        '- Başlıq, icmal və mətnlərdə dövrü məhz verilmiş period ilə saxla'
+        + ((' (' + period_s + ')') if period_s else '')
+        + '; başqa ay adı yazma.\n'
+        '- HTML entity yazma (&quot; və s. olmasın), düzgün dırnaq və tire istifadə et.\n'
+        '- "cı il / cü il tarixində" qalıqlarını sil; tarixləri "DD.MM.YYYY tarixində" saxla.\n'
+        '- Hər bölməni qısa və rəsmi saxla; eyni mənanı təkrarlama.\n'
+        '- Siyahı elementlərinin sonunu ; və ya . ilə bitir.\n'
+        '- Cavabı YALNIZ JSON ver, markdown və izah yazma.\n'
+        'JSON formatı: {"title":"...","icmal":"...","sections":[{"id":"...","title":"...","intro":"...","items":["..."]}]}\n'
+        'Dövr: ' + (period_s or '(draft.period)') + '\n'
+        'Nümunə üslub (forma üçün; ay/tarix/rəqəmləri kopyalama):\n' + (sample or '(yoxdur)') + '\n'
+        'Draft JSON:\n' + json.dumps(draft, ensure_ascii=False)[:14000]
+    )
+    text = None
+    if gemini:
+        text = _gemini(gemini, prompt)
+    if not text and openai:
+        text = _openai(openai, prompt)
+    if not text:
+        return None
+    raw = text.strip()
+    if raw.startswith('```'):
+        raw = raw.strip('`')
+        if raw.lower().startswith('json'):
+            raw = raw[4:].strip()
+    try:
+        start = raw.find('{')
+        end = raw.rfind('}')
+        if start >= 0 and end > start:
+            raw = raw[start:end + 1]
+        data = json.loads(raw)
+    except Exception:
+        LAST_ERROR = 'JSON parse'
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
 def answer_chat(question, facts, draft, history=None, api_key=None):
     global LAST_MODEL, LAST_ERROR
     LAST_MODEL = ''
@@ -213,7 +274,7 @@ def _openai(key, prompt):
         }, json={
             'model': model,
             'temperature': 0.55,
-            'max_tokens': 2200,
+            'max_tokens': 4000,
             'messages': [
                 {
                     'role': 'system',

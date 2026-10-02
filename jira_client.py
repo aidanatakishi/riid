@@ -109,6 +109,32 @@ def fetch_jira_data(base_url, pat, jql, fields, expand=None):
     }, None, 200
 
 
+def fetch_issue_comments_batch(base_url, pat, keys):
+    """Fetch comments for issue keys via /issue/{key}/comment."""
+    session = make_session()
+    headers = auth_headers(pat)
+    out = {}
+    for key in keys or []:
+        key = str(key or '').strip()
+        if not key:
+            continue
+        url = f"{base_url}/rest/api/2/issue/{key}/comment"
+        try:
+            res = session.get(url, headers=headers, params={"maxResults": 100}, verify=False, timeout=REQUEST_TIMEOUT)
+        except requests.exceptions.Timeout:
+            continue
+        except Exception:
+            continue
+        if res.status_code != 200:
+            continue
+        try:
+            data = res.json()
+        except Exception:
+            continue
+        out[key] = data.get('comments') or []
+    return {"comments": out}, None, 200
+
+
 def fetch_jira_fields(base_url, pat):
     url = f"{base_url}/rest/api/2/field"
     session = make_session()
