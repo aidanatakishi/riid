@@ -4,6 +4,9 @@ import os
 import requests
 import urllib3
 
+# Ensure .env keys are loaded even if chat_llm is imported first.
+import config  # noqa: F401
+
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LAST_MODEL = ''

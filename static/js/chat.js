@@ -1896,13 +1896,16 @@ function ensureUi() {
     if (document.getElementById('dashChatRoot')) return;
     var root = el(
         '<div id="dashChatRoot" class="dash-chat">'
+        + '<div id="dashChatLauncher" class="dash-chat-launcher" aria-live="polite">'
+        + '<div class="dash-chat-tip" id="dashChatBubble" role="status">'
+        + '<p id="dashChatBubbleText"></p>'
+        + '<span class="dash-chat-tip-tail" aria-hidden="true"></span>'
+        + '</div>'
+        + '<button type="button" id="dashChatDismiss" class="dash-chat-dismiss" aria-label="Bağla" title="Bağla">✕</button>'
         + '<button type="button" id="dashChatFab" class="dash-chat-fab" aria-controls="dashChatPanel" aria-expanded="false" aria-label="Süni intellekt köməkçiniz" title="Süni intellekt köməkçiniz">'
-        + '<svg class="dash-chat-fab-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">'
-        + '<path d="M4.7 6.3A3.3 3.3 0 0 1 8 3h6.8A3.3 3.3 0 0 1 18.1 6.3v5.8A3.3 3.3 0 0 1 14.8 15.4H9.6L5.8 19v-3.6H8A3.3 3.3 0 0 1 4.7 12.1V6.3Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>'
-        + '<path d="M18.2 2.4 19.1 5.1 21.8 6 19.1 6.9 18.2 9.6 17.3 6.9 14.6 6 17.3 5.1 18.2 2.4Z" fill="currentColor"/>'
-        + '<path d="M21.4 8.7 21.8 10 23.1 10.4 21.8 10.8 21.4 12.1 21 10.8 19.7 10.4 21 10 21.4 8.7Z" fill="currentColor"/>'
-        + '</svg>'
+        + robotHtml()
         + '</button>'
+        + '</div>'
         + '<section id="dashChatPanel" class="dash-chat-panel hidden" hidden role="dialog" aria-labelledby="dashChatTitle">'
         + '<header class="dash-chat-head">'
         + '<div class="dash-chat-head-id">'
@@ -1936,7 +1939,16 @@ function ensureUi() {
         + '</button></form></section></div>'
     );
     document.body.appendChild(root);
-    document.getElementById('dashChatFab').addEventListener('click', toggleChat);
+    try {
+        if (sessionStorage.getItem('dashChatLauncherV') !== '22') {
+            sessionStorage.removeItem('dashChatLauncherDismissed');
+            sessionStorage.setItem('dashChatLauncherV', '22');
+        }
+    } catch (e) {}
+    fillBubbleText();
+    document.getElementById('dashChatFab').addEventListener('click', openChat);
+    document.getElementById('dashChatBubble').addEventListener('click', openChat);
+    document.getElementById('dashChatDismiss').addEventListener('click', dismissLauncher);
     document.getElementById('dashChatClose').addEventListener('click', closeChat);
     document.getElementById('dashChatClear').addEventListener('click', resetChat);
     document.getElementById('dashChatForm').addEventListener('submit', onSubmit);
@@ -1952,8 +1964,103 @@ function ensureUi() {
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && chatOpen) closeChat();
     });
+    syncLauncherVisibility();
     renderHints();
     addBot(welcomeHtml(), false);
+}
+
+function robotHtml() {
+    return ''
+        + '<span class="dash-chat-bot" aria-hidden="true">'
+        + '<span class="rb-shadow"></span>'
+        + '<span class="rb-aura"></span>'
+        + '<span class="rb-fig">'
+        + '<span class="rb-head">'
+        + '<span class="rb-antenna"><span class="rb-antenna-stem"></span><span class="rb-antenna-tip"></span></span>'
+        + '<span class="rb-ear rb-ear-l"></span>'
+        + '<span class="rb-ear rb-ear-r"></span>'
+        + '<span class="rb-visor">'
+        + '<span class="rb-eye rb-eye-l"><span class="rb-pupil"></span><span class="rb-shine"></span></span>'
+        + '<span class="rb-eye rb-eye-r"><span class="rb-pupil"></span><span class="rb-shine"></span></span>'
+        + '<span class="rb-smile"></span>'
+        + '<span class="rb-cheek rb-cheek-l"></span>'
+        + '<span class="rb-cheek rb-cheek-r"></span>'
+        + '</span>'
+        + '<span class="rb-gloss"></span>'
+        + '</span>'
+        + '<span class="rb-body">'
+        + '<span class="rb-tee"><span class="rb-ai">AI</span><span class="rb-heart"></span></span>'
+        + '</span>'
+        + '<span class="rb-arm rb-arm-l"><span class="rb-hand"></span></span>'
+        + '<span class="rb-arm rb-arm-r"><span class="rb-hand"></span></span>'
+        + '<span class="rb-foot rb-foot-l"></span>'
+        + '<span class="rb-foot rb-foot-r"></span>'
+        + '</span>'
+        + '</span>';
+}
+function bubbleCopy() {
+    var name = viewerFirstName();
+    if (name) {
+        return 'Salam, ' + name + '! Mən AI Done-am — çox şadam! Paneldə sizə kömək edə bilərəm, klikləyin!';
+    }
+    return 'Salam! Mən AI Done-am — çox şadam sizi görməyə! Paneldə kömək üçün mənə klikləyin!';
+}
+
+function fillBubbleText() {
+    var elText = document.getElementById('dashChatBubbleText');
+    if (elText) elText.textContent = bubbleCopy();
+}
+
+function launcherDismissed() {
+    try { return sessionStorage.getItem('dashChatLauncherDismissed') === '1'; } catch (e) { return false; }
+}
+
+function setLauncherDismissed(on) {
+    try {
+        if (on) sessionStorage.setItem('dashChatLauncherDismissed', '1');
+        else sessionStorage.removeItem('dashChatLauncherDismissed');
+    } catch (e) {}
+}
+
+function syncLauncherVisibility() {
+    var launcher = document.getElementById('dashChatLauncher');
+    var tip = document.getElementById('dashChatBubble');
+    var dismiss = document.getElementById('dashChatDismiss');
+    if (!launcher) return;
+    launcher.classList.remove('is-leaving');
+    if (chatOpen) {
+        launcher.classList.add('hidden');
+        launcher.hidden = true;
+        return;
+    }
+    launcher.classList.remove('hidden');
+    launcher.hidden = false;
+    var tipOff = launcherDismissed();
+    if (tip) {
+        tip.classList.toggle('hidden', tipOff);
+        tip.hidden = tipOff;
+    }
+    if (dismiss) {
+        dismiss.classList.toggle('hidden', tipOff);
+        dismiss.hidden = tipOff;
+    }
+}
+
+function dismissLauncher(ev) {
+    if (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+    }
+    var tip = document.getElementById('dashChatBubble');
+    var dismiss = document.getElementById('dashChatDismiss');
+    if (!tip || tip.hidden) return;
+    setLauncherDismissed(true);
+    tip.classList.add('hidden');
+    tip.hidden = true;
+    if (dismiss) {
+        dismiss.classList.add('hidden');
+        dismiss.hidden = true;
+    }
 }
 
 function welcomeHtml() {
@@ -2036,8 +2143,9 @@ function openChat() {
     var fab = document.getElementById('dashChatFab');
     panel.classList.remove('hidden');
     panel.hidden = false;
-    fab.setAttribute('aria-expanded', 'true');
+    if (fab) fab.setAttribute('aria-expanded', 'true');
     document.getElementById('dashChatRoot').classList.add('is-open');
+    syncLauncherVisibility();
     setTimeout(function() {
         var input = document.getElementById('dashChatInput');
         if (input) input.focus();
@@ -2050,8 +2158,9 @@ function closeChat() {
     var fab = document.getElementById('dashChatFab');
     panel.classList.add('hidden');
     panel.hidden = true;
-    fab.setAttribute('aria-expanded', 'false');
+    if (fab) fab.setAttribute('aria-expanded', 'false');
     document.getElementById('dashChatRoot').classList.remove('is-open');
+    syncLauncherVisibility();
 }
 
 function resetChat() {
