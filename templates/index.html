@@ -10,7 +10,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda3">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda137">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda138">
     <link rel="stylesheet" href="/static/css/nk303.css?v=idda85">
 </head>
 <body class="app-page">
@@ -316,9 +316,9 @@
         <div class="card p-3 md:p-4 fade-in">
             <div class="dash-chart-head">
                 <h2>İş yükü</h2>
-                <p class="chart-card-hint">Prioritet üzrə tapşırıq payı</p>
+                <p class="chart-card-hint">Ada və ya prioritetə kliklə — tapşırıq siyahısını aç</p>
             </div>
-            <div class="chart-box workload-chart-box"><canvas id="assigneeChart"></canvas></div>
+            <div id="assigneeChartList" class="workload-list" role="list"></div>
         </div>
         <div class="card p-3 md:p-4 fade-in direction-count-card">
             <div class="dash-chart-head">
@@ -706,7 +706,7 @@
             <option value="servis-dizayn">Servis dizayn</option>
         </select>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda186"></script>
+    <script type="module" src="/static/js/main.js?v=idda187"></script>
 
 </body>
 </html>

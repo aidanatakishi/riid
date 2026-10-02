@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
 import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda10';
-import { filterSprintComparison } from './filters.js?v=idda39';
+import { filterSprintComparison } from './filters.js?v=idda40';
 import { duePeriodLabel } from './report.js?v=idda10';
 
 export function renderStats(tasks) {

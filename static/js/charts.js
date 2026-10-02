@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda10';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda39';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda40';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda12';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda3';
 
@@ -464,6 +464,32 @@ export function renderAssigneeChart(tasks) {
     debounceChartRebuild('assigneeChart', function() { drawAssigneeChart(tasks); });
 }
 
+function escapeWorkloadHtml(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function applyAssigneePriority(person, pri) {
+    state.currentAssigneeFilter = person || null;
+    state.currentPriorityFilter = pri || null;
+    if (person) localStorage.setItem('dgd_filter_assignee', person);
+    else localStorage.removeItem('dgd_filter_assignee');
+    if (pri) localStorage.setItem('dgd_filter_priority', pri);
+    else localStorage.removeItem('dgd_filter_priority');
+    rememberListAction({ kind: 'assigneePriority', person: person || '', priority: pri || '' });
+    applyFilters();
+    var list = countableWorkUnits(state.filteredTasks);
+    var title = 'İş yükü';
+    if (person && pri) title = person + ' · ' + pri;
+    else if (person) title = person + ' — bütün tapşırıqlar';
+    else if (pri) title = 'Prioritet: ' + pri;
+    renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
+    openTaskListSection();
+}
+
 function drawAssigneeChart(tasks) {
     var units = countableWorkUnits(tasks);
     var peopleCounts = {};
@@ -480,150 +506,90 @@ function drawAssigneeChart(tasks) {
     });
     var labels = Object.keys(peopleCounts).sort(function(a, b) { return peopleCounts[b] - peopleCounts[a]; });
     var priorities = Object.keys(priSet).sort(comparePriorityNames);
-    var canvas = document.getElementById('assigneeChart');
-    if (!canvas) return;
-    var ctx = canvas.getContext('2d');
-    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    var list = document.getElementById('assigneeChartList');
+    if (!list) return;
+    var oldCanvas = document.getElementById('assigneeChart');
+    if (oldCanvas && typeof Chart !== 'undefined') {
+        var existing = Chart.getChart(oldCanvas);
+        if (existing) existing.destroy();
+        oldCanvas.remove();
+    }
+    state.assigneeChart = null;
     if (!labels.length) {
-        fitChartHeight('assigneeChart', 0, false);
-        state.assigneeChart = null;
+        list.innerHTML = '<p class="workload-empty">Bu dövr üçün icraçı məlumatı yoxdur.</p>';
         return;
     }
-    var datasets = priorities.map(function(pri) {
-        return {
-            label: pri,
-            data: labels.map(function(person) { return (byPersonPri[person] && byPersonPri[person][pri]) || 0; }),
-            backgroundColor: getPriorityColor(pri),
-            borderWidth: 0,
-            borderSkipped: false,
-            barPercentage: 0.86,
-            categoryPercentage: 0.9
-        };
-    }).filter(function(ds) {
-        return ds.data.some(function(n) { return n > 0; });
+    var maxTotal = Math.max.apply(null, labels.map(function(p) { return peopleCounts[p]; })) || 1;
+    var activePerson = state.currentAssigneeFilter || '';
+    var activePri = state.currentPriorityFilter || '';
+    var html = '';
+    html += '<div class="workload-legend" role="list">';
+    priorities.forEach(function(pri) {
+        var isOn = activePri === pri && !activePerson;
+        html += '<button type="button" class="workload-legend-item' + (isOn ? ' is-active' : '') + '"'
+            + ' data-workload-pri="' + escapeWorkloadHtml(pri) + '"'
+            + ' title="Bütün ' + escapeWorkloadHtml(pri) + ' prioritetli tapşırıqlar">'
+            + '<span class="workload-legend-dot" style="background:' + getPriorityColor(pri) + '"></span>'
+            + '<span class="workload-legend-label">' + escapeWorkloadHtml(pri) + '</span>'
+            + '</button>';
     });
-    fitChartHeight('assigneeChart', labels.length + 2, true);
-    function applyAssigneePriority(person, pri) {
-        state.currentAssigneeFilter = person || null;
-        state.currentPriorityFilter = pri || null;
-        rememberListAction({ kind: 'assigneePriority', person: person || '', priority: pri || '' });
-        applyFilters();
-        var list = countableWorkUnits(state.filteredTasks);
-        var title = 'İş yükü';
-        if (person && pri) title = person + ' · ' + pri;
-        else if (person) title = person + ' — bütün tapşırıqlar';
-        else if (pri) title = 'Prioritet: ' + pri;
-        renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
-        openTaskListSection();
-    }
-    state.assigneeChart = new Chart(ctx, {
-        type: 'bar',
-        data: { labels: labels, datasets: datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            indexAxis: 'y',
-            layout: { padding: { top: 4, right: 22, bottom: 4, left: 0 } },
-            onHover: function(e, el, chart) {
-                var canvas = e && e.native && e.native.target;
-                if (!canvas) return;
-                var over = !!(el && el[0]);
-                if (!over && chart && chart.scales && chart.scales.y && typeof e.y === 'number') {
-                    var idxH = chart.scales.y.getValueForPixel(e.y);
-                    over = idxH != null && idxH >= 0 && idxH < labels.length;
-                }
-                canvas.style.cursor = over ? 'pointer' : 'default';
-            },
-            onClick: function(e, c, chart) {
-                var native = e && e.native;
-                if (native && native.stopPropagation) native.stopPropagation();
-                var person = null;
-                var pri = null;
-                if (c && c.length) {
-                    var hit = c[0];
-                    person = labels[hit.index];
-                    var ds = datasets[hit.datasetIndex];
-                    pri = ds && ds.label;
-                } else if (chart && chart.scales && chart.scales.y && typeof e.y === 'number') {
-                    var idx = chart.scales.y.getValueForPixel(e.y);
-                    if (idx != null && idx >= 0 && idx < labels.length) person = labels[idx];
-                }
-                if (!person) return;
-                if (pri) {
-                    if (state.currentAssigneeFilter === person && state.currentPriorityFilter === pri) {
-                        applyAssigneePriority(person, null);
-                    } else {
-                        applyAssigneePriority(person, pri);
-                    }
-                } else {
-                    applyAssigneePriority(person, null);
-                }
-            },
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'bottom',
-                    labels: {
-                        usePointStyle: true,
-                        padding: window.innerWidth < 640 ? 10 : 14,
-                        font: { family: 'Inter', size: window.innerWidth < 640 ? 10 : 11 },
-                        boxWidth: 8,
-                        color: '#475569'
-                    },
-                    onClick: function(evt, item) {
-                        if (evt && evt.native && evt.native.stopPropagation) evt.native.stopPropagation();
-                        var pri = item && item.text;
-                        if (!pri) return;
-                        var nextPri = state.currentPriorityFilter === pri ? null : pri;
-                        applyAssigneePriority(state.currentAssigneeFilter, nextPri);
-                    }
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                    padding: 10,
-                    cornerRadius: 8,
-                    titleFont: { family: 'Inter', size: 12, weight: 'bold' },
-                    bodyFont: { family: 'Inter', size: 11 },
-                    filter: function(item) {
-                        return (item.parsed && item.parsed.x) > 0;
-                    },
-                    callbacks: {
-                        label: function(ctx2) {
-                            return ' ' + ctx2.dataset.label + ': ' + (ctx2.parsed.x || 0);
-                        },
-                        footer: function(items) {
-                            var idx = items && items[0] ? items[0].dataIndex : -1;
-                            if (idx < 0) return '';
-                            return 'Cəmi ' + (peopleCounts[labels[idx]] || 0) + ' tapşırıq · ada kliklə bütün işlər';
-                        }
-                    }
-                }
-            },
-            scales: {
-                x: {
-                    stacked: true,
-                    beginAtZero: true,
-                    grace: '12%',
-                    grid: { display: false, drawBorder: false },
-                    ticks: { display: false }
-                },
-                y: {
-                    stacked: true,
-                    grid: { display: false, drawBorder: false },
-                    ticks: {
-                        font: { family: 'Inter', size: 12 },
-                        color: '#475569',
-                        autoSkip: false,
-                        padding: 8,
-                        callback: categoryTickCallback(true)
-                    },
-                    afterFit: yAxisAfterFit
-                }
+    html += '</div>';
+    html += '<div class="workload-rows" role="list">';
+    labels.forEach(function(person) {
+        var total = peopleCounts[person];
+        var rowActive = activePerson === person && !activePri;
+        html += '<div class="workload-row' + (rowActive ? ' is-active' : '') + '" role="listitem">';
+        html += '<button type="button" class="workload-name" data-workload-person="' + escapeWorkloadHtml(person) + '"'
+            + ' title="Bütün tapşırıqlar">' + escapeWorkloadHtml(person) + '</button>';
+        html += '<div class="workload-bar-wrap"><div class="workload-bar" style="width:' + Math.max(10, Math.round((total / maxTotal) * 100)) + '%">';
+        priorities.forEach(function(pri) {
+            var n = (byPersonPri[person] && byPersonPri[person][pri]) || 0;
+            if (!n) return;
+            var segPct = Math.max(4, (n / total) * 100);
+            var segOn = activePerson === person && activePri === pri;
+            html += '<button type="button" class="workload-seg' + (segOn ? ' is-active' : '') + '"'
+                + ' style="width:' + segPct + '%;background:' + getPriorityColor(pri) + '"'
+                + ' data-workload-person="' + escapeWorkloadHtml(person) + '"'
+                + ' data-workload-pri="' + escapeWorkloadHtml(pri) + '"'
+                + ' title="' + escapeWorkloadHtml(person) + ' · ' + escapeWorkloadHtml(pri) + ': ' + n + '">'
+                + (n >= 2 ? '<span>' + n + '</span>' : '')
+                + '</button>';
+        });
+        html += '</div></div>';
+        html += '<button type="button" class="workload-total" data-workload-person="' + escapeWorkloadHtml(person) + '"'
+            + ' title="Bütün tapşırıqlar">' + total + '</button>';
+        html += '</div>';
+    });
+    html += '</div>';
+    list.innerHTML = html;
+    if (!list._workloadBound) {
+        list._workloadBound = true;
+        list.addEventListener('click', function(ev) {
+            var btn = ev.target && ev.target.closest ? ev.target.closest('[data-workload-person],[data-workload-pri]') : null;
+            if (!btn || !list.contains(btn)) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            var person = btn.getAttribute('data-workload-person') || '';
+            var pri = btn.getAttribute('data-workload-pri') || '';
+            // Legend: yalnız prioritet
+            if (btn.classList.contains('workload-legend-item')) {
+                if (state.currentPriorityFilter === pri && !state.currentAssigneeFilter) applyAssigneePriority(null, null);
+                else applyAssigneePriority(null, pri);
+                return;
             }
-        },
-        plugins: [totalLabelsPlugin]
-    });
-    scheduleChartFill(state.assigneeChart);
+            // Ad və ya cəmi: şəxsin bütün tapşırıqları
+            if (btn.classList.contains('workload-name') || btn.classList.contains('workload-total')) {
+                if (state.currentAssigneeFilter === person && !state.currentPriorityFilter) applyAssigneePriority(null, null);
+                else applyAssigneePriority(person, null);
+                return;
+            }
+            // Seqment: şəxs + prioritet
+            if (btn.classList.contains('workload-seg')) {
+                if (state.currentAssigneeFilter === person && state.currentPriorityFilter === pri) applyAssigneePriority(person, null);
+                else applyAssigneePriority(person, pri);
+            }
+        });
+    }
 }
 
 var DIRECTION_CARD_TITLE = 'İstiqamətlər';

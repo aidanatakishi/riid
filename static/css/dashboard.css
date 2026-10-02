@@ -81,6 +81,130 @@ input[type="date"] { min-height: 38px; }
     color: #64748b;
 }
 .workload-chart-box { min-height: 14.5rem; }
+.workload-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    min-height: 12.5rem;
+    flex: 1 1 auto;
+}
+.workload-empty {
+    margin: 0;
+    padding: 2rem 0.5rem;
+    text-align: center;
+    font-size: 0.82rem;
+    color: #94a3b8;
+}
+.workload-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 0.55rem;
+    padding: 0 0.1rem 0.15rem;
+}
+.workload-legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.32rem;
+    margin: 0;
+    padding: 0.2rem 0.45rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent;
+    color: #475569;
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.2;
+    cursor: pointer;
+}
+.workload-legend-item:hover { background: #f1f5f9; border-color: #e2e8f0; }
+.workload-legend-item.is-active { background: #f5f3ff; border-color: #c4b5fd; color: #5b21b6; }
+.workload-legend-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.workload-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 0.28rem;
+}
+.workload-row {
+    display: grid;
+    grid-template-columns: minmax(5.5rem, 7.6rem) minmax(0, 1fr) 1.6rem;
+    align-items: center;
+    gap: 0.4rem;
+    min-height: 1.7rem;
+    padding: 0.12rem 0.15rem;
+    border-radius: 0.55rem;
+}
+.workload-row.is-active { background: #f5f3ff; }
+.workload-row:hover { background: #f8fafc; }
+.workload-name,
+.workload-total {
+    margin: 0;
+    padding: 0.15rem 0.2rem;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font-family: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 0.35rem;
+}
+.workload-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.workload-name:hover,
+.workload-total:hover { color: #5b21b6; background: #ede9fe; }
+.workload-total {
+    text-align: right;
+    color: #64748b;
+    font-variant-numeric: tabular-nums;
+}
+.workload-bar-wrap {
+    min-width: 0;
+    height: 1.05rem;
+    display: flex;
+    align-items: center;
+}
+.workload-bar {
+    display: flex;
+    align-items: stretch;
+    height: 100%;
+    min-width: 1.2rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #f1f5f9;
+}
+.workload-seg {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0.35rem;
+    height: 100%;
+    color: #fff;
+    font-size: 0.58rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0.95;
+}
+.workload-seg:hover { opacity: 1; filter: brightness(1.08); }
+.workload-seg.is-active {
+    outline: 2px solid #5b21b6;
+    outline-offset: -2px;
+    z-index: 1;
+}
+.workload-seg span { pointer-events: none; text-shadow: 0 1px 1px rgba(15,23,42,0.25); }
 .dash-charts-row {
     display: grid;
     grid-template-columns: 1fr;
@@ -138,6 +262,10 @@ input[type="date"] { min-height: 38px; }
     flex: 1 1 auto;
     min-height: 12.5rem;
     height: auto !important;
+}
+.dash-charts-row .workload-list {
+    flex: 1 1 auto;
+    min-height: 12.5rem;
 }
 .dash-charts-row .direction-list {
     flex: 1 1 auto;

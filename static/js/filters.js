@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda10';
-import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda43';
+import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda45';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda12';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda10';
 import { renderAssessmentSections } from './assessments.js?v=idda49';
@@ -690,7 +690,7 @@ function replayListViewAction(action) {
             return true;
         }
         if (action.kind === 'assigneePriority') {
-            if (action.person) state.currentAssigneeFilter = action.person;
+            state.currentAssigneeFilter = action.person || null;
             state.currentPriorityFilter = action.priority || null;
             var apList = countableWorkUnits(state.filteredTasks).filter(function(t) {
                 if (action.person && (!t.fields.assignee || t.fields.assignee.displayName !== action.person)) return false;
