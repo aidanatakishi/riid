@@ -8,7 +8,7 @@ import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList,
 import { loadDocxLib, exportTasksToWord } from './report.js?v=idda13';
 import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda49';
 import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda106';
-import { initChat } from './chat.js?v=idda49';
+import { initChat } from './chat.js?v=idda52';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda14';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };

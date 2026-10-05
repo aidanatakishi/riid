@@ -78,6 +78,8 @@ var KPI_FOCUS = [
 var chatLlm = false;
 var chatOpen = false;
 var chatBusy = false;
+/** In-memory only: X hides bot until a full page reload (manual refresh). Silent auto-refresh keeps it gone. */
+var launcherGone = false;
 var chatHistory = [];
 
 function fold(str) {
@@ -1897,11 +1899,11 @@ function ensureUi() {
     var root = el(
         '<div id="dashChatRoot" class="dash-chat">'
         + '<div id="dashChatLauncher" class="dash-chat-launcher" aria-live="polite">'
+        + '<button type="button" id="dashChatDismiss" class="dash-chat-dismiss" aria-label="Bağla" title="Bağla">✕</button>'
         + '<div class="dash-chat-tip" id="dashChatBubble" role="status">'
         + '<p id="dashChatBubbleText"></p>'
         + '<span class="dash-chat-tip-tail" aria-hidden="true"></span>'
         + '</div>'
-        + '<button type="button" id="dashChatDismiss" class="dash-chat-dismiss" aria-label="Bağla" title="Bağla">✕</button>'
         + '<button type="button" id="dashChatFab" class="dash-chat-fab" aria-controls="dashChatPanel" aria-expanded="false" aria-label="Süni intellekt köməkçiniz" title="Süni intellekt köməkçiniz">'
         + robotHtml()
         + '</button>'
@@ -1940,10 +1942,8 @@ function ensureUi() {
     );
     document.body.appendChild(root);
     try {
-        if (sessionStorage.getItem('dashChatLauncherV') !== '22') {
-            sessionStorage.removeItem('dashChatLauncherDismissed');
-            sessionStorage.setItem('dashChatLauncherV', '22');
-        }
+        sessionStorage.removeItem('dashChatLauncherDismissed');
+        sessionStorage.removeItem('dashChatLauncherV');
     } catch (e) {}
     fillBubbleText();
     document.getElementById('dashChatFab').addEventListener('click', openChat);
@@ -2011,39 +2011,18 @@ function fillBubbleText() {
     if (elText) elText.textContent = bubbleCopy();
 }
 
-function launcherDismissed() {
-    try { return sessionStorage.getItem('dashChatLauncherDismissed') === '1'; } catch (e) { return false; }
-}
-
-function setLauncherDismissed(on) {
-    try {
-        if (on) sessionStorage.setItem('dashChatLauncherDismissed', '1');
-        else sessionStorage.removeItem('dashChatLauncherDismissed');
-    } catch (e) {}
-}
-
 function syncLauncherVisibility() {
     var launcher = document.getElementById('dashChatLauncher');
-    var tip = document.getElementById('dashChatBubble');
-    var dismiss = document.getElementById('dashChatDismiss');
     if (!launcher) return;
-    launcher.classList.remove('is-leaving');
-    if (chatOpen) {
+    if (chatOpen || launcherGone) {
+        launcher.classList.remove('is-leaving');
         launcher.classList.add('hidden');
         launcher.hidden = true;
         return;
     }
+    launcher.classList.remove('is-leaving');
     launcher.classList.remove('hidden');
     launcher.hidden = false;
-    var tipOff = launcherDismissed();
-    if (tip) {
-        tip.classList.toggle('hidden', tipOff);
-        tip.hidden = tipOff;
-    }
-    if (dismiss) {
-        dismiss.classList.toggle('hidden', tipOff);
-        dismiss.hidden = tipOff;
-    }
 }
 
 function dismissLauncher(ev) {
@@ -2051,16 +2030,18 @@ function dismissLauncher(ev) {
         ev.preventDefault();
         ev.stopPropagation();
     }
-    var tip = document.getElementById('dashChatBubble');
-    var dismiss = document.getElementById('dashChatDismiss');
-    if (!tip || tip.hidden) return;
-    setLauncherDismissed(true);
-    tip.classList.add('hidden');
-    tip.hidden = true;
-    if (dismiss) {
-        dismiss.classList.add('hidden');
-        dismiss.hidden = true;
-    }
+    if (launcherGone) return;
+    var launcher = document.getElementById('dashChatLauncher');
+    if (!launcher || launcher.hidden) return;
+    launcherGone = true;
+    if (chatOpen) closeChat();
+    launcher.classList.add('is-leaving');
+    var finish = function() {
+        launcher.classList.remove('is-leaving');
+        launcher.classList.add('hidden');
+        launcher.hidden = true;
+    };
+    window.setTimeout(finish, 400);
 }
 
 function welcomeHtml() {
