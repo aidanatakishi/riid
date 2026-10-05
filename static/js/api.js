@@ -655,6 +655,9 @@ function refreshTodayTasks() {
         var d = new Date(t.fields.updated); d.setHours(0, 0, 0, 0);
         return d.getTime() === todayTmp.getTime();
     });
+    if (typeof state.syncAiBotNotify === 'function') {
+        try { state.syncAiBotNotify(); } catch (e) {}
+    }
 }
 
 function bumpDataEpoch() {

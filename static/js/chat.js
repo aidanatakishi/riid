@@ -32,6 +32,7 @@ import {
     getTaskDueDate
 } from './model.js?v=idda10';
 import { exportTasksToWord } from './report.js?v=idda13';
+import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda5';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {
@@ -78,8 +79,6 @@ var KPI_FOCUS = [
 var chatLlm = false;
 var chatOpen = false;
 var chatBusy = false;
-/** In-memory only: X hides bot until a full page reload (manual refresh). Silent auto-refresh keeps it gone. */
-var launcherGone = false;
 var chatHistory = [];
 
 function fold(str) {
@@ -1895,19 +1894,12 @@ function el(html) {
 }
 
 function ensureUi() {
-    if (document.getElementById('dashChatRoot')) return;
+    if (document.getElementById('dashChatRoot')) {
+        mountDoneBotWidget();
+        return;
+    }
     var root = el(
         '<div id="dashChatRoot" class="dash-chat">'
-        + '<div id="dashChatLauncher" class="dash-chat-launcher" aria-live="polite">'
-        + '<button type="button" id="dashChatDismiss" class="dash-chat-dismiss" aria-label="Bağla" title="Bağla">✕</button>'
-        + '<div class="dash-chat-tip" id="dashChatBubble" role="status">'
-        + '<p id="dashChatBubbleText"></p>'
-        + '<span class="dash-chat-tip-tail" aria-hidden="true"></span>'
-        + '</div>'
-        + '<button type="button" id="dashChatFab" class="dash-chat-fab" aria-controls="dashChatPanel" aria-expanded="false" aria-label="Süni intellekt köməkçiniz" title="Süni intellekt köməkçiniz">'
-        + robotHtml()
-        + '</button>'
-        + '</div>'
         + '<section id="dashChatPanel" class="dash-chat-panel hidden" hidden role="dialog" aria-labelledby="dashChatTitle">'
         + '<header class="dash-chat-head">'
         + '<div class="dash-chat-head-id">'
@@ -1941,14 +1933,6 @@ function ensureUi() {
         + '</button></form></section></div>'
     );
     document.body.appendChild(root);
-    try {
-        sessionStorage.removeItem('dashChatLauncherDismissed');
-        sessionStorage.removeItem('dashChatLauncherV');
-    } catch (e) {}
-    fillBubbleText();
-    document.getElementById('dashChatFab').addEventListener('click', openChat);
-    document.getElementById('dashChatBubble').addEventListener('click', openChat);
-    document.getElementById('dashChatDismiss').addEventListener('click', dismissLauncher);
     document.getElementById('dashChatClose').addEventListener('click', closeChat);
     document.getElementById('dashChatClear').addEventListener('click', resetChat);
     document.getElementById('dashChatForm').addEventListener('submit', onSubmit);
@@ -1964,85 +1948,36 @@ function ensureUi() {
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape' && chatOpen) closeChat();
     });
-    syncLauncherVisibility();
+    mountDoneBotWidget();
+    syncAiBotNotifyFromState();
     renderHints();
     addBot(welcomeHtml(), false);
 }
 
-function robotHtml() {
-    return ''
-        + '<span class="dash-chat-bot" aria-hidden="true">'
-        + '<span class="rb-shadow"></span>'
-        + '<span class="rb-aura"></span>'
-        + '<span class="rb-fig">'
-        + '<span class="rb-head">'
-        + '<span class="rb-antenna"><span class="rb-antenna-stem"></span><span class="rb-antenna-tip"></span></span>'
-        + '<span class="rb-ear rb-ear-l"></span>'
-        + '<span class="rb-ear rb-ear-r"></span>'
-        + '<span class="rb-visor">'
-        + '<span class="rb-eye rb-eye-l"><span class="rb-pupil"></span><span class="rb-shine"></span></span>'
-        + '<span class="rb-eye rb-eye-r"><span class="rb-pupil"></span><span class="rb-shine"></span></span>'
-        + '<span class="rb-smile"></span>'
-        + '<span class="rb-cheek rb-cheek-l"></span>'
-        + '<span class="rb-cheek rb-cheek-r"></span>'
-        + '</span>'
-        + '<span class="rb-gloss"></span>'
-        + '</span>'
-        + '<span class="rb-body">'
-        + '<span class="rb-tee"><span class="rb-ai">AI</span><span class="rb-heart"></span></span>'
-        + '</span>'
-        + '<span class="rb-arm rb-arm-l"><span class="rb-hand"></span></span>'
-        + '<span class="rb-arm rb-arm-r"><span class="rb-hand"></span></span>'
-        + '<span class="rb-foot rb-foot-l"></span>'
-        + '<span class="rb-foot rb-foot-r"></span>'
-        + '</span>'
-        + '</span>';
-}
-function bubbleCopy() {
-    var name = viewerFirstName();
-    if (name) {
-        return 'Salam, ' + name + '! Mən AI Done-am — çox şadam! Paneldə sizə kömək edə bilərəm, klikləyin!';
+function mountDoneBotWidget() {
+    mountDoneBot({
+        userName: viewerFirstName() || '',
+        onOpen: function() {
+            openChat();
+        },
+        onClose: function() {
+            if (chatOpen) closeChat();
+        }
+    });
+    var api = getDoneBot();
+    if (api && typeof api.setUserName === 'function') {
+        api.setUserName(viewerFirstName() || '');
     }
-    return 'Salam! Mən AI Done-am — çox şadam sizi görməyə! Paneldə kömək üçün mənə klikləyin!';
 }
 
-function fillBubbleText() {
-    var elText = document.getElementById('dashChatBubbleText');
-    if (elText) elText.textContent = bubbleCopy();
-}
-
-function syncLauncherVisibility() {
-    var launcher = document.getElementById('dashChatLauncher');
-    if (!launcher) return;
-    if (chatOpen || launcherGone) {
-        launcher.classList.remove('is-leaving');
-        launcher.classList.add('hidden');
-        launcher.hidden = true;
-        return;
+export function syncAiBotNotifyFromState() {
+    var n = (state.todayTasks && state.todayTasks.length) || 0;
+    var api = getDoneBot() || window.DoneBot;
+    if (api && typeof api.setAlert === 'function') {
+        api.setAlert(n > 0 && !chatOpen);
     }
-    launcher.classList.remove('is-leaving');
-    launcher.classList.remove('hidden');
-    launcher.hidden = false;
 }
-
-function dismissLauncher(ev) {
-    if (ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-    }
-    if (launcherGone) return;
-    var launcher = document.getElementById('dashChatLauncher');
-    if (!launcher || launcher.hidden) return;
-    launcherGone = true;
-    if (chatOpen) closeChat();
-    launcher.classList.add('is-leaving');
-    var finish = function() {
-        launcher.classList.remove('is-leaving');
-        launcher.classList.add('hidden');
-        launcher.hidden = true;
-    };
-    window.setTimeout(finish, 400);
-}
+state.syncAiBotNotify = syncAiBotNotifyFromState;
 
 function welcomeHtml() {
     var name = viewerFirstName();
@@ -2121,12 +2056,13 @@ function toggleChat() {
 function openChat() {
     chatOpen = true;
     var panel = document.getElementById('dashChatPanel');
-    var fab = document.getElementById('dashChatFab');
+    if (!panel) return;
     panel.classList.remove('hidden');
     panel.hidden = false;
-    if (fab) fab.setAttribute('aria-expanded', 'true');
     document.getElementById('dashChatRoot').classList.add('is-open');
-    syncLauncherVisibility();
+    var api = getDoneBot() || window.DoneBot;
+    if (api && typeof api.setAlert === 'function') api.setAlert(false);
+    syncAiBotNotifyFromState();
     setTimeout(function() {
         var input = document.getElementById('dashChatInput');
         if (input) input.focus();
@@ -2136,12 +2072,11 @@ function openChat() {
 function closeChat() {
     chatOpen = false;
     var panel = document.getElementById('dashChatPanel');
-    var fab = document.getElementById('dashChatFab');
+    if (!panel) return;
     panel.classList.add('hidden');
     panel.hidden = true;
-    if (fab) fab.setAttribute('aria-expanded', 'false');
     document.getElementById('dashChatRoot').classList.remove('is-open');
-    syncLauncherVisibility();
+    syncAiBotNotifyFromState();
 }
 
 function resetChat() {
@@ -2190,42 +2125,49 @@ function onSubmit(e) {
 
 async function reply(question) {
     chatBusy = true;
+    var thinkingApi = getDoneBot() || window.DoneBot;
+    if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(true);
     chatHistory.push({ role: 'user', content: question });
     var pending = addBot('<p class="dash-chat-wait">Düşünürəm…</p>', true);
     var local = answerQuestion(question);
     var html = local.html;
     var used = local.text || '';
     var skipLlm = local.keepHtml || (local.facts && local.facts.kind === 'report');
-    if (llmEnabled() && local.facts && local.facts.kind !== 'empty' && !skipLlm) {
-        try {
-            var res = await fetch('/api/chat', {
-                credentials: 'same-origin',
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    question: question,
-                    draft: used,
-                    facts: packChatFacts(local),
-                    history: chatHistory.slice(0, -1).slice(-8)
-                })
-            });
-            if (res.ok) {
-                var data = await res.json();
-                if (data && data.answer && data.source === 'llm') {
-                    html = renderMarkdownish(data.answer);
-                    used = data.answer;
+    try {
+        if (llmEnabled() && local.facts && local.facts.kind !== 'empty' && !skipLlm) {
+            try {
+                var res = await fetch('/api/chat', {
+                    credentials: 'same-origin',
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        question: question,
+                        draft: used,
+                        facts: packChatFacts(local),
+                        history: chatHistory.slice(0, -1).slice(-8)
+                    })
+                });
+                if (res.ok) {
+                    var data = await res.json();
+                    if (data && data.answer && data.source === 'llm') {
+                        html = renderMarkdownish(data.answer);
+                        used = data.answer;
+                    }
                 }
+            } catch (err) {
+                html = local.html;
             }
-        } catch (err) {
-            html = local.html;
         }
+        chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
+        if (chatHistory.length > 16) chatHistory = chatHistory.slice(-16);
+        pending.classList.remove('is-pending');
+        pending.querySelector('.dash-chat-bubble').innerHTML = html;
+        document.getElementById('dashChatLog').scrollTop = document.getElementById('dashChatLog').scrollHeight;
+    } finally {
+        chatBusy = false;
+        var doneApi = getDoneBot() || window.DoneBot;
+        if (doneApi && typeof doneApi.setThinking === 'function') doneApi.setThinking(false);
     }
-    chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
-    if (chatHistory.length > 16) chatHistory = chatHistory.slice(-16);
-    pending.classList.remove('is-pending');
-    pending.querySelector('.dash-chat-bubble').innerHTML = html;
-    document.getElementById('dashChatLog').scrollTop = document.getElementById('dashChatLog').scrollHeight;
-    chatBusy = false;
 }
 
 export function initChat(opts) {
