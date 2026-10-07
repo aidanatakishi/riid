@@ -31,8 +31,8 @@ import {
     getBlockReason,
     getTaskDueDate
 } from './model.js?v=idda10';
-import { exportTasksToWord } from './report.js?v=idda13';
-import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda5';
+import { exportTasksToWord } from './report.js?v=idda17';
+import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda7';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {
@@ -1630,7 +1630,7 @@ function answerQuestion(raw) {
         html = formatIdentity();
         text = stripHtml(html);
         facts = { kind: 'identity' };
-        return { html: html, text: text, facts: facts, question: raw, keepHtml: true };
+        return { html: html, text: text, facts: facts, question: raw };
     }
     if (parsed.kind === 'report') {
         var reportEv = hasData() ? collectEvidence() : null;
@@ -1810,6 +1810,9 @@ function packChatFacts(local) {
         dueOpen: ev ? ev.dueOpen : [],
         dueDone: ev ? ev.dueDone : [],
         compare: local.facts && local.facts.a ? { a: local.facts.a, b: local.facts.b, meta: local.facts.meta || {} } : null,
+        matchedTasks: (function() {
+            try { return findTasksByWords(fold(local.question || '')).slice(0, 10); } catch (e) { return []; }
+        })(),
         sprints: names,
         localKind: (local.facts && local.facts.kind) || 'open'
     };
@@ -2132,9 +2135,18 @@ async function reply(question) {
     var local = answerQuestion(question);
     var html = local.html;
     var used = local.text || '';
-    var skipLlm = local.keepHtml || (local.facts && local.facts.kind === 'report');
+    var skipLlm = !!(local.facts && local.facts.kind === 'report');
     try {
-        if (llmEnabled() && local.facts && local.facts.kind !== 'empty' && !skipLlm) {
+        if (!chatLlm) {
+            try {
+                var cfgRes = await fetch('/api/config', { credentials: 'same-origin' });
+                if (cfgRes.ok) {
+                    var cfg = await cfgRes.json();
+                    if (cfg && cfg.hasChatLlm) chatLlm = true;
+                }
+            } catch (cfgErr) {}
+        }
+        if (!skipLlm) {
             try {
                 var res = await fetch('/api/chat', {
                     credentials: 'same-origin',

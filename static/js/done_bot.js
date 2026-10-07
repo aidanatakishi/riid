@@ -44,11 +44,8 @@ function bindDoneBot(root, opts) {
   var text = bubbleTextFor(user);
   var typeT, hideT;
 
-  function bubbleTextFor(name) {
-    if (name) {
-      return 'Salam, ' + name + '! Mən AI Done-am — çox şadam! Paneldə sizə kömək edə bilərəm, klikləyin!';
-    }
-    return 'Salam! Mən AI Done-am — çox şadam! Paneldə sizə kömək edə bilərəm, klikləyin!';
+  function bubbleTextFor() {
+    return 'Salam! Mən AI Done-am — sizi görməyə çox şadam! Paneldə sizə kömək edə bilərəm, klikləyin!';
   }
 
   /* Speech bubble: spring in + typewriter, auto-hide after 8s */

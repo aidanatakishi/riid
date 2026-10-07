@@ -15,6 +15,7 @@ LAST_ERROR = ''
 # Ən güclü mövcud model əvvəldə; açar/kvota buraxmasa növbətiyə düşür.
 GEMINI_STRONG = 'gemini-3.1-pro-preview'
 GEMINI_FALLBACKS = ('gemini-2.5-pro', 'gemini-2.0-flash')
+GEMINI_CHAT_FALLBACKS = ('gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-pro')
 
 _HTTP = None
 
@@ -68,6 +69,14 @@ def polish_monthly_report(period, draft, sample_style=None, api_key=None):
         '- "cı il / cü il tarixində" qalıqlarını sil; tarixləri "DD.MM.YYYY tarixində" saxla.\n'
         '- Hər bölməni qısa və rəsmi saxla; eyni mənanı təkrarlama.\n'
         '- Siyahı elementlərinin sonunu ; və ya . ilə bitir.\n'
+        '- Qurumun həm tam adı, həm qısaltması varsa tam adı yaz, qısaltmanı yalnız mötərizədə saxla: «Nazirliyi (RİNN)».\n'
+        '- Hər bənd: «Qurumun tam adı (QISALTMA) – Tam cümlə. Tam cümlə.» Qurum adından sonra tire, sonra bitmiş cümlələr.\n'
+        '- Cümlələri vergüllə yapışdırma. Hər fikir «…edilmişdir.», «…təqdim edilmişdir.» kimi bitsin.\n'
+        '- Tarixi «DD.MM.YYYY-cı il tarixində» yaz.\n'
+        '- Tapşırıq başlığını ayrı natamam cümlə kimi yazma.\n'
+        '- Düzgün nümunə: «Azərbaycan Respublikasının Rəqəmsal İnkişaf və Nəqliyyat Nazirliyi (RİNN) – 09.09.2026-cı il tarixində 248 nömrəli Qərarın icra vəziyyəti ilə bağlı işçi qaydada sorğu daxil olmuş, 10.09.2026-cı il tarixində müvafiq bənd üzrə mövcud vəziyyət təqdim edilmişdir.»\n'
+        '- Səhv: «QSCnin ın … cavablandırılması. 16.09.2026 tarixində …».\n'
+        '- HESABATIN İCMALI və KPI kartı yazma.\n'
         '- Cavabı YALNIZ JSON ver, markdown və izah yazma.\n'
         'JSON formatı: {"title":"...","icmal":"...","sections":[{"id":"...","title":"...","intro":"...","items":["..."]}]}\n'
         'Dövr: ' + (period_s or '(draft.period)') + '\n'
@@ -112,7 +121,7 @@ def answer_chat(question, facts, draft, history=None, api_key=None):
         return None
     prompt = _build_prompt(question, facts, draft, history)
     if gemini:
-        text = _gemini(gemini, prompt)
+        text = _gemini_chat(gemini, prompt)
         if text:
             return text
     if openai:
@@ -154,7 +163,8 @@ def _build_prompt(question, facts, draft, history):
         'Salam və ya qısa nəzakət varsa, eyni cümləni hər dəfə təkrarlama. '
         'Günün vaxtına uyğun, təbii salamla.\n'
         'Təşəkkürə qısa və isti cavab ver, KPI tökme.\n'
-        'Sualı oxu, nə istədiyini başa düş, sonra düşünüb cavab ver.\n'
+        'Sualı oxu və birbaşa cavab ver. Ümumi KPI xülasəsi ilə kifayətlənmə, əgər sual konkretdirsə.\n'
+        'Yerli qeyd şablondur — onu kopyalama. Rəqəm, ad və açarı JSON faktlardan götür.\n'
         'Analizdə əvvəl birbaşa nəticəni de, sonra sübut gətir: ad, tapşırıq açarı, rəqəm, istiqamət.\n'
         'Yalnız JSON faktlardan istifadə et. Yeni rəqəm, ad və ya sprint uydurma.\n'
         'Faktlarda yoxdursa, ehtiyatla de və yaxın kəsiyi şərh et.\n'
@@ -182,7 +192,10 @@ def _build_prompt(question, facts, draft, history):
             'Nəyin risk, nəyin yaxşı getdiyini ayır. 6–12 cümlə, konkret olsun.\n'
         )
     draft_text = str(draft or '').strip()
-    draft_block = ('\nYerli qeyd (rəqəmləri saxla, daha ağıllı yaz):\n' + draft_text[:3500] + '\n') if draft_text else ''
+    draft_block = (
+        '\nYerli qeyd (yalnız rəqəm istinadı; şablonu təkrarlama, sualı özün cavabla):\n'
+        + draft_text[:2200] + '\n'
+    ) if draft_text else ''
     return (
         tone + '\n'
         'Əvvəlki söhbət:\n' + hist_block + '\n\n'
@@ -212,7 +225,29 @@ def _gemini_text(data):
     return '\n'.join(texts).strip() or None
 
 
-def _gemini_once(key, prompt, model):
+def _gemini_chat_models():
+    preferred = (os.environ.get('GEMINI_CHAT_MODEL') or '').strip()
+    models = []
+    for name in (preferred,) + GEMINI_CHAT_FALLBACKS:
+        if name and name not in models:
+            models.append(name)
+    return models
+
+
+def _gemini_chat(key, prompt):
+    global LAST_MODEL
+    for model in _gemini_chat_models():
+        text = _gemini_once(key, prompt, model, chat=True)
+        if text:
+            LAST_MODEL = model
+            print('chat_llm Gemini ok', model, flush=True)
+            return text
+        if LAST_ERROR.endswith('SSLError'):
+            break
+    return None
+
+
+def _gemini_once(key, prompt, model, chat=False):
     global LAST_ERROR
     url = (
         'https://generativelanguage.googleapis.com/v1beta/models/'
@@ -220,12 +255,12 @@ def _gemini_once(key, prompt, model):
         + ':generateContent?key='
         + key
     )
-    gen = {'maxOutputTokens': 8192}
-    if 'gemini-3' in model:
+    gen = {'maxOutputTokens': 4096 if chat else 8192}
+    if (not chat) and 'gemini-3' in model:
         gen['thinkingConfig'] = {'thinkingLevel': 'HIGH'}
     else:
-        gen['temperature'] = 0.45
-    timeout = 90 if 'gemini-3' in model or 'pro' in model else 35
+        gen['temperature'] = 0.25 if chat else 0.45
+    timeout = 40 if chat else (90 if 'gemini-3' in model or 'pro' in model else 35)
     try:
         res = _http().post(url, json={
             'contents': [{'parts': [{'text': prompt}]}],
