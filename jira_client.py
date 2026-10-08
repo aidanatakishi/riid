@@ -156,19 +156,38 @@ def _normalize_attachment_rows(raw):
 
 
 def fetch_issue_attachments(base_url, pat, key):
-    """Fetch attachment metadata for one issue key."""
+    """Fetch attachment metadata for one issue key.
+
+    Prefer /search (same path as the dashboard proxy) — some Jira setups
+    return 404 for /issue/{key} even when search finds the issue.
+    """
     key = str(key or '').strip()
     if not key:
         return None, {"error": "Tapşırıq açarı lazımdır"}, 400
+
+    # 1) Dashboard ilə eyni yol: JQL search
+    safe_key = key.replace('"', '')
+    result, error, status = fetch_jira_data(
+        base_url,
+        pat,
+        f'key = "{safe_key}"',
+        'attachment,summary',
+    )
+    if not error:
+        issues = (result or {}).get('issues') or []
+        if issues:
+            raw = ((issues[0].get('fields') or {}).get('attachment')) or []
+            return {"key": key, "attachments": _normalize_attachment_rows(raw)}, None, 200
+
+    # 2) Birbaşa issue GET
     base = base_url.rstrip('/')
     session = make_session()
     headers = auth_headers(pat)
-    url = f"{base}/rest/api/2/issue/{key}"
     try:
         res = session.get(
-            url,
+            f"{base}/rest/api/2/issue/{safe_key}",
             headers=headers,
-            params={"fields": "attachment"},
+            params={"fields": "attachment,summary"},
             verify=False,
             timeout=REQUEST_TIMEOUT,
         )
@@ -179,49 +198,25 @@ def fetch_issue_attachments(base_url, pat, key):
     except Exception as e:
         return None, {"error": f"Sorğu xətası: {str(e)}"}, 500
 
-    data = None
     if res.status_code == 200:
         try:
             data = res.json()
         except Exception:
             return None, {"error": "Jira cavabı JSON formatında deyil"}, 502
-    else:
-        # Bəzi Jira qurulmalarında issue GET 404 verir; search ilə yoxla
-        try:
-            search = session.get(
-                f"{base}/rest/api/2/search",
-                headers=headers,
-                params={
-                    "jql": f'key = "{key}"',
-                    "fields": "attachment",
-                    "maxResults": 1,
-                },
-                verify=False,
-                timeout=REQUEST_TIMEOUT,
-            )
-        except Exception:
-            search = None
-        if search is not None and search.status_code == 200:
-            try:
-                payload = search.json()
-            except Exception:
-                payload = {}
-            issues = payload.get('issues') or []
-            if issues:
-                data = issues[0]
-        if data is None:
-            err = http_error_payload(res)
-            if res.status_code == 404:
-                err = {
-                    "error": (
-                        f"{key} tapşırığı Jira-da tapılmadı və ya token bu layihəyə baxa bilmir. "
-                        "Jira tokenini Tənzimləmələrdə yeniləyin."
-                    )
-                }
-            return None, err, res.status_code
+        raw = ((data.get('fields') or {}).get('attachment')) or []
+        return {"key": key, "attachments": _normalize_attachment_rows(raw)}, None, 200
 
-    raw = ((data.get('fields') or {}).get('attachment')) or []
-    return {"key": key, "attachments": _normalize_attachment_rows(raw)}, None, 200
+    if error:
+        return None, error, status
+    err = http_error_payload(res)
+    if res.status_code == 404:
+        err = {
+            "error": (
+                f"{key} tapşırığı Jira-da tapılmadı və ya token bu layihəyə baxa bilmir. "
+                "Jira tokenini Tənzimləmələrdə yeniləyin."
+            )
+        }
+    return None, err, res.status_code
 
 
 def _is_probably_login_html(res):
