@@ -1989,6 +1989,218 @@ function issueLinkHtml(key) {
         + esc(key) + '</a>';
 }
 
+function teqdimatBtnHtml(key) {
+    if (!key) return '';
+    return '<button type="button" class="nk303-btn nk303-btn--ghost nk303-teq-open" onclick="event.stopPropagation(); nk303Call(\'openTeqdimat\',\''
+        + qarg(key) + '\')" title="Jira-dakı Təqdimat faylını göstər">Təqdimat</button>';
+}
+
+var teqdimatState = { key: '', blobUrl: '', loading: false };
+
+function closeTeqdimatModal() {
+    var overlay = document.getElementById('nk303TeqdimatOverlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.hidden = true;
+    }
+    document.body.classList.remove('nk303-teq-open');
+    if (teqdimatState.blobUrl) {
+        try { URL.revokeObjectURL(teqdimatState.blobUrl); } catch (e) {}
+        teqdimatState.blobUrl = '';
+    }
+    teqdimatState.key = '';
+    teqdimatState.loading = false;
+    var body = document.getElementById('nk303TeqdimatBody');
+    if (body) body.innerHTML = '';
+    var dl = document.getElementById('nk303TeqdimatDownload');
+    if (dl) {
+        dl.classList.add('hidden');
+        dl.removeAttribute('href');
+    }
+}
+
+function formatFileSize(n) {
+    var b = Number(n) || 0;
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+function isPdfAttachment(att) {
+    var name = String((att && att.filename) || '').toLowerCase();
+    var mime = String((att && att.mimeType) || '').toLowerCase();
+    return name.endsWith('.pdf') || mime.indexOf('pdf') !== -1;
+}
+
+function isPptAttachment(att) {
+    var name = String((att && att.filename) || '').toLowerCase();
+    var mime = String((att && att.mimeType) || '').toLowerCase();
+    return /\.pptx?$|\.pptm$/i.test(name) || mime.indexOf('presentation') !== -1 || mime.indexOf('powerpoint') !== -1;
+}
+
+async function openTeqdimatModal(issueKey) {
+    var key = String(issueKey || '').trim();
+    if (!key) {
+        showToast('Tapşırıq açarı yoxdur.', 'error');
+        return;
+    }
+    closeTeqdimatModal();
+    teqdimatState.key = key;
+    teqdimatState.loading = true;
+    var overlay = document.getElementById('nk303TeqdimatOverlay');
+    var titleEl = document.getElementById('nk303TeqdimatTitle');
+    var metaEl = document.getElementById('nk303TeqdimatMeta');
+    var body = document.getElementById('nk303TeqdimatBody');
+    var dl = document.getElementById('nk303TeqdimatDownload');
+    if (!overlay || !body) return;
+    if (titleEl) titleEl.textContent = 'Təqdimat';
+    if (metaEl) metaEl.textContent = key + ' · Jira əlavələri yoxlanılır…';
+    body.innerHTML = '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Təqdimat axtarılır…</p></div>';
+    overlay.classList.remove('hidden');
+    overlay.hidden = false;
+    document.body.classList.add('nk303-teq-open');
+    try {
+        var listRes = await apiFetch('/api/jira/attachments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: key, teqdimatOnly: true })
+        });
+        var listData = await listRes.json().catch(function() { return {}; });
+        if (!listRes.ok) {
+            throw new Error((listData && listData.error) || ('Əlavələr alınmadı (HTTP ' + listRes.status + ')'));
+        }
+        var atts = (listData && listData.attachments) || [];
+        if (!atts.length) {
+            body.innerHTML = '<div class="nk303-teq-empty"><p><b>Təqdimat tapılmadı</b></p>'
+                + '<p class="nk303-hint">Bu tapşırığın Jira Attachments hissəsində PDF/PPTX təqdimat yoxdur'
+                + (listData.totalOnIssue ? ' (ümumi əlavə: ' + listData.totalOnIssue + ')' : '')
+                + '.</p>'
+                + '<a class="nk303-issue" href="' + esc(jiraBrowseUrl(key)) + '" target="_blank" rel="noopener noreferrer">Jira-da aç: '
+                + esc(key) + '</a></div>';
+            if (metaEl) metaEl.textContent = key;
+            return;
+        }
+        var att = atts[0];
+        if (titleEl) titleEl.textContent = att.filename || 'Təqdimat';
+        if (metaEl) {
+            metaEl.textContent = key
+                + (atts.length > 1 ? ' · ' + atts.length + ' fayl' : '')
+                + (att.size ? ' · ' + formatFileSize(att.size) : '');
+        }
+        var fileUrl = '/api/jira/attachment/' + encodeURIComponent(att.id)
+            + '?key=' + encodeURIComponent(key);
+        var fileRes = await apiFetch(fileUrl, { method: 'GET' });
+        if (!fileRes.ok) {
+            var errData = await fileRes.json().catch(function() { return {}; });
+            throw new Error((errData && errData.error) || ('Fayl yüklənmədi (HTTP ' + fileRes.status + ')'));
+        }
+        var blob = await fileRes.blob();
+        if (teqdimatState.blobUrl) {
+            try { URL.revokeObjectURL(teqdimatState.blobUrl); } catch (e2) {}
+        }
+        teqdimatState.blobUrl = URL.createObjectURL(blob);
+        var dlUrl = fileUrl + (fileUrl.indexOf('?') >= 0 ? '&' : '?') + 'download=1';
+        if (dl) {
+            dl.href = dlUrl;
+            dl.setAttribute('download', att.filename || 'teqdimat');
+            dl.classList.remove('hidden');
+        }
+        if (isPdfAttachment(att)) {
+            body.innerHTML = '<iframe class="nk303-teq-frame" title="' + esc(att.filename || 'Təqdimat')
+                + '" src="' + teqdimatState.blobUrl + '#view=FitH"></iframe>';
+        } else if (isPptAttachment(att)) {
+            body.innerHTML = '<div class="nk303-teq-ppt">'
+                + '<div class="nk303-teq-ppt-card">'
+                + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
+                + '<p class="nk303-hint">PPTX brauzerdə birbaşa göstərilmir. Faylı yükləyin və ya yeni tabda açın.</p>'
+                + '<div class="nk303-teq-ppt-actions">'
+                + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download="' + esc(att.filename || 'teqdimat') + '">Faylı yüklə</a>'
+                + '<a class="nk303-btn nk303-btn--ghost" href="' + fileUrl + '" target="_blank" rel="noopener noreferrer">Yeni tabda aç</a>'
+                + '</div></div></div>';
+        } else {
+            body.innerHTML = '<div class="nk303-teq-empty"><p>' + esc(att.filename || 'Fayl') + '</p>'
+                + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download>Yüklə</a></div>';
+        }
+        if (atts.length > 1) {
+            var chips = atts.map(function(a, i) {
+                return '<button type="button" class="nk303-teq-chip' + (i === 0 ? ' is-on' : '')
+                    + '" onclick="nk303Call(\'pickTeqdimat\',\'' + qarg(key + '|' + a.id) + '\')">'
+                    + esc(a.filename || ('Fayl ' + (i + 1))) + '</button>';
+            }).join('');
+            body.insertAdjacentHTML('afterbegin', '<div class="nk303-teq-chips">' + chips + '</div>');
+        }
+    } catch (err) {
+        body.innerHTML = '<div class="nk303-teq-empty"><p><b>Təqdimat açıla bilmədi</b></p>'
+            + '<p class="nk303-hint">' + esc(err && err.message ? err.message : String(err)) + '</p></div>';
+        showToast(err && err.message ? err.message : 'Təqdimat açıla bilmədi', 'error');
+    } finally {
+        teqdimatState.loading = false;
+    }
+}
+
+async function openTeqdimatById(issueKey, attId) {
+    var key = String(issueKey || '').trim();
+    var id = String(attId || '').trim();
+    if (!key || !id) return;
+    var body = document.getElementById('nk303TeqdimatBody');
+    var titleEl = document.getElementById('nk303TeqdimatTitle');
+    var metaEl = document.getElementById('nk303TeqdimatMeta');
+    var dl = document.getElementById('nk303TeqdimatDownload');
+    if (!body) return;
+    body.innerHTML = '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Fayl açılır…</p></div>';
+    try {
+        var listRes = await apiFetch('/api/jira/attachments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: key, teqdimatOnly: true })
+        });
+        var listData = await listRes.json().catch(function() { return {}; });
+        if (!listRes.ok) throw new Error((listData && listData.error) || 'Siyahı alınmadı');
+        var atts = (listData && listData.attachments) || [];
+        var att = atts.filter(function(a) { return String(a.id) === id; })[0] || { id: id, filename: 'Təqdimat' };
+        var fileUrl = '/api/jira/attachment/' + encodeURIComponent(id)
+            + '?key=' + encodeURIComponent(key);
+        var fileRes = await apiFetch(fileUrl, { method: 'GET' });
+        if (!fileRes.ok) {
+            var errPick = await fileRes.json().catch(function() { return {}; });
+            throw new Error((errPick && errPick.error) || ('Fayl yüklənmədi (HTTP ' + fileRes.status + ')'));
+        }
+        var blob = await fileRes.blob();
+        if (teqdimatState.blobUrl) {
+            try { URL.revokeObjectURL(teqdimatState.blobUrl); } catch (e) {}
+        }
+        teqdimatState.blobUrl = URL.createObjectURL(blob);
+        if (titleEl) titleEl.textContent = att.filename || 'Təqdimat';
+        if (metaEl) metaEl.textContent = key + (att.size ? ' · ' + formatFileSize(att.size) : '');
+        var dlUrl = fileUrl + '&download=1';
+        if (dl) {
+            dl.href = dlUrl;
+            dl.setAttribute('download', att.filename || 'teqdimat');
+            dl.classList.remove('hidden');
+        }
+        var chips = atts.map(function(a) {
+            return '<button type="button" class="nk303-teq-chip' + (String(a.id) === id ? ' is-on' : '')
+                + '" onclick="nk303Call(\'pickTeqdimat\',\'' + qarg(key + '|' + a.id) + '\')">'
+                + esc(a.filename || a.id) + '</button>';
+        }).join('');
+        var chipBar = chips ? '<div class="nk303-teq-chips">' + chips + '</div>' : '';
+        if (isPdfAttachment(att) || String(att.filename || '').toLowerCase().endsWith('.pdf')) {
+            body.innerHTML = chipBar + '<iframe class="nk303-teq-frame" title="' + esc(att.filename || 'Təqdimat')
+                + '" src="' + teqdimatState.blobUrl + '#view=FitH"></iframe>';
+        } else {
+            body.innerHTML = chipBar + '<div class="nk303-teq-ppt"><div class="nk303-teq-ppt-card">'
+                + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
+                + '<p class="nk303-hint">PPTX brauzerdə birbaşa göstərilmir. Faylı yükləyin və ya yeni tabda açın.</p>'
+                + '<div class="nk303-teq-ppt-actions">'
+                + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download>Faylı yüklə</a>'
+                + '<a class="nk303-btn nk303-btn--ghost" href="' + fileUrl + '" target="_blank" rel="noopener noreferrer">Yeni tabda aç</a>'
+                + '</div></div></div>';
+        }
+    } catch (err) {
+        body.innerHTML = '<div class="nk303-teq-empty"><p>' + esc(err && err.message ? err.message : String(err)) + '</p></div>';
+    }
+}
+
 function processHtml(org) {
     var idx = org.processIdx == null ? 0 : org.processIdx;
     var last = PROCESS.length - 1;
@@ -2114,7 +2326,9 @@ function institutionBody(model) {
         + '<div><dt>Diaqnostika tarixi</dt><dd>' + esc(org.start ? fmtDate(org.start) : (org.updated ? fmtDate(org.updated) : NA)) + '</dd></div>'
         + '<div><dt>Diaqnostika statusu</dt><dd>' + esc(org.visLabel) + ' · ' + esc(org.statusName) + '</dd></div>'
         + '<div><dt>Son yenilənmə</dt><dd>' + esc(org.updated ? fmtDate(org.updated) : NA) + '</dd></div>'
-        + '<div><dt>Tapşırıq</dt><dd>' + issueLinkHtml(org.issueKey) + '</dd></div>'
+        + '<div><dt>Tapşırıq</dt><dd class="nk303-meta-task">' + issueLinkHtml(org.issueKey)
+        + (org.issueKey ? ' ' + teqdimatBtnHtml(org.issueKey) : '')
+        + '</dd></div>'
         + '</dl></div>'
         + '<div>'
         + '<p class="nk303-hint">Qurumun rəqəmsallaşma səviyyəsi' + (org.qrsgOfficial ? '' : '') + '</p>'
@@ -4468,6 +4682,11 @@ function bindEsc() {
         if (!ui.open) return;
         if (e.key !== 'Escape' && e.key !== 'Esc') return;
         if (document.body.classList.contains('assess-modal-open')) return;
+        if (document.body.classList.contains('nk303-teq-open')) {
+            e.preventDefault();
+            closeTeqdimatModal();
+            return;
+        }
         e.preventDefault();
         if (ui.hub) {
             closeHub();
@@ -5146,6 +5365,16 @@ export function nk303Call(action, payload) {
         var issueKey = darg(payload || '');
         var href = jiraBrowseUrl(issueKey);
         if (href) window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+    } else if (action === 'openTeqdimat') {
+        openTeqdimatModal(darg(payload || ''));
+        return;
+    } else if (action === 'pickTeqdimat') {
+        var pair = String(darg(payload || '') || '').split('|');
+        openTeqdimatById(pair[0] || '', pair[1] || '');
+        return;
+    } else if (action === 'closeTeqdimat') {
+        closeTeqdimatModal();
         return;
     } else if (action === 'logout') {
         logoutAdmin();

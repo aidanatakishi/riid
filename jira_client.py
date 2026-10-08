@@ -135,6 +135,210 @@ def fetch_issue_comments_batch(base_url, pat, keys):
     return {"comments": out}, None, 200
 
 
+def _normalize_attachment_rows(raw):
+    attachments = []
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        att_id = str(item.get('id') or '').strip()
+        filename = str(item.get('filename') or '').strip()
+        if not att_id or not filename:
+            continue
+        attachments.append({
+            "id": att_id,
+            "filename": filename,
+            "mimeType": str(item.get('mimeType') or ''),
+            "size": item.get('size') or 0,
+            "created": item.get('created') or '',
+            "content": str(item.get('content') or ''),
+        })
+    return attachments
+
+
+def fetch_issue_attachments(base_url, pat, key):
+    """Fetch attachment metadata for one issue key."""
+    key = str(key or '').strip()
+    if not key:
+        return None, {"error": "Tapşırıq açarı lazımdır"}, 400
+    base = base_url.rstrip('/')
+    session = make_session()
+    headers = auth_headers(pat)
+    url = f"{base}/rest/api/2/issue/{key}"
+    try:
+        res = session.get(
+            url,
+            headers=headers,
+            params={"fields": "attachment"},
+            verify=False,
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.exceptions.Timeout:
+        return None, {"error": "Jira serveri cavab vermir (timeout)"}, 504
+    except requests.exceptions.ConnectionError:
+        return None, {"error": "Jira serverinə qoşulmaq mümkün olmadı"}, 503
+    except Exception as e:
+        return None, {"error": f"Sorğu xətası: {str(e)}"}, 500
+
+    data = None
+    if res.status_code == 200:
+        try:
+            data = res.json()
+        except Exception:
+            return None, {"error": "Jira cavabı JSON formatında deyil"}, 502
+    else:
+        # Bəzi Jira qurulmalarında issue GET 404 verir; search ilə yoxla
+        try:
+            search = session.get(
+                f"{base}/rest/api/2/search",
+                headers=headers,
+                params={
+                    "jql": f'key = "{key}"',
+                    "fields": "attachment",
+                    "maxResults": 1,
+                },
+                verify=False,
+                timeout=REQUEST_TIMEOUT,
+            )
+        except Exception:
+            search = None
+        if search is not None and search.status_code == 200:
+            try:
+                payload = search.json()
+            except Exception:
+                payload = {}
+            issues = payload.get('issues') or []
+            if issues:
+                data = issues[0]
+        if data is None:
+            err = http_error_payload(res)
+            if res.status_code == 404:
+                err = {
+                    "error": (
+                        f"{key} tapşırığı Jira-da tapılmadı və ya token bu layihəyə baxa bilmir. "
+                        "Jira tokenini Tənzimləmələrdə yeniləyin."
+                    )
+                }
+            return None, err, res.status_code
+
+    raw = ((data.get('fields') or {}).get('attachment')) or []
+    return {"key": key, "attachments": _normalize_attachment_rows(raw)}, None, 200
+
+
+def _is_probably_login_html(res):
+    ctype = (res.headers.get('Content-Type') or '').lower()
+    if 'text/html' in ctype:
+        return True
+    text = (res.text or '')[:400].lower()
+    return 'login.jsp' in text or 'permissionviolation' in text or '<html' in text
+
+
+def _download_content_bytes(session, headers, content_url, base):
+    """Download attachment bytes; PAT + /secure/attachment often needs session cookies."""
+    try:
+        # First call seeds cookies (Atlassian PAT workaround)
+        session.get(
+            f"{base}/rest/api/2/myself",
+            headers=headers,
+            verify=False,
+            timeout=REQUEST_TIMEOUT,
+        )
+    except Exception:
+        pass
+    try:
+        file_res = session.get(
+            content_url,
+            headers=headers,
+            verify=False,
+            timeout=max(REQUEST_TIMEOUT, 90),
+            allow_redirects=True,
+        )
+    except requests.exceptions.Timeout:
+        return None, {"error": "Fayl yüklənmədi (timeout)"}, 504
+    except Exception as e:
+        return None, {"error": f"Fayl xətası: {str(e)}"}, 500
+    if file_res.status_code != 200 or _is_probably_login_html(file_res):
+        # Cookie-jar retry: Bearer first, then content with cookies only + Bearer
+        try:
+            jar_res = session.get(
+                content_url,
+                headers={"Accept": "*/*", "User-Agent": "Mozilla/5.0", "Authorization": headers.get("Authorization", "")},
+                verify=False,
+                timeout=max(REQUEST_TIMEOUT, 90),
+                allow_redirects=True,
+            )
+        except Exception as e:
+            return None, {"error": f"Fayl xətası: {str(e)}"}, 500
+        if jar_res.status_code == 200 and not _is_probably_login_html(jar_res):
+            return jar_res.content, None, 200
+        if file_res.status_code != 200:
+            return None, http_error_payload(file_res), file_res.status_code
+        return None, {
+            "error": (
+                "Jira əlavə faylını token ilə yükləmək mümkün olmadı "
+                "(Server/Data Center PAT məhdudiyyəti). Jira-da faylı birbaşa açın."
+            )
+        }, 502
+    return file_res.content, None, 200
+
+
+def download_jira_attachment(base_url, pat, attachment_id, issue_key=None):
+    """Download attachment bytes by Jira attachment id (optionally scoped to issue key)."""
+    att_id = str(attachment_id or '').strip()
+    if not att_id or not att_id.isdigit():
+        return None, {"error": "Əlavə id yanlışdır"}, 400
+    base = base_url.rstrip('/')
+    session = make_session()
+    headers = auth_headers(pat)
+    content_url = ''
+    filename = 'attachment-' + att_id
+    mime = 'application/octet-stream'
+
+    issue_key = str(issue_key or '').strip()
+    if issue_key:
+        listed, err, status = fetch_issue_attachments(base_url, pat, issue_key)
+        if not err and listed:
+            for row in listed.get('attachments') or []:
+                if str(row.get('id') or '') == att_id:
+                    content_url = str(row.get('content') or '').strip()
+                    filename = str(row.get('filename') or filename)
+                    mime = str(row.get('mimeType') or mime)
+                    break
+
+    if not content_url:
+        meta_url = f"{base}/rest/api/2/attachment/{att_id}"
+        try:
+            meta_res = session.get(meta_url, headers=headers, verify=False, timeout=REQUEST_TIMEOUT)
+        except requests.exceptions.Timeout:
+            return None, {"error": "Jira serveri cavab vermir (timeout)"}, 504
+        except Exception as e:
+            return None, {"error": f"Sorğu xətası: {str(e)}"}, 500
+        if meta_res.status_code == 200:
+            try:
+                meta = meta_res.json()
+            except Exception:
+                return None, {"error": "Jira cavabı JSON formatında deyil"}, 502
+            content_url = str(meta.get('content') or '').strip()
+            filename = str(meta.get('filename') or filename)
+            mime = str(meta.get('mimeType') or mime)
+        elif not content_url:
+            # Son çarə: klassik secure URL
+            content_url = f"{base}/secure/attachment/{att_id}/"
+
+    if not content_url:
+        return None, {"error": "Əlavə faylı tapılmadı"}, 404
+    if not content_url.startswith(base):
+        return None, {"error": "Əlavə ünvanı etibarsızdır"}, 400
+
+    payload, err, status = _download_content_bytes(session, headers, content_url, base)
+    if err:
+        return None, err, status
+    return {
+        "filename": filename,
+        "mimeType": mime,
+        "content": payload,
+    }, None, 200
+
+
 def fetch_jira_fields(base_url, pat):
     url = f"{base_url}/rest/api/2/field"
     session = make_session()

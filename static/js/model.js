@@ -669,6 +669,23 @@ export function isDueInDateRange(t, start, end) {
     return true;
 }
 
+/** Bitmə (customfield_10807) seçilmiş tarix aralığına düşür — duedate ehtiyatı yoxdur. */
+export function isBitmeInDateRange(t, start, end) {
+    var due = getBitmeDate(t);
+    if (!due) return false;
+    return isDateInReportPeriod(due, start, end);
+}
+
+/**
+ * «Bütün tapşırıqlar» siyahısı: dayandırılmış statuslar çıxarılır;
+ * tarix filtri aktivdirsə yalnız bitmə tarixi aralığa düşənlər qalır.
+ */
+export function boardListUnits(tasks, start, end) {
+    var units = jiraBoardWorkUnits(tasks || []);
+    if (!start && !end) return units;
+    return units.filter(function(t) { return isBitmeInDateRange(t, start, end); });
+}
+
 export function getTaskCreatedDate(t) {
     if (!t || !t.fields) return null;
     return parseLocalDay(t.fields.created);

@@ -31,7 +31,7 @@ import {
     getBlockReason,
     getTaskDueDate
 } from './model.js?v=idda10';
-import { exportTasksToWord } from './report.js?v=idda17';
+import { exportTasksToWord } from './report.js?v=idda19';
 import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda7';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];

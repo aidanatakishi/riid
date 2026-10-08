@@ -10,9 +10,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda3">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda142">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda143">
     <link rel="stylesheet" href="/static/css/done_bot.css?v=idda3">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda85">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda86">
 </head>
 <body class="app-page">
 
@@ -649,6 +649,24 @@
             </div>
         </div>
         <div id="nk303Root"></div>
+        <div id="nk303TeqdimatOverlay" class="nk303-teq-overlay hidden" hidden role="dialog" aria-modal="true" aria-labelledby="nk303TeqdimatTitle" onclick="nk303Call('closeTeqdimat')">
+            <div class="nk303-teq-panel" onclick="event.stopPropagation()">
+                <header class="nk303-teq-head">
+                    <div>
+                        <p class="nk303-teq-kicker">Jira əlavəsi</p>
+                        <h3 id="nk303TeqdimatTitle">Təqdimat</h3>
+                        <p id="nk303TeqdimatMeta" class="nk303-teq-meta"></p>
+                    </div>
+                    <div class="nk303-teq-actions">
+                        <a id="nk303TeqdimatDownload" class="nk303-btn nk303-btn--ghost hidden" href="#" download>Yüklə</a>
+                        <button type="button" class="nk303-teq-close" onclick="nk303Call('closeTeqdimat')" aria-label="Bağla">×</button>
+                    </div>
+                </header>
+                <div id="nk303TeqdimatBody" class="nk303-teq-body">
+                    <p class="nk303-hint">Yüklənir…</p>
+                </div>
+            </div>
+        </div>
         <div id="nk303HubOverlay" class="nk303-hub-overlay hidden" hidden role="presentation" onclick="nk303Call('closeHub')">
             <div class="nk303-hub-panel" role="dialog" aria-modal="true" aria-labelledby="nk303HubTitle" onclick="event.stopPropagation()">
                 <div id="nk303HubRoot"></div>
@@ -707,7 +725,7 @@
             <option value="servis-dizayn">Servis dizayn</option>
         </select>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda206"></script>
+    <script type="module" src="/static/js/main.js?v=idda210"></script>
 
 </body>
 </html>

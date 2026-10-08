@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
-import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda10';
+import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, boardListUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskStartDate, hasBitmeDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, taskBelongsToDateRange, wasCompletedInSprint } from './model.js?v=idda11';
 import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda45';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda12';
-import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda17';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda13';
+import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda19';
 import { renderAssessmentSections } from './assessments.js?v=idda49';
 
 var userChoseSprint = false;
@@ -685,7 +685,7 @@ function replayListViewAction(action) {
     try {
         if (action.kind === 'filter') { filterTasks(action.type); return true; }
         if (action.kind === 'default') {
-            renderTaskList(state.filteredTasks, 'Tapşırıqların Siyahısı');
+            renderTaskList(collectAllTasksListView(), 'Ümumi Tapşırıqların Siyahısı');
             openTaskListSection();
             return true;
         }
@@ -907,7 +907,7 @@ export function renderLazySection(id, force) {
             replayListViewAction(state.listViewAction);
             return;
         }
-        renderTaskList(state.filteredTasks);
+        renderTaskList(collectAllTasksListView(), 'Ümumi Tapşırıqların Siyahısı');
     }
 }
 
@@ -1346,6 +1346,32 @@ export function filterReviewParty(partyId) {
     openTaskListSection();
 }
 
+function selectedDateBounds() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    var startStr = startEl ? startEl.value : '';
+    var endStr = endEl ? endEl.value : '';
+    var startDateObj = null;
+    var endDateObj = null;
+    if (startStr) {
+        var sParts = startStr.split('-');
+        startDateObj = new Date(sParts[0], sParts[1] - 1, sParts[2]);
+        startDateObj.setHours(0, 0, 0, 0);
+    }
+    if (endStr) {
+        var eParts = endStr.split('-');
+        endDateObj = new Date(eParts[0], eParts[1] - 1, eParts[2]);
+        endDateObj.setHours(23, 59, 59, 999);
+    }
+    return { start: startDateObj, end: endDateObj, active: !!(startStr || endStr) };
+}
+
+/** Bütün tapşırıqlar: dayandırılmışlar yox; ay seçilibsə yalnız bitmə tarixi aralıqda. */
+export function collectAllTasksListView() {
+    var bounds = selectedDateBounds();
+    return boardListUnits(state.filteredTasks, bounds.active ? bounds.start : null, bounds.active ? bounds.end : null);
+}
+
 export function filterTasks(type) {
     if (!state.restoreQuiet) state.currentPage = 1;
     if (type === 'blocked') {
@@ -1358,7 +1384,7 @@ export function filterTasks(type) {
     var f = units, title = 'Ümumi Tapşırıqların Siyahısı';
     
     if (type === 'all') { 
-        f = jiraBoardWorkUnits(state.filteredTasks);
+        f = collectAllTasksListView();
         title = 'Ümumi Tapşırıqların Siyahısı';
         renderTaskList(f, title, { keepNested: true });
         if (isSectionOpen('qurumStatContent')) renderQurumChart(f);

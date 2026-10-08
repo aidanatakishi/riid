@@ -7,8 +7,9 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Blueprint, request, jsonify, session, send_file
+from flask import Blueprint, Response, request, jsonify, session, send_file
 from werkzeug.utils import secure_filename
+from urllib.parse import quote
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
 from chat_llm import answer_chat, chat_llm_ready, polish_monthly_report
@@ -16,7 +17,18 @@ import chat_llm
 from diag_excel import parse_diag_excel
 from rehber_excel import TABS, TAB_LABELS, parse_tab, build_template, template_filename
 from report_pptx import parse_report_file, normalize_report_kind
-from jira_client import fetch_jira_data, fetch_jira_fields, fetch_plan_issues, count_jql, search_jira_users, fetch_project_components, collect_component_people, fetch_issue_comments_batch
+from jira_client import (
+    fetch_jira_data,
+    fetch_jira_fields,
+    fetch_plan_issues,
+    count_jql,
+    search_jira_users,
+    fetch_project_components,
+    collect_component_people,
+    fetch_issue_comments_batch,
+    fetch_issue_attachments,
+    download_jira_attachment,
+)
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
     TEAM_IDS,
@@ -760,6 +772,107 @@ def api_jira_comments():
     if error:
         return jsonify(error), status
     return jsonify(result), 200
+
+
+def _fold_attachment_name(name):
+    s = str(name or '').casefold()
+    for a, b in (
+        ('ə', 'e'), ('ı', 'i'), ('ö', 'o'), ('ü', 'u'), ('ş', 's'), ('ç', 'c'), ('ğ', 'g'),
+        ('Ə', 'e'), ('İ', 'i'), ('Ö', 'o'), ('Ü', 'u'), ('Ş', 's'), ('Ç', 'c'), ('Ğ', 'g'),
+    ):
+        s = s.replace(a.casefold(), b)
+    return s
+
+
+def _is_presentation_file(name):
+    lower = str(name or '').lower()
+    return (
+        lower.endswith('.pdf')
+        or lower.endswith('.pptx')
+        or lower.endswith('.ppt')
+        or lower.endswith('.pptm')
+    )
+
+
+def _is_teqdimat_attachment(att):
+    if not isinstance(att, dict):
+        return False
+    name = str(att.get('filename') or '')
+    if not _is_presentation_file(name):
+        return False
+    folded = _fold_attachment_name(name)
+    needles = ('teqdimat', 'teqdim', 'presentation', 'prezentasiya', 'prezent')
+    return any(n in folded for n in needles)
+
+
+@api.route('/api/jira/attachments', methods=['POST', 'OPTIONS'])
+@login_required
+def api_jira_attachments():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    remember_project_key(data)
+    base_url, pat = resolve_credentials(data)
+    key = str(data.get('key') or '').strip()
+    if not all([base_url, pat]) or not key:
+        return jsonify({"error": "Jira tokeni və ya tapşırıq açarı yoxdur"}), 400
+    result, error, status = fetch_issue_attachments(base_url, pat, key)
+    if error:
+        return jsonify(error), status
+    attachments = result.get('attachments') or []
+    only_teqdimat = data.get('teqdimatOnly')
+    if only_teqdimat is None or only_teqdimat:
+        filtered = [a for a in attachments if _is_teqdimat_attachment(a)]
+        # Adında «Təqdimat» olmasa belə, tək PDF/PPTX varsa onu göstər
+        if not filtered:
+            filtered = [a for a in attachments if _is_presentation_file(a.get('filename'))]
+        attachments = filtered
+    safe = []
+    for a in attachments:
+        safe.append({
+            'id': a.get('id'),
+            'filename': a.get('filename'),
+            'mimeType': a.get('mimeType'),
+            'size': a.get('size'),
+            'created': a.get('created'),
+        })
+    return jsonify({'key': key, 'attachments': safe, 'totalOnIssue': len(result.get('attachments') or [])}), 200
+
+
+@api.route('/api/jira/attachment/<att_id>', methods=['GET', 'OPTIONS'])
+@login_required
+def api_jira_attachment_file(att_id):
+    if request.method == 'OPTIONS':
+        return options_ok()
+    base_url, pat = resolve_credentials({})
+    if not all([base_url, pat]):
+        return jsonify({"error": "Jira tokeni yoxdur"}), 400
+    issue_key = str(request.args.get('key') or '').strip()
+    result, error, status = download_jira_attachment(base_url, pat, att_id, issue_key=issue_key or None)
+    if error:
+        return jsonify(error), status
+    filename = result.get('filename') or ('attachment-' + str(att_id))
+    mime = result.get('mimeType') or 'application/octet-stream'
+    payload = result.get('content') or b''
+    disposition = 'inline' if request.args.get('download') != '1' else 'attachment'
+    # RFC 5987 for non-ASCII filenames
+    try:
+        filename.encode('ascii')
+        cd = f'{disposition}; filename="{filename}"'
+    except UnicodeEncodeError:
+        cd = f"{disposition}; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        payload,
+        status=200,
+        mimetype=mime,
+        headers={
+            'Content-Disposition': cd,
+            'Cache-Control': 'private, max-age=120',
+            'X-Content-Type-Options': 'nosniff',
+        },
+    )
 
 
 def build_hierarchy(base_url, pat, parent_key, date_filter, exclude_done=True):
