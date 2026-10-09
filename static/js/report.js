@@ -1,6 +1,7 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda10';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda15';
+
 
 let _docxLibPromise = null;
 
@@ -2159,6 +2160,16 @@ export async function exportTasksToWord(title) {
     }
 
     function extractLetterMeta(group) {
+        var number = '';
+        var date = '';
+        var project = '';
+        (group.tasks || []).forEach(function(t) {
+            if (!t || (number && date)) return;
+            var info = getMeqsedInfo(t);
+            if (!number && info && info.cavabMektubNomresi) number = String(info.cavabMektubNomresi).trim();
+            if (!date && info && info.cavabMektubTarixi) date = String(info.cavabMektubTarixi).trim();
+        });
+
         var blob = (group.lines || []).join(' ');
         (group.tasks || []).forEach(function(t) {
             if (!t) return;
@@ -2172,30 +2183,37 @@ export async function exportTasksToWord(title) {
             comments.forEach(function(c) {
                 if (c && typeof c.body === 'string') blob += ' ' + c.body;
             });
+            var info = getMeqsedInfo(t);
+            if (info) {
+                if (info.cavabMektubNomresi) blob += ' ' + info.cavabMektubNomresi;
+                if (info.cavabMektubTarixi) blob += ' ' + info.cavabMektubTarixi;
+            }
         });
-        var number = '';
-        var patterns = [
-            /\b(\d{1,2}-\d+\/\d+-\d+\/\d{4})\b/,
-            /\b(\d{1,2}(?:-\d+)+(?:\/\d+)+\/\d{4})\b/
-        ];
-        for (var pi = 0; pi < patterns.length; pi++) {
-            var numMatch = blob.match(patterns[pi]);
-            if (numMatch) {
-                number = numMatch[1];
-                break;
+        if (!number) {
+            var patterns = [
+                /\b(\d{1,2}-\d+\/\d+-\d+\/\d{4})\b/,
+                /\b(\d{1,2}(?:-\d+)+(?:\/\d+)+\/\d{4})\b/,
+                /\b(\d{1,2}(?:[-\/]\d+){2,}\/\d{4})\b/
+            ];
+            for (var pi = 0; pi < patterns.length; pi++) {
+                var numMatch = blob.match(patterns[pi]);
+                if (numMatch) {
+                    number = numMatch[1];
+                    break;
+                }
             }
         }
-        var project = '';
         var projMatch = blob.match(/\b(L-\d+\/\d+)\b/i);
         if (projMatch) project = projMatch[1];
-        var date = '';
-        var windowBlob = blob;
-        if (number) {
-            var at = blob.indexOf(number);
-            windowBlob = blob.slice(Math.max(0, at - 120), at + number.length + 40) + ' ' + blob;
+        if (!date) {
+            var windowBlob = blob;
+            if (number) {
+                var at = blob.indexOf(number);
+                windowBlob = blob.slice(Math.max(0, at - 120), at + number.length + 40) + ' ' + blob;
+            }
+            var dateMatch = windowBlob.match(/\b(\d{2}\.\d{2}\.\d{4})\b/);
+            if (dateMatch) date = dateMatch[1];
         }
-        var dateMatch = windowBlob.match(/\b(\d{2}\.\d{2}\.\d{4})\b/);
-        if (dateMatch) date = dateMatch[1];
         if (!date) {
             var entries = group.entries || [];
             var last = entries.length ? entries[entries.length - 1] : null;
@@ -2523,7 +2541,7 @@ export async function exportTasksToWord(title) {
                     var k = normalizeStr(q);
                     if (!k || seenQurum[k]) return;
                     seenQurum[k] = true;
-                    meqsedItems.push(q);
+                    meqsedItems.push('[[org]]' + q);
                 });
             }
             pushSection('meqsed', monthlyIntroForCanon('meqsed', periodPhrase), meqsedItems);
@@ -2703,30 +2721,108 @@ export async function exportTasksToWord(title) {
                 if (sec.list === 'bullet' || sec.list === 'number' || sec.list === 'none') listKind = sec.list;
                 var currentKind = listKind;
                 var inServices = false;
-                var items = (sec.items || []).map(function(it) {
-                    return officializeDates(cleanReportProse(it), reportDateYear);
+                var inMetodikiOrgs = false;
+                var serviceInstance = 0;
+                var bulletInstance = 0;
+                var rawItems = sec.items || [];
+                var items = rawItems.map(function(it) {
+                    var raw = String(it == null ? '' : it);
+                    var marker = '';
+                    if (/^\[\[xidmet\]\]\s*/.test(raw)) marker = 'xidmet';
+                    else if (/^\[\[org\]\]\s*/.test(raw)) marker = 'org';
+                    var body = marker ? raw.replace(/^\[\[(xidmet|org)\]\]\s*/, '') : raw;
+                    var cleaned = officializeDates(cleanReportProse(body), reportDateYear);
+                    if (!cleaned) return '';
+                    return marker ? ('[[' + marker + ']]' + cleaned) : cleaned;
                 }).filter(Boolean);
+                function isXidmetItem(text) {
+                    return /^\[\[xidmet\]\]\s*/.test(text || '');
+                }
+                function isOrgBulletItem(text) {
+                    return /^\[\[org\]\]\s*/.test(text || '');
+                }
+                function isMetodikiIntroLine(text) {
+                    var s = String(text || '');
+                    return /Eyni zamanda/i.test(s)
+                        && /aşağıdakı qurumlara/i.test(s)
+                        && /metodiki dəstək/i.test(s);
+                }
+                function isTahlilIntroLine(text) {
+                    var s = String(text || '');
+                    return /Aşağıdakı müraciətlər isə/i.test(s)
+                        && /təhlil mərhələsindədir/i.test(s);
+                }
+                function isMainListBreak(text) {
+                    if (!text || isXidmetItem(text) || isOrgBulletItem(text)) return true;
+                    if (isMetodikiIntroLine(text) || isTahlilIntroLine(text)) return true;
+                    if (/:$/.test(text) && /aşağıdakı|statuslar|yoxlamalar aparılmışdır|iş planı|davam edən diaqnostika|sorğu anketləri/i.test(text)) return true;
+                    return false;
+                }
                 items.forEach(function(item, idx) {
-                    var isService = /^\[\[xidmet\]\]\s*/.test(item);
+                    var isService = isXidmetItem(item);
+                    var isOrgBullet = isOrgBulletItem(item);
                     if (isService) item = item.replace(/^\[\[xidmet\]\]\s*/, '');
+                    if (isOrgBullet) item = item.replace(/^\[\[org\]\]\s*/, '');
+
+                    if (isOrgBullet || (inMetodikiOrgs && !isMetodikiIntroLine(item) && !isTahlilIntroLine(item) && !isService && item.length < 200 && !/məqsədəuyğunluq rəyi|məktubla quruma|sistemə əlavə/i.test(item))) {
+                        if (!inMetodikiOrgs) {
+                            bulletInstance += 1;
+                            inMetodikiOrgs = true;
+                        }
+                        var orgRest = 0;
+                        for (var oj = idx; oj < items.length; oj++) {
+                            var nxt = items[oj];
+                            var nxtOrg = isOrgBulletItem(nxt)
+                                || (oj > idx && !isXidmetItem(nxt) && !isMetodikiIntroLine(nxt) && !isTahlilIntroLine(nxt)
+                                    && String(nxt).length < 200 && !/məqsədəuyğunluq rəyi|məktubla quruma|sistemə əlavə/i.test(nxt));
+                            if (!nxtOrg && oj > idx) break;
+                            if (oj === idx || isOrgBulletItem(nxt) || nxtOrg) orgRest += 1;
+                            else break;
+                        }
+                        var orgLine = /[.!?]$/.test(item) ? item : (stripEndPunct(item) + (orgRest === 1 ? '.' : ';'));
+                        monthChildren.push(listParagraph(orgLine, MONTH_FONT, 'bullet', bulletInstance));
+                        return;
+                    }
+                    if (inMetodikiOrgs) {
+                        inMetodikiOrgs = false;
+                        currentKind = listKind === 'none' ? 'none' : 'number';
+                    }
+
                     if (isService) {
                         if (!inServices) {
-                            listInstance += 1;
+                            serviceInstance += 1;
                             inServices = true;
                         }
                         var svcRest = 0;
                         for (var sj = idx; sj < items.length; sj++) {
-                            if (!/^\[\[xidmet\]\]/.test(items[sj])) break;
+                            if (!isXidmetItem(items[sj])) break;
                             svcRest += 1;
                         }
                         var svcLine = /[.!?]$/.test(item) ? item : (stripEndPunct(item) + (svcRest === 1 ? '.' : ';'));
-                        monthChildren.push(listParagraph(svcLine, MONTH_FONT, 'number', listInstance, 'month-sub'));
+                        monthChildren.push(listParagraph(svcLine, MONTH_FONT, 'number', serviceInstance, 'month-sub'));
                         return;
                     }
                     if (inServices) {
                         inServices = false;
                         currentKind = listKind === 'none' ? 'none' : 'number';
                     }
+
+                    // Metodiki giriş: 11. ... ; sonra qurumlar bullet
+                    if (isMetodikiIntroLine(item)) {
+                        monthChildren.push(listParagraph(stripEndPunct(item) + ';', MONTH_FONT, 'number', listInstance));
+                        bulletInstance += 1;
+                        inMetodikiOrgs = true;
+                        currentKind = 'metodiki';
+                        return;
+                    }
+                    // Təhlil girişi: nömrəsiz mətn, sonra açıq müraciətlər yenidən 1-dən
+                    if (isTahlilIntroLine(item)) {
+                        monthChildren.push(bodyParagraph(stripEndPunct(item) + ':', MONTH_FONT));
+                        listInstance += 1;
+                        currentKind = listKind === 'none' ? 'none' : 'number';
+                        return;
+                    }
+
                     if (/:$/.test(item)) {
                         var orgHead = item.length < 220 && !/aşağıdakı|statuslar|yoxlamalar aparılmışdır|iş planı|davam edən diaqnostika|məqsədəuyğunluq rəyi|sorğu anketləri/i.test(item);
                         if (orgHead) {
@@ -2738,11 +2834,22 @@ export async function exportTasksToWord(title) {
                             currentKind = 'lead';
                             return;
                         }
-                        monthChildren.push(bodyParagraph(item, MONTH_FONT));
-                        if (/elektron xidmətinə/i.test(item) && /məqsədəuyğunluq rəyi/i.test(item)) {
-                            currentKind = 'svc';
+                        // Məqsədəuyğunluq (xidmətli) sətir: əsas 1,2,3… sırasını pozmadan nömrələnir
+                        if (/məqsədəuyğunluq rəyi/i.test(item)) {
+                            var hasFollowingSvc = idx + 1 < items.length && isXidmetItem(items[idx + 1]);
+                            var mainRest = 0;
+                            for (var mj = idx; mj < items.length; mj++) {
+                                if (mj > idx && isMainListBreak(items[mj])) break;
+                                if (isXidmetItem(items[mj]) || isOrgBulletItem(items[mj])) continue;
+                                mainRest += 1;
+                            }
+                            var parentBody = stripEndPunct(item.replace(/:$/, ''));
+                            var parentPunct = hasFollowingSvc ? ':' : (mainRest === 1 ? '.' : ';');
+                            monthChildren.push(listParagraph(parentBody + parentPunct, MONTH_FONT, 'number', listInstance));
+                            if (hasFollowingSvc) currentKind = 'svc';
                             return;
                         }
+                        monthChildren.push(bodyParagraph(item, MONTH_FONT));
                         listInstance += 1;
                         if (/statuslar aşağıdakı kimidir|yoxlamalar aparılmışdır|iş planı|davam edən diaqnostika/i.test(item)) {
                             currentKind = 'bullet';
@@ -2753,7 +2860,8 @@ export async function exportTasksToWord(title) {
                     }
                     var rest = 0;
                     for (var j = idx; j < items.length; j++) {
-                        if (/:$/.test(items[j])) break;
+                        if (isMainListBreak(items[j]) && j > idx) break;
+                        if (isXidmetItem(items[j]) || isOrgBulletItem(items[j])) continue;
                         rest += 1;
                     }
                     if (currentKind === 'lead') {

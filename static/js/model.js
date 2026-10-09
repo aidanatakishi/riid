@@ -2232,12 +2232,53 @@ function isMeqsedSistemAdiFieldName(folded) {
     return folded.indexOf('ad') !== -1 || folded.indexOf('name') !== -1;
 }
 
+/** «Cavab məktubunun nömrəsi» */
+function isMeqsedCavabMektubNomreFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('nomr') === -1 && folded.indexOf('number') === -1) return false;
+    return folded.indexOf('cavab') !== -1
+        || folded.indexOf('mektub') !== -1
+        || folded.indexOf('letter') !== -1;
+}
+
+/** «Cavab məktubun tarixi (İl, Ay)» */
+function isMeqsedCavabMektubTarixFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('tarix') === -1 && folded.indexOf('date') === -1) return false;
+    return folded.indexOf('cavab') !== -1
+        || (folded.indexOf('mektub') !== -1 && folded.indexOf('nomr') === -1);
+}
+
 function isMeqsedDisplayFieldName(folded) {
     return isMeqsedNovuFieldName(folded)
         || isMeqsedNeticeFieldName(folded)
         || isMeqsedXidmetSayiFieldName(folded)
         || isMeqsedXidmetMelumatFieldName(folded)
-        || isMeqsedSistemAdiFieldName(folded);
+        || isMeqsedSistemAdiFieldName(folded)
+        || isMeqsedCavabMektubNomreFieldName(folded)
+        || isMeqsedCavabMektubTarixFieldName(folded);
+}
+
+function formatMeqsedLetterDate(val) {
+    if (isEmptyJiraValue(val)) return '';
+    var parsed = parsePhaseDate(val);
+    if (parsed && !isNaN(parsed.getTime())) {
+        var dd = String(parsed.getDate()).padStart(2, '0');
+        var mm = String(parsed.getMonth() + 1).padStart(2, '0');
+        return dd + '.' + mm + '.' + parsed.getFullYear();
+    }
+    var text = formatJiraOptionText(val);
+    if (!text || text === '—') return '';
+    var m = String(text).match(/\b(\d{2}\.\d{2}\.\d{4})\b/);
+    if (m) return m[1];
+    return text;
+}
+
+function formatMeqsedLetterNumber(val) {
+    if (isEmptyJiraValue(val)) return '';
+    var text = formatJiraOptionText(val);
+    if (!text || text === '—') return '';
+    return String(text).replace(/\s+/g, ' ').trim();
 }
 
 export function collectMeqsedDisplayFieldIds() {
@@ -2421,6 +2462,8 @@ export function getMeqsedInfo(t) {
     if (isEmptyJiraValue(sistemRaw)) {
         sistemRaw = readFirstMatchingNamedField(t, isMeqsedSistemAdiFieldName);
     }
+    var letterNoRaw = readFirstMatchingNamedField(t, isMeqsedCavabMektubNomreFieldName);
+    var letterDateRaw = readFirstMatchingNamedField(t, isMeqsedCavabMektubTarixFieldName);
     var novuText = formatJiraOptionText(novu);
     var neticeText = formatJiraOptionText(netice);
     return memoSet('meqsed', t, {
@@ -2430,7 +2473,9 @@ export function getMeqsedInfo(t) {
         opinionKind: classifyMeqsedOpinion(neticeText),
         xidmetSayi: formatMeqsedSayi(xidmetSayi),
         xidmetMelumat: formatJiraOptionText(xidmetMelumat),
-        sistemAdi: formatJiraOptionText(sistemRaw)
+        sistemAdi: formatJiraOptionText(sistemRaw),
+        cavabMektubNomresi: formatMeqsedLetterNumber(letterNoRaw),
+        cavabMektubTarixi: formatMeqsedLetterDate(letterDateRaw)
     });
 }
 
