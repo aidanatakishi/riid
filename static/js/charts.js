@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda10';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda14';
 import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda46';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda16';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda3';

@@ -624,9 +624,63 @@ input[type="date"] { min-height: 38px; }
     font-weight: 700;
     color: #1e293b;
 }
+.date-chip--input {
+    display: block;
+    cursor: pointer;
+}
+.date-chip--input input[type="date"] {
+    display: block;
+    width: 100%;
+    margin-top: 2px;
+    border: none;
+    background: transparent;
+    color: #1e293b;
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-family: inherit;
+    padding: 0;
+    min-height: 1.25rem;
+    cursor: pointer;
+}
+.date-chip--input input[type="date"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    opacity: 0.55;
+}
+.date-chip--input input[type="date"]:focus {
+    outline: none;
+}
 .date-chip-dash {
     height: 1px;
     background: #cbd5e1;
+}
+.date-draft-hint {
+    margin: -0.35rem 0 0.75rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: #64748b;
+    line-height: 1.35;
+}
+.date-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 0.85rem;
+}
+.date-preset-btn {
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    color: #475569;
+    border-radius: 999px;
+    padding: 0.28rem 0.65rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.15s;
+}
+.date-preset-btn:hover {
+    border-color: #c4b5fd;
+    background: #f5f3ff;
+    color: #5b21b6;
 }
 .date-cal-nav {
     display: flex;

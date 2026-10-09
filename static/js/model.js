@@ -676,14 +676,22 @@ export function isBitmeInDateRange(t, start, end) {
     return isDateInReportPeriod(due, start, end);
 }
 
+/** resolutiondate seçilmiş tarix aralığına düşür. */
+export function isResolvedInDateRange(t, start, end) {
+    if (!t || !t.fields) return false;
+    var resolved = parsePhaseDate(t.fields.resolutiondate);
+    if (!resolved) return false;
+    return isDateInReportPeriod(resolved, start, end);
+}
+
 /**
  * «Bütün tapşırıqlar» siyahısı: dayandırılmış statuslar çıxarılır;
- * tarix filtri aktivdirsə yalnız bitmə tarixi aralığa düşənlər qalır.
+ * tarix filtri aktivdirsə yalnız həmin aralıqda resolve olanlar qalır.
  */
 export function boardListUnits(tasks, start, end) {
     var units = jiraBoardWorkUnits(tasks || []);
     if (!start && !end) return units;
-    return units.filter(function(t) { return isBitmeInDateRange(t, start, end); });
+    return units.filter(function(t) { return isResolvedInDateRange(t, start, end); });
 }
 
 export function getTaskCreatedDate(t) {
@@ -838,7 +846,25 @@ export function isDueInSelectedWeek(t) {
     return bitmeInWindow(t, getDueThisWeekWindow());
 }
 
+function isCustomDateFilterActive() {
+    var startEl = document.getElementById('startDate');
+    var endEl = document.getElementById('endDate');
+    return !!(startEl && startEl.value) || !!(endEl && endEl.value);
+}
+
 function dueInRangePool() {
+    var dateActive = isCustomDateFilterActive();
+    // Tarix aralığı seçilibsə: yalnız həmin aralıqda resolve olanlar (filteredTasks).
+    if (dateActive) {
+        return countableWorkUnits(state.filteredTasks || []).filter(function(t) {
+            if (!t || !t.fields || !t.fields.status) return false;
+            var st = normalizeStr(t.fields.status.name || '');
+            var g = getStatusGroup(st);
+            if (g === 'rejected' || g === 'paused') return false;
+            if (st.includes('başlanmamış') || st.includes('baslanmamis')) return false;
+            return true;
+        });
+    }
     var win = getDueThisWeekWindow();
     var sprintName = getSelectedSprintName();
     var source = state.allTasks || [];
@@ -1916,7 +1942,10 @@ export function isBacklogDashboardUnit(t) {
 }
 
 export function collectBacklogDashboardUnits() {
-    return countableWorkUnits(state.allTasks).filter(function(t) {
+    var source = (state.filteredTasks && state.filteredTasks.length)
+        ? state.filteredTasks
+        : (state.allTasks || []);
+    return countableWorkUnits(source).filter(function(t) {
         return isBacklogDashboardUnit(t) && matchesDashContextFilters(t);
     });
 }

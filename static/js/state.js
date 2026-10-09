@@ -55,6 +55,7 @@ export const state = {
     taskListTitle: 'Tapşırıqların Siyahısı',
     taskListSearch: '',
     taskListKeepNested: false,
+    taskListFlat: false,
     EXCLUDED_USERS: ['ilham', 'salmanov', 'gunduz', 'ahmadli', 'ehmedli'],
     STRUCTURE_TYPES: ['istiqamət', 'tədbir', 'istiqamet', 'tedbir'],
     dailyDateRange: null,
