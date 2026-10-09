@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda11';
-import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda41';
-import { duePeriodLabel } from './report.js?v=idda19';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda14';
+import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda46';
+import { duePeriodLabel } from './report.js?v=idda24';
 
 export function renderStats(tasks) {
     var allUnits = countableWorkUnits(tasks);
@@ -424,6 +424,7 @@ export function renderTaskList(tasks, title, opts) {
         state.taskListSource = (tasks || []).slice();
         state.taskListTitle = title || 'Tapşırıqların Siyahısı';
         state.taskListKeepNested = !!opts.keepNested;
+        state.taskListFlat = !!opts.flatList;
         if (!state.restoreQuiet) {
             state.taskListView = 'mixed';
             state.taskListSearch = '';
@@ -504,6 +505,7 @@ export function renderTaskList(tasks, title, opts) {
         } catch (e) { return '—'; }
     }
 
+    var flatList = !!opts.flatList || !!state.taskListFlat;
     var rows = paginatedTasks.map(function(t) {
         var fields = t.fields || {};
         var assignee = fields.assignee;
@@ -512,11 +514,11 @@ export function renderTaskList(tasks, title, opts) {
         var avatarColor = assignee ? '#5b21b6' : '#94a3b8';
         var issueTypeName = fields.issuetype ? fields.issuetype.name : '';
         var isSubtask = isSubtaskType(t);
-        var childSubs = isSubtask ? [] : childrenForParent(t, sourceTasks);
+        var childSubs = (flatList || isSubtask) ? [] : childrenForParent(t, sourceTasks);
         var hasSubtasks = childSubs.length > 0;
         var nativeKeys = {};
         childSubs.forEach(function(c) { if (c && c.key) nativeKeys[c.key] = true; });
-        var relatedItems = isSubtask ? [] : relatedIssuesFor(t, nativeKeys, relatedByParent[t.key]);
+        var relatedItems = (flatList || isSubtask) ? [] : relatedIssuesFor(t, nativeKeys, relatedByParent[t.key]);
         var hasRelated = relatedItems.length > 0;
         var statusName = fields.status && fields.status.name ? fields.status.name : 'Naməlum';
         var browseUrl = state.currentBaseUrl + '/browse/' + t.key;

@@ -31,7 +31,7 @@ import {
     getBlockReason,
     getTaskDueDate
 } from './model.js?v=idda10';
-import { exportTasksToWord } from './report.js?v=idda19';
+import { exportTasksToWord } from './report.js?v=idda24';
 import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda7';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
@@ -77,6 +77,7 @@ var KPI_FOCUS = [
 ];
 
 var chatLlm = false;
+var chatLlmWarned = false;
 var chatOpen = false;
 var chatBusy = false;
 var chatHistory = [];
@@ -1130,6 +1131,29 @@ function scopeNote(kpis) {
     return bits.join(' · ');
 }
 
+function readElValue(id) {
+    var el = document.getElementById(id);
+    return el ? String(el.value || '').trim() : '';
+}
+
+function boardContext() {
+    var sprint = '';
+    try { sprint = getSelectedSprintName() || currentSprintName() || ''; } catch (e) { sprint = ''; }
+    return {
+        sprint: sprint || 'bütün sprintlər',
+        startDate: readElValue('startDate'),
+        endDate: readElValue('endDate'),
+        assignee: state.currentAssigneeFilter || null,
+        priority: state.currentPriorityFilter || null,
+        direction: state.currentDirectionFilter || null,
+        qurum: state.currentQurumFilter || null,
+        status: state.currentStatusFilter || null,
+        label: state.activeLabelFilter || null,
+        visibleTasks: (state.filteredTasks || []).length,
+        totalLoaded: (state.allTasks || []).length
+    };
+}
+
 function formatAbout() {
     return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
         + '<h4>Bu panel nə göstərir</h4>'
@@ -1776,46 +1800,99 @@ function answerQuestion(raw) {
     return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
 }
 
+function detectChatIntent(question, kind) {
+    var q = fold(question || '');
+    var k = String(kind || '');
+    if (k && k !== 'open') return k;
+    if (/menim|oz islerim|oz tapsiriq/.test(q)) return 'mine';
+    if (/gecik/.test(q)) return 'late';
+    if (/blok|cetinlik/.test(q)) return 'blocked';
+    if (/is yuku|icraci|kimde/.test(q)) return 'people';
+    if (/qurum/.test(q)) return 'qurum';
+    if (/istiqamet/.test(q)) return 'directions';
+    if (/sprint/.test(q)) return 'sprint';
+    if (/qiymetlendir|diaqnostika|exq|isq|meqsed/.test(q)) return 'assess';
+    if (/veziyyet|xulase|icmal|nece gedir/.test(q)) return 'overview';
+    if (/dgd-\d+/i.test(question || '')) return 'issue';
+    return 'open';
+}
+
 function packChatFacts(local) {
     var ev = local.evidence;
     if (!ev) {
         try { if (hasData()) ev = collectEvidence(); } catch (e) { ev = null; }
     }
     var names = [];
-    try { names = sprintList().slice(0, 12); } catch (e) { names = []; }
+    try { names = sprintList().slice(0, 8); } catch (e) { names = []; }
     var viewer = viewerFact();
+    var kind = (local.facts && local.facts.kind) || 'open';
+    var intent = detectChatIntent(local.question || '', kind);
     var mine = null;
     if (viewer && ev) {
         var selfName = viewer.jiraDisplayName || viewerAssigneeName();
         mine = {
             name: selfName,
             stats: (ev.people || []).filter(function(p) { return samePerson(p.name, selfName); })[0] || null,
-            late: (ev.late || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 8),
-            blocked: (ev.blocked || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 8),
-            dueOpen: (ev.dueOpen || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 8)
+            late: (ev.late || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 6),
+            blocked: (ev.blocked || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 6),
+            dueOpen: (ev.dueOpen || []).filter(function(it) { return samePerson(it.who, selfName); }).slice(0, 6)
         };
     }
-    return {
-        kind: (local.facts && local.facts.kind) || 'open',
+    var board = boardContext();
+    var matched = [];
+    try { matched = findTasksByWords(fold(local.question || '')).slice(0, 10); } catch (e2) { matched = []; }
+
+    // Suala görə yalnız lazımi kəsikləri göndər — LLM ümumi KPI tökülməsin
+    var wantPeople = /people|person|mine|late|blocked|overview|risk|open|kpi/.test(intent);
+    var wantDirs = /directions|entity|overview|risk|open/.test(intent);
+    var wantQurums = /qurum|overview|open/.test(intent);
+    var wantLate = /late|risk|overview|mine|person|open|kpi/.test(intent);
+    var wantBlocked = /blocked|risk|overview|mine|person|open|kpi/.test(intent);
+    var wantDue = /overview|risk|sprint|mine|open|kpi|due/.test(intent);
+    var wantNumbers = intent !== 'issue' || !matched.length;
+
+    var packed = {
+        kind: kind,
+        intent: intent,
         question: local.question || '',
         viewer: viewer,
-        mine: mine,
-        scope: ev && ev.kpis ? scopeNote(ev.kpis) : '',
-        numbers: ev && ev.kpis ? compactKpis(ev.kpis) : ((local.facts && local.facts.kpis) || {}),
-        people: ev ? ev.people : [],
-        directions: ev ? ev.dirs : [],
-        qurums: ev ? ev.qurums : [],
-        late: ev ? ev.late : [],
-        blocked: ev ? ev.blocked : [],
-        dueOpen: ev ? ev.dueOpen : [],
-        dueDone: ev ? ev.dueDone : [],
-        compare: local.facts && local.facts.a ? { a: local.facts.a, b: local.facts.b, meta: local.facts.meta || {} } : null,
-        matchedTasks: (function() {
-            try { return findTasksByWords(fold(local.question || '')).slice(0, 10); } catch (e) { return []; }
-        })(),
-        sprints: names,
-        localKind: (local.facts && local.facts.kind) || 'open'
+        board: board,
+        scope: ev && ev.kpis ? scopeNote(ev.kpis) : scopeNote({
+            sprint: board.sprint,
+            direction: board.direction,
+            qurum: board.qurum,
+            assignee: board.assignee
+        }),
+        matchedTasks: matched,
+        localKind: kind,
+        guidance: 'Yalnız suala aid sahələrdən istifadə et. Soruşulmayan KPI xülasəsi yazma.'
     };
+    if (mine && (intent === 'mine' || intent === 'person' || /menim/.test(fold(local.question || '')))) {
+        packed.mine = mine;
+    } else if (mine && wantPeople) {
+        packed.mine = { name: mine.name, stats: mine.stats };
+    }
+    if (wantNumbers) {
+        packed.numbers = ev && ev.kpis ? compactKpis(ev.kpis) : ((local.facts && local.facts.kpis) || {});
+    }
+    if (wantPeople) packed.people = ev ? (ev.people || []).slice(0, 12) : [];
+    if (wantDirs) packed.directions = ev ? (ev.dirs || []).slice(0, 10) : [];
+    if (wantQurums) packed.qurums = ev ? (ev.qurums || []).slice(0, 10) : [];
+    if (wantLate) packed.late = ev ? (ev.late || []).slice(0, 8) : [];
+    if (wantBlocked) packed.blocked = ev ? (ev.blocked || []).slice(0, 8) : [];
+    if (wantDue) {
+        packed.dueOpen = ev ? (ev.dueOpen || []).slice(0, 8) : [];
+        packed.dueDone = ev ? (ev.dueDone || []).slice(0, 6) : [];
+    }
+    if (local.facts && local.facts.a) {
+        packed.compare = { a: local.facts.a, b: local.facts.b, meta: local.facts.meta || {} };
+    }
+    if (local.facts && local.facts.focus) packed.focus = local.facts.focus;
+    if (local.facts && local.facts.person) packed.person = local.facts.person;
+    if (local.facts && local.facts.qurum) packed.qurum = local.facts.qurum;
+    if (local.facts && local.facts.key) packed.key = local.facts.key;
+    if (/sprint|overview|open/.test(intent)) packed.sprints = names;
+    return packed;
 }
 
 function compactKpis(kpis) {
@@ -2135,7 +2212,10 @@ async function reply(question) {
     var local = answerQuestion(question);
     var html = local.html;
     var used = local.text || '';
-    var skipLlm = !!(local.facts && local.facts.kind === 'report');
+    var localKind = (local.facts && local.facts.kind) || '';
+    // Salam/kömək/hesabat lokal qalsın; open şablonunu LLM-ə draft kimi vermə
+    var skipLlm = /^(report|greet|thanks|identity|help|about|empty)$/.test(localKind);
+    var sendDraft = !/^(open|)$/.test(localKind);
     try {
         if (!chatLlm) {
             try {
@@ -2146,7 +2226,7 @@ async function reply(question) {
                 }
             } catch (cfgErr) {}
         }
-        if (!skipLlm) {
+        if (!skipLlm && chatLlm) {
             try {
                 var res = await fetch('/api/chat', {
                     credentials: 'same-origin',
@@ -2154,20 +2234,33 @@ async function reply(question) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         question: question,
-                        draft: used,
+                        draft: sendDraft ? used : '',
                         facts: packChatFacts(local),
-                        history: chatHistory.slice(0, -1).slice(-8)
+                        history: chatHistory.slice(0, -1).slice(-6)
                     })
                 });
                 if (res.ok) {
                     var data = await res.json();
                     if (data && data.answer && data.source === 'llm') {
+                        chatLlmWarned = false;
                         html = renderMarkdownish(data.answer);
                         used = data.answer;
+                    } else if (data && data.error) {
+                        var errText = String(data.error || '');
+                        if (/401|açar rədd|Unauthorized|invalid.?api.?key/i.test(errText) && !chatLlmWarned) {
+                            chatLlmWarned = true;
+                            if (typeof window.showToast === 'function') {
+                                window.showToast('AI açarı işləmir — panel cavabı göstərilir. .env-də OPENAI_API_KEY yeniləyin.', 'error');
+                            }
+                        }
+                        // Lokal HTML artıq hazırdır; boş LLM cavabı onu silməsin
+                        html = local.html;
+                        used = local.text || used;
                     }
                 }
             } catch (err) {
                 html = local.html;
+                used = local.text || used;
             }
         }
         chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });

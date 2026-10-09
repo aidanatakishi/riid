@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda10';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda10';
 
 let _docxLibPromise = null;
 
@@ -353,7 +353,7 @@ export function duePeriodLabel() {
     return month.monthCount > 1 ? 'Bu dövr bitməli' : 'Bu ay bitməli';
 }
 
-var CANON_ORDER = ['reyestr', 'meqsed', 'diag', 'isq', 'exq', 'inteqrasiya', 'diger'];
+var CANON_ORDER = ['reyestr', 'meqsed', 'diag', 'isq', 'exq', 'inteqrasiya', 'diger', 'fealiyyet', 'konsepsiya'];
 var CANON_TITLES = {
     reyestr: 'Vahid Reyestr üzrə:',
     meqsed: 'Məqsədəuyğunluq rəyi üzrə:',
@@ -361,7 +361,9 @@ var CANON_TITLES = {
     isq: 'İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi üzrə:',
     exq: 'Elektron xidmətlərin qiymətləndirilməsi üzrə:',
     inteqrasiya: 'Məlumat hədlərinin inteqrasiyası üzrə:',
-    diger: 'Digər istiqamətlər üzrə:'
+    diger: 'Digər istiqamətlər üzrə:',
+    fealiyyet: '“Azərbaycan Respublikasında rəqəmsal inkişafın sürətləndirilməsinə dair 2026−2028-ci illər üçün Fəaliyyət Planı”nın həyata keçirilməsi üzrə 2026-cı il üçün İş Planı:',
+    konsepsiya: '“Azərbaycan Respublikasında Rəqəmsal İnkişaf Konsepsiyasının həyata keçirilməsi üzrə 2026-cı il İş Planı:'
 };
 
 function canonicalSectionId(dirName) {
@@ -919,9 +921,6 @@ export async function exportTasksToWord(title) {
             });
         s = s.replace(/[«»„“”‟‹›]/g, '"');
         s = s.replace(/[–—−]/g, '-');
-        // "il" yalnız tam söz olsun — "ilin" kəsilməsin ("…ilin sentyabr" → "in sentyabr")
-        s = s.replace(/\b\d{4}-\s*(?:cü|cu|cı|ci)\s+il\b(?:\s+tarixində)?/gi, '');
-        s = s.replace(/(?:^|[\s,;:.-])(?:cü|cu|cı|ci)\s+il\b(?:\s+tarixində)?(?=\s|[.,;]|$)/gi, ' ');
         s = s.replace(/\s+tarixində\s+tarixində/gi, ' tarixində ');
         s = s.replace(/\s+Vahid Reyestrdə\s*/gi, ' ');
         s = s.replace(/\bmüqaisə/gi, 'müqayisə');
@@ -1174,18 +1173,24 @@ export async function exportTasksToWord(title) {
         return parent ? getReportBitmeDate(parent) : null;
     }
 
+    function taskHasPhaseInPeriod(t, start, end) {
+        var dated = getDatedPhaseEntries(t) || [];
+        for (var i = 0; i < dated.length; i++) {
+            if (dated[i] && dated[i].date && isDateInReportPeriod(dated[i].date, start, end)) return true;
+        }
+        return getRawPhaseEntries(t, start, end).length > 0;
+    }
+
     function taskMonthDatesInPeriod(t, start, end) {
         if (!t || !t.fields || isPausedTask(t)) return false;
+        // Seçilmiş ayda mərhələ varsa, resolve olmasa belə aya daxildir.
+        if (taskHasPhaseInPeriod(t, start, end)) return true;
         var startD = getTaskStartDate(t);
         var dueD = getReportBitmeDate(t);
         if (!startD || !isDateInReportPeriod(startD, start, end)) return false;
         if (!dueD || !isDateInReportPeriod(dueD, start, end)) return false;
         var dated = getDatedPhaseEntries(t) || [];
-        if (!dated.length) return true;
-        for (var i = 0; i < dated.length; i++) {
-            if (dated[i] && dated[i].date && isDateInReportPeriod(dated[i].date, start, end)) return true;
-        }
-        return getRawPhaseEntries(t, start, end).length > 0;
+        return !dated.length;
     }
 
     function collectMonthlySource(info) {
@@ -1642,23 +1647,68 @@ export async function exportTasksToWord(title) {
         return pad2(day) + '.' + pad2(month) + '.' + year;
     }
 
+    function dateShouldKeepBare(after, before) {
+        var rest = String(after || '');
+        var prev = String(before || '');
+        // Aralıq: 01.09.2026 – 30.09.2026
+        if (/^\s*[-–—]\s*\d{1,2}[./]\d{1,2}/.test(rest)) return true;
+        if (/\d{1,2}[./]\d{1,2}[./]\d{2,4}\s*[-–—]\s*$/.test(prev)) return true;
+        // Başqa tarix bağlayıcıları
+        if (/^\s*tarix(li|indən|ləri)\b/i.test(rest)) return true;
+        return false;
+    }
+
+    function datedWithIl(norm) {
+        var y = parseInt(String(norm || '').slice(-4), 10);
+        if (!y) return norm;
+        var mark = azYearMark(y);
+        return String(norm).slice(0, -4) + mark + ' il';
+    }
+
+    function withTarixinde(norm, after, before) {
+        if (!norm) return '';
+        var rest = String(after || '');
+        if (/^\s*[-–—]\s*\d{1,2}[./]\d{1,2}/.test(rest)) return norm;
+        var marked = datedWithIl(norm);
+        if (/^\s*tarixində/i.test(rest) || /^\s*tarixli\b/i.test(rest) || /^\s*tarixləri/i.test(rest)) return marked;
+        if (/\d{2}\.\d{2}\.\d{4}\s*[-–—]\s*$/.test(String(before || ''))) return marked;
+        return marked + ' tarixində';
+    }
+
     function officializeDates(s, defaultYear) {
         var year = defaultYear || new Date().getFullYear();
         var out = String(s || '');
-        // Tam və ya natamam il: 18.09.2026 / 18.09.26 / 18.09.5 → 18.09.2026
-        out = out.replace(/\b(\d{1,2})[./](\d{1,2})[./](\d{1,4})(?:-c[ıiuü])?(?:\s+il)?(?:\s+tarixində)?/g, function(full, d, m, y) {
+        // Tam və ya natamam il → DD.MM.YYYY tarixində (cümlə forması)
+        out = out.replace(/\b(\d{1,2})[./](\d{1,2})[./](\d{1,4})(?:-c[ıiuü])?(?:\s+il)?/gi, function(full, d, m, y, offset, whole) {
             var norm = normalizeFullDate(d, m, y, year);
-            return norm || full;
+            if (!norm) return full;
+            var after = whole.slice(offset + full.length);
+            var before = whole.slice(0, offset);
+            return withTarixinde(norm, after, before);
         });
-        // İlsiz qısa forma: 18.09. və ya 18.09 → 18.09.2026
-        out = out.replace(/\b(\d{1,2})[./](\d{1,2})\.(?!\d)/g, function(full, d, m) {
+        // İlsiz qısa forma: 18.09. və ya 18.09 → 18.09.YYYY tarixində
+        out = out.replace(/\b(\d{1,2})[./](\d{1,2})\.(?!\d)/g, function(full, d, m, offset, whole) {
+            var before = whole.slice(0, offset);
+            var after = whole.slice(offset + full.length);
+            if (/[\d\/\-]$/.test(before) || /^[-/]\d/.test(after)) return full;
             var norm = normalizeFullDate(d, m, year, year);
-            return norm ? (norm + ' ') : full;
+            if (!norm) return full;
+            return withTarixinde(norm, after, before);
         });
-        out = out.replace(/\b(\d{1,2})[./](\d{1,2})(?!\.?\d)/g, function(full, d, m) {
+        out = out.replace(/\b(\d{1,2})[./](\d{1,2})(?!\.?\d)/g, function(full, d, m, offset, whole) {
+            if (/\d{4}$/.test(full)) return full;
+            var before = whole.slice(0, offset);
+            var after = whole.slice(offset + full.length);
+            if (/[\d\/\-]$/.test(before) || /^[-/]\d/.test(after)) return full;
             var norm = normalizeFullDate(d, m, year, year);
-            return norm || full;
+            if (!norm) return full;
+            return withTarixinde(norm, after, before);
         });
+        // «tarixində»-dən sonra kiçik hərf (xüsusi adlar lowercasePhaseTextAfterDate ilə qorunur)
+        out = out.replace(/(\d{2}\.\d{2}\.\d{4}(?:-c[ıiuü]\s+il)?\s+tarixində\s+)([\s\S]+)/gi, function(_, prefix, rest) {
+            return prefix + lowercasePhaseTextAfterDate(rest);
+        });
+        out = out.replace(/\s+tarixində\s+tarixində/gi, ' tarixində ');
         return out.replace(/\s+/g, ' ').trim();
     }
 
@@ -1714,7 +1764,7 @@ export async function exportTasksToWord(title) {
         if (!s) return { org: '', rest: '' };
         var m = s.match(/^(.+?)\s+[-–]\s+(\d{1,2}[./]\d{1,2}[./]\d{4}[\s\S]*)$/);
         if (m) return { org: m[1].trim(), rest: m[2].trim() };
-        m = s.match(/^(.+?(?:Nazirliyi|Komitəsi|Agentliyi|QSC|ASC|Mərkəzi|Konfederasiyası|Palatası|Xidməti|Fondu|İdarəsi|Birliyi|Şirkəti)(?:\s*\([A-ZÇƏĞIİÖŞÜ0-9]{2,8}\))?)\s+[-–]\s+([\s\S]+)$/i);
+        m = s.match(/^(.+?(?:Nazirliyi|Komitəsi|Agentliyi|QSC|ASC|Mərkəzi|Konfederasiyası|Palatası|Xidməti|Fondu|İdarəsi|Birliyi|Şirkəti|şəxsi|şəxs)(?:\s*\([A-ZÇƏĞIİÖŞÜ0-9]{2,8}\))?)\s+[-–]\s+([\s\S]+)$/i);
         if (m) return { org: m[1].trim(), rest: m[2].trim() };
         return { org: '', rest: s };
     }
@@ -1744,6 +1794,122 @@ export async function exportTasksToWord(title) {
             t = t.replace(new RegExp('^' + q + '\\s*[-–]\\s*', 'i'), '');
         }
         return cleanReportProse(t);
+    }
+
+    function rowPhaseText(row) {
+        var org = registryOrgName((row && row.qurum) || '');
+        var lines = uniquePhaseLines((row && row.entries) || []).map(function(line) {
+            var t = stripEndPunct(cleanReportProse(line));
+            if (org) {
+                t = stripLeadingOrgPhrase(t, org);
+                var esc = org.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                t = t.replace(new RegExp('^' + esc + '\\s*[–:-]\\s*', 'i'), '');
+            }
+            return stripEndPunct(t);
+        }).filter(Boolean);
+        if (!lines.length && row && row.task) {
+            var name = stripEndPunct(cleanReportProse(taskSummary(row.task)));
+            if (org) name = stripLeadingOrgPhrase(name, org);
+            if (name) lines = [name];
+        }
+        return lines.join(' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function qurumTaskBlocks(units) {
+        var buckets = {};
+        var order = [];
+        (units || []).forEach(function(row) {
+            if (!row) return;
+            var org = registryOrgName(row.qurum || '');
+            var key = qurumMatchKey(org) || ('task:' + (row.task && row.task.key ? row.task.key : order.length));
+            if (!buckets[key]) {
+                buckets[key] = { org: org, rows: [] };
+                order.push(key);
+            }
+            buckets[key].rows.push(row);
+        });
+        var items = [];
+        order.forEach(function(key) {
+            var g = buckets[key];
+            var texts = g.rows.map(rowPhaseText).filter(Boolean);
+            if (!texts.length) return;
+            if (g.org) items.push(g.org + ':');
+            texts.forEach(function(text) { items.push(text); });
+        });
+        return items;
+    }
+
+    function unitTextNorm(row) {
+        var bits = [];
+        if (row && row.task) bits.push(taskSummary(row.task));
+        ((row && row.entries) || []).forEach(function(entry) { bits.push(entry.text || ''); });
+        return normalizeStr(bits.join(' '));
+    }
+
+    function isFealiyyetPlanUnit(t, row) {
+        var s = unitTextNorm(row || { task: t });
+        return s.indexOf('fəaliyyət plan') !== -1 || s.indexOf('fealiyyet plan') !== -1 || s.indexOf('8.3.3') !== -1 || s.indexOf('süni intellektə hazırlıq') !== -1 || s.indexOf('hazırlıq indeksi') !== -1;
+    }
+
+    function isKonsepsiyaPlanUnit(t, row) {
+        var s = unitTextNorm(row || { task: t });
+        return s.indexOf('rəqəmsal inkişaf konsepsiya') !== -1 || s.indexOf('vahid çətir') !== -1 || s.indexOf('vahid cətir') !== -1;
+    }
+
+    function orgProseBullets(units) {
+        var buckets = {};
+        var order = [];
+        (units || []).forEach(function(row) {
+            if (!row) return;
+            var org = registryOrgName(row.qurum || '');
+            var key = qurumMatchKey(org) || ('task:' + (row.task && row.task.key ? row.task.key : order.length));
+            if (!buckets[key]) {
+                buckets[key] = { org: org, rows: [] };
+                order.push(key);
+            }
+            buckets[key].rows.push(row);
+        });
+        var items = [];
+        order.forEach(function(key) {
+            var g = buckets[key];
+            var texts = g.rows.map(rowPhaseText).filter(Boolean);
+            if (!texts.length) return;
+            var body = texts.join(' ');
+            if (g.org) {
+                var loc = toLocativeAz(g.org);
+                var head = normalizeStr(body);
+                if (head.indexOf(normalizeStr(g.org)) !== 0 && head.indexOf(normalizeStr(loc)) !== 0) {
+                    body = loc + ' ' + body;
+                }
+            }
+            items.push(body);
+        });
+        return items;
+    }
+
+    function taskProseBullets(units) {
+        var items = [];
+        (units || []).forEach(function(row) {
+            if (!row) return;
+            var text = rowPhaseText(row);
+            if (!text) return;
+            var org = registryOrgName(row.qurum || '');
+            if (org && normalizeStr(text).indexOf(normalizeStr(org)) === -1) text = toGenitiveAz(org) + ' ' + text;
+            items.push(text);
+        });
+        return items;
+    }
+
+    function taskLeadParagraphs(units) {
+        var items = [];
+        (units || []).forEach(function(row) {
+            if (!row) return;
+            var org = registryOrgName(row.qurum || '');
+            var text = rowPhaseText(row);
+            if (!text && !org) return;
+            items.push(org && text ? (org + ' – ' + text) : (text || org));
+        });
+        return items;
     }
 
     function officialItemText(group, mode) {
@@ -1788,6 +1954,12 @@ export async function exportTasksToWord(title) {
         var t = row && row.task;
         if (!t || !t.fields || !t.fields.status) return false;
         return getStatusGroup(t.fields.status.name) === 'done';
+    }
+
+    function unitIsResolved(row) {
+        if (unitIsDone(row)) return true;
+        var t = row && row.task;
+        return !!(t && t.fields && t.fields.resolutiondate);
     }
 
     function isReyestrSupportTask(t) {
@@ -1845,8 +2017,59 @@ export async function exportTasksToWord(title) {
         return name;
     }
 
+    function stripLeadingOrgPhrase(sistem, org) {
+        var s = cleanReportProse(sistem);
+        var o = cleanReportProse(org).replace(/^["«»„“”]+|["«»„“”]+$/g, '').trim();
+        if (!s || !o) return s;
+        var esc = o.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        var re = new RegExp('^["«»„“”]*' + esc + '["«»„“”]?(?:\\s+publik\\s+h[uü]quqi\\s+ş[əe]xs(?:in|inin|i|n)?)?(?:nin|nın|nun|nün|in|ın|un|ün)?\\s+', 'i');
+        var next = s.replace(re, '').replace(/^[-–]\s*/, '').trim();
+        return next || s;
+    }
+
+    function stripRegistryAbbrev(sistem) {
+        var s = cleanSystemName(sistem);
+        s = s.replace(/\s*\([A-ZÇƏĞIİÖŞÜ]{2,8}\)\s*/g, ' ');
+        s = s.replace(/^[A-ZÇƏĞİÖŞÜ]{2,12}(?:-nın|-nin|-nun|-nün|-ın|-in|-un|-ün)\s+/i, '');
+        return cleanReportProse(s);
+    }
+
+    function registryOrgName(raw) {
+        return cleanReportProse(raw || '').replace(/\s*\([A-ZÇƏĞIİÖŞÜ]{2,8}\)\s*$/, '').trim();
+    }
+
+    function registryOrgSystemLine(t) {
+        var org = registryOrgName(getQurumName(t) || '');
+        var sistem = stripRegistryAbbrev(taskSummary(t));
+        if (org && sistem) {
+            var stripped = stripLeadingOrgPhrase(sistem, org);
+            if (stripped && normalizeStr(stripped) !== normalizeStr(org)) sistem = stripRegistryAbbrev(stripped);
+            return org + ' ' + sistem;
+        }
+        return sistem || org;
+    }
+
+    function preserveRegistryLine(text) {
+        var s = cleanReportProse(text).replace(/[;.]+\s*$/, '').trim();
+        if (!s) return '';
+        var org = '';
+        var sistem = s;
+        var m = s.match(/^(.+?)\s+[-–]\s+([\s\S]+)$/);
+        if (m && /(?:Nazirliyi|Agentliyi|Birliyi|şəxsi|şəxs|Komitəsi|Xidməti|Palatası|Konfederasiyası|Fondu)/i.test(m[1])) {
+            org = registryOrgName(m[1]);
+            sistem = m[2];
+        }
+        sistem = stripRegistryAbbrev(sistem);
+        if (org) {
+            var stripped = stripLeadingOrgPhrase(sistem, org);
+            if (stripped && normalizeStr(stripped) !== normalizeStr(org)) sistem = stripRegistryAbbrev(stripped);
+        }
+        if (org && sistem) return org + ' ' + sistem;
+        return sistem || org || s;
+    }
+
     function formatRegistryItem(text, isLast) {
-        var body = cleanSystemName(text);
+        var body = preserveRegistryLine(text);
         if (!body) return '';
         return body + (isLast ? '.' : ';');
     }
@@ -1858,13 +2081,13 @@ export async function exportTasksToWord(title) {
         });
     }
 
-    function listParagraph(text, fontName, kind, instance) {
+    function listParagraph(text, fontName, kind, instance, reference) {
         var opts = {
             spacing: { after: 80, line: 276 },
             children: itemRuns(text, fontName)
         };
         if (kind === 'number') {
-            opts.numbering = { reference: 'month-num', level: 0, instance: instance || 0 };
+            opts.numbering = { reference: reference || 'month-num', level: 0, instance: instance || 0 };
         } else if (kind === 'bullet') {
             opts.numbering = { reference: 'month-bullet', level: 0, instance: instance || 0 };
         }
@@ -1875,6 +2098,177 @@ export async function exportTasksToWord(title) {
         if (id === 'reyestr' || id === 'meqsed') return 'number';
         if (id === 'diger') return 'none';
         return 'bullet';
+    }
+
+    var TAHLIL_INTRO = 'Aşağıdakı müraciətlər isə Elektron Sənəd Dövriyyəsi sistemi vasitəsilə rəsmi daxil olmuşdur və təhlil mərhələsindədir:';
+    var METODIKI_INTRO = 'Eyni zamanda, aşağıdakı qurumlara məqsədəuyğunluq rəyinin verilməsi ilə bağlı işçi qaydada görüşlər və məlumat mübadilələri keçirilmiş və müvafiq metodiki dəstək göstərilmişdir:';
+    var OZUNU_STATUS = 'Cari il ərzində Reyestr vasitəsilə ilkin diaqnostika (özünüqiymətləndirmə) aparılması nəzərdə tutulan 44 dövlət qurumuna müvafiq sorğu anketləri Reyestr üzərindən göndərilmişdir. Sorğularla bağlı statuslar aşağıdakı kimidir:';
+    var OZUNU_STATUS_ITEMS = [
+        '3 qurum tərəfindən sorğuların cavablandırılması və təsdiqedici sənədlərin əlavə edilməsi prosesi üçün ayrılmış vaxt yekunlaşmış lakin qurumlar tərəfindən müvafiq məlumatlar sistemə əlavə edilməmişdir',
+        '27 qurum tərəfindən tamamlanmış sorğular yoxlanılma mərhələsindədir',
+        '14 qurum tərəfindən tamamlanmış sorğuların yoxlanılma prosesi başa çatmışdır'
+    ];
+    var MEQSED_REYESTR_PROCESS = 'Bununla yanaşı, Məqsədəuyğunluq rəyi ilə bağlı proseslərin Vahid Reyestr vasitəsilə təşkili və təkmilləşdirilməsi məqsədilə aidiyyəti struktur bölmələrin iştirakı ilə görüşlər keçirilmiş, istifadəçi interfeysi ilə bağlı tələblər və növbəti addımlar müzakirə edilmişdir. Bölmə üzrə müəyyən edilmiş xəta və boşluqlar (bugs) aradan qaldırılmış və növbəti mərhələdə istifadəyə verilməsi nəzərdə tutulmuşdur.';
+    var REYESTR_TOTAL_FALLBACK = 96;
+    var TEDBIR_BULLETS = [
+        '“Məqsədəuyğunluq” bölməsi üzrə müəyyən edilmiş xəta və boşluqlar (“bugs”) aradan qaldırılmış və bölmənin Vizalanma mexaniziminə dair ümumi prosesi yenidən dəyərləndirilərək proqramlaşdırma komandasına təqdim edilmişdir. Müvafiq fəaliyyət yekunlaşdıqddan sonra mümkün qısa zaman ərzində modul istismara buraxılacaqdır',
+        'Reyestrin ictimaiyyətə açıq bölməsi (https://digitalregister.idda.az/) istifadəyə verilmiş və 122 dövlət qurumunun 1115 elektron xidməti barədə məlumatlara əlçatanlıq təmin edilmişdir. Bölmənin təkmilləşdirilməsi üzrə texniki komanda ilə birgə işlər davam etdirilir. Növbəti mərhələdə informasiya ehtiyat və sistemlərinə dair hisə ictimaiyyətə açıqlanacaqdır'
+    ];
+    var FEALIYYET_ITEMS = [
+        'Tədbirlər planının 8.3.3-cü bəndinin ilkin icrasına uyğun olaraq “Süni İntellektə Hazırlıq İndeksi” metodologiyasının icrası məqsədilə aidiyyəti struktur bölmələrlə görüşlər keçirilmiş, daxil olmuş rəylər nəzərə alınmaqla qiymətləndirmə sualları hazırlanmışdır. Metodologiyanın ilkin versiyası hazırlanaraq rəy və təkliflərin bildirilməsi məqsədilə BCG şirkətinə təqdim edilmişdir. BCG-nin rəy və təkliflərinin müzakirəsi məqsədilə növbəti görüş 01.09.2026 tarixində keçirilmişdir. Sonrakı mərhələdə metodologiya BCG tərəfindən təqdim edilmiş rəylər əsasında təkmilləşdirilmiş və Hüquq departamentinə təqdim edilmişdir',
+        'Strateji hədəflərə (bulud texnologiyalarına keçid, Sİ-in tətbiqi, məsləhət xidmətlərinə çıxış və s.) xidmət etməyən rəqəmsal inkişaf layihələrinin maliyyələşdirilməsinə veto qoyulması mexanizminin tətbiqi, mərkəzləşdirilmiş təminat mexanizminin yaradılması, habelə dövlət investisiyalarının effektivliyinin artırılması və rəqəmsal layihələrin vahid arxitekturaya tam uyğunluğunun təmin edilməsi məqsədilə İqtisadi təhlil şöbəsi tərəfindən rəqəmsal inkişaf layihələrinin maliyyələşdirilməsinin ROİ mexanizmi hazırlanmışdır. Burada maliyyə, iqtisadi, sosial və ekoloji komponentlər əhatə olunmuşdur. Paralel olaraq Azərbaycan Respublikasının Nazirlər Kabinetinin 2025-ci il 23 iyun tarixli 186 nömrəli qərarı ilə təsdiq edilmiş "Dövlət informasiya ehtiyatları və sistemləri, habelə elektron xidmətlərlə bağlı layihələrə texniki və səmərəlilik baxımından məqsədəuyğunluq barədə rəy verilməsi Qaydası"nın yenilənməsi məqsədilə ilkin layihə sənədi hazırlanmışdır və daxildə təkmilləşdirmə mərhələsindədir. Həmçinin təminat mexanizminin yaradılması çərçivəsində “İnformasiya, informasiyalaşdırma və informasiyanın mühafizəsi haqqında” Azərbaycan Respublikasının Qanununun 14-cü maddəsinə dəyişiklik edilmişdir (“Maddə 14-3. Rəqəmsal inkişaf üzrə layihələrin maliyyələşdirilməsi”) (https://president.az/az/articles/view/73235)'
+    ];
+    var KONSEPSIYA_ITEMS = [
+        '“Vahid Çətir” çərçivəsində diaqnostika və qiymətləndirmə qaydalarının formalaşdırılması – 10.08.2026 tarixində görüşlər keçirilmiş, görüşlərin nəticəsi olaraq Strategiya, Xidmətlər, Texniki-texnoloji infrastruktur və Əməliyyat modelləri istiqamətləri üzrə qiymətləndirmə siyahısı təqdim edilmiş, müvafiq təkmilləşdirmələrin tətbiqi ilə bağlı tövsiyələr verilmişdir. Sualların meyarlar üzrə qruplaşdırılması tamamlanmış, İnnovasiya istiqaməti üzrə yekun sualların təqdim edilməsi gözlənilir',
+        'Qurumların innovasiya fəaliyyətində iştirak vəziyyətinin qiymətləndirilməsi – “Vahid Çətir” çərçivəsində aidiyyəti struktur bölmə prosesə cəlb edilmiş, qiymətləndirmə modeli hazırlanmış, pilot olaraq Əmək və Əhalinin Sosial Müdafiəsi Nazirliyi, Dövlət Miqrasiya Xidmətinin və Dövlət Gömrük Komitəsinin diaqnostikası çərçivəsində tətbiq edilmişdir'
+    ];
+
+    function rowStatusGroup(row) {
+        var t = row && row.task;
+        var name = t && t.fields && t.fields.status ? t.fields.status.name : '';
+        return getStatusGroup(name);
+    }
+
+    function meqsedInfoOf(group) {
+        var t = group && group.tasks && group.tasks[0];
+        if (!t) return null;
+        return getMeqsedInfo(t);
+    }
+
+    function withDair(name) {
+        var s = cleanReportProse(name);
+        if (!s) return '';
+        if (/\bdair$/i.test(s)) return s;
+        if (/\)$/.test(s)) return s + ' sisteminə dair';
+        if (/(?:inə|ına|ünə|una)$/i.test(s)) return s + ' dair';
+        if (/sistemi$/i.test(s)) return s.replace(/sistemi$/i, 'sisteminə') + ' dair';
+        if (/(?:si|sı)$/i.test(s)) return s.replace(/(si|sı)$/i, 'sinə') + ' dair';
+        if (/(?:i|ı|u|ü)$/i.test(s)) return s + 'nə dair';
+        return s + 'ə dair';
+    }
+
+    function meqsedObjectPhrase(group) {
+        var info = meqsedInfoOf(group);
+        var say = info && info.xidmetSayi && info.xidmetSayi !== '—' ? cleanReportProse(String(info.xidmetSayi)) : '';
+        var xidmet = info && info.xidmetMelumat && info.xidmetMelumat !== '—' ? cleanReportProse(info.xidmetMelumat) : '';
+        var sistem = info && info.sistemAdi && info.sistemAdi !== '—' ? cleanSystemName(info.sistemAdi) : '';
+        if (!sistem) sistem = cleanSystemName(stripAbbrevPrefix(group.name || '', group.qurum || ''));
+        if (say) return say + ' elektron xidmətinə';
+        if (xidmet && !sistem) return xidmet;
+        return sistem;
+    }
+
+    function extractLetterMeta(group) {
+        var blob = (group.lines || []).join(' ');
+        (group.tasks || []).forEach(function(t) {
+            if (!t) return;
+            blob += ' ' + taskSummary(t);
+            PHASE_FIELDS.forEach(function(pf) {
+                blob += ' ' + (getPhaseFieldText(t, pf.text) || '');
+            });
+            var desc = t.fields && t.fields.description;
+            if (typeof desc === 'string') blob += ' ' + desc;
+            var comments = ((t.fields && t.fields.comment && t.fields.comment.comments) || t.comments || []);
+            comments.forEach(function(c) {
+                if (c && typeof c.body === 'string') blob += ' ' + c.body;
+            });
+        });
+        var number = '';
+        var patterns = [
+            /\b(\d{1,2}-\d+\/\d+-\d+\/\d{4})\b/,
+            /\b(\d{1,2}(?:-\d+)+(?:\/\d+)+\/\d{4})\b/
+        ];
+        for (var pi = 0; pi < patterns.length; pi++) {
+            var numMatch = blob.match(patterns[pi]);
+            if (numMatch) {
+                number = numMatch[1];
+                break;
+            }
+        }
+        var project = '';
+        var projMatch = blob.match(/\b(L-\d+\/\d+)\b/i);
+        if (projMatch) project = projMatch[1];
+        var date = '';
+        var windowBlob = blob;
+        if (number) {
+            var at = blob.indexOf(number);
+            windowBlob = blob.slice(Math.max(0, at - 120), at + number.length + 40) + ' ' + blob;
+        }
+        var dateMatch = windowBlob.match(/\b(\d{2}\.\d{2}\.\d{4})\b/);
+        if (dateMatch) date = dateMatch[1];
+        if (!date) {
+            var entries = group.entries || [];
+            var last = entries.length ? entries[entries.length - 1] : null;
+            if (last && last.date) {
+                date = ('0' + last.date.getDate()).slice(-2) + '.' + ('0' + (last.date.getMonth() + 1)).slice(-2) + '.' + last.date.getFullYear();
+            }
+        }
+        return { date: date, number: number, project: project };
+    }
+
+    function meqsedOrg(group) {
+        var org = formatOrgLabel(group.qurum || '', group.name || '') || cleanReportProse(group.qurum || '');
+        return registryOrgName(org).replace(/\s*\([A-ZÇƏĞIİÖŞÜ]{2,8}\)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function serviceNameList(raw) {
+        var s = cleanReportProse(raw || '');
+        if (!s || s === '—') return [];
+        var names = [];
+        var re = /[“"«]([^”"»]+)[”"»]/g;
+        var m;
+        while ((m = re.exec(s)) !== null) {
+            var bit = cleanReportProse(m[1] || '');
+            if (bit) names.push(bit);
+        }
+        if (names.length) return names;
+        s.split(/\s*(?=\d+\.\s+)/).forEach(function(part) {
+            var t = cleanReportProse(part.replace(/^\d+\.\s*/, ''));
+            if (t) names.push(t);
+        });
+        if (!names.length && s) names.push(s);
+        return names;
+    }
+
+    function meqsedLetterTail(group) {
+        var meta = extractLetterMeta(group);
+        var tail = 'məqsədəuyğunluq rəyi';
+        if (meta.date) tail += ' ' + meta.date + ' tarixli';
+        if (meta.number) tail += ', ' + meta.number + ' nömrəli';
+        tail += ' məktubla quruma təqdim edilmişdir';
+        return tail;
+    }
+
+    function meqsedDoneParts(group) {
+        var org = toGenitiveAz(meqsedOrg(group));
+        var info = meqsedInfoOf(group);
+        var xidmet = info && info.xidmetMelumat && info.xidmetMelumat !== '—' ? info.xidmetMelumat : '';
+        var services = serviceNameList(xidmet);
+        var object = meqsedObjectPhrase(group);
+        if (!org) return [officialItemText(group, 'item')];
+        var objectBit = object ? (withDair(object) + ' ') : '';
+        var line = (org + ' ' + objectBit + meqsedLetterTail(group)).replace(/\s+/g, ' ').trim();
+        if (services.length) line += ':';
+        var out = [line];
+        services.forEach(function(name) { out.push('[[xidmet]]' + name); });
+        return out;
+    }
+
+    function meqsedEsdLine(group) {
+        var org = toGenitiveAz(meqsedOrg(group));
+        var object = meqsedObjectPhrase(group);
+        if (!org) return officialItemText(group, 'item');
+        var meta = extractLetterMeta(group);
+        var ref = meta.project || meta.number;
+        var objectBit = object ? (withDair(object) + ' ') : '';
+        return (org + ' ' + objectBit + 'məqsədəuyğunluq rəyi hazırlanaraq sistemə əlavə edilmişdir' + (ref ? ' (' + ref + ')' : '')).replace(/\s+/g, ' ').trim();
+    }
+
+    function meqsedOpenLine(group) {
+        var org = toGenitiveAz(meqsedOrg(group));
+        var object = meqsedObjectPhrase(group) || cleanReportProse(group.name || '');
+        if (org && object) return (org + ' ' + object).replace(/\s+/g, ' ').trim();
+        return org || object || officialItemText(group, 'item');
     }
 
     function collectDirectionTasks(dirName, parentList, monthSource) {
@@ -1929,8 +2323,8 @@ export async function exportTasksToWord(title) {
         var names = [];
         var seen = {};
         var candidates = collectReyestrPoolTasks(dirTasks, info);
-        function addName(raw) {
-            var name = cleanSystemName(raw);
+        function addName(t) {
+            var name = registryOrgSystemLine(t);
             if (!name) return;
             var key = normalizeStr(name);
             if (!key || seen[key]) return;
@@ -1948,7 +2342,7 @@ export async function exportTasksToWord(title) {
                 return child && child.key && monthSet[child.key];
             });
             if (hasMonthChild) return;
-            addName(taskSummary(t));
+            addName(t);
         });
         return names;
     }
@@ -2027,13 +2421,14 @@ export async function exportTasksToWord(title) {
         };
         function pushSection(id, intro, items, noteBeforeItems) {
             var cleanItems = (items || []).map(cleanReportProse).map(stripEndPunct).filter(Boolean);
-            if (!cleanItems.length && !intro) return;
+            if (!cleanItems.length && !intro && id !== 'fealiyyet' && id !== 'konsepsiya') return;
             draft.sections.push({
                 id: id,
                 title: CANON_TITLES[id] || id,
                 intro: cleanReportProse(intro || ''),
                 note: cleanReportProse(noteBeforeItems || ''),
-                items: cleanItems
+                items: cleanItems,
+                keep: id === 'fealiyyet' || id === 'konsepsiya'
             });
         }
 
@@ -2065,27 +2460,29 @@ export async function exportTasksToWord(title) {
         };
 
         var reyestrTasks = buckets.reyestr || [];
-        var reyestrUnits = unitsByCanon.reyestr || [];
-        var systems = collectRegisteredSystems(reyestrTasks, info).map(cleanSystemName).filter(Boolean);
-        var reyestrPlanUnits = filterMonthlyUnits(reyestrUnits, function(t) {
-            if (isSystemRegistrationTask(t) && wasRegisteredInMonth(t, info)) return false;
-            return !isReyestrProcessTask(t);
-        });
-        var planGroups = groupMonthlyUnits(reyestrPlanUnits, false);
-        if (systems.length || planGroups.length) {
-            var reyestrItems = systems.slice();
-            var planTexts = planGroups.map(function(g) {
-                return officialItemText(g, 'item');
-            });
-            if (systems.length && planGroups.length) {
-                pushSection('reyestr', monthlyIntroForCanon('reyestr', periodPhrase), reyestrItems, TEDBIRLER_PLANI);
-                draft.sections[draft.sections.length - 1].noteItems = planTexts;
-            } else if (systems.length) {
-                pushSection('reyestr', monthlyIntroForCanon('reyestr', periodPhrase), reyestrItems);
-            } else {
-                pushSection('reyestr', TEDBIRLER_PLANI, planTexts);
-                draft.sections[draft.sections.length - 1].list = 'bullet';
+        var systems = collectRegisteredSystems(reyestrTasks, info).map(preserveRegistryLine).filter(Boolean);
+        function registryTotalSentence() {
+            var item = info && info.months && info.months.length ? info.months[info.months.length - 1] : null;
+            var year = item && item.year ? item.year : reportDateYear;
+            var month = item && item.month != null ? item.month : 0;
+            var monthName = AZ_MONTHS_LOWER[month] || '';
+            var lastDay = new Date(year, month + 1, 0).getDate();
+            return azYearMark(year) + ' ilin ' + lastDay + ' ' + monthName + ' tarixinədək ümumilikdə Reyestrdə ' + REYESTR_TOTAL_FALLBACK + ' sistem qeydiyyata alınmışdır.';
+        }
+        if (systems.length || kind === 'month') {
+            if (systems.length) pushSection('reyestr', monthlyIntroForCanon('reyestr', periodPhrase), systems);
+            else {
+                draft.sections.push({
+                    id: 'reyestr',
+                    title: CANON_TITLES.reyestr,
+                    intro: '',
+                    items: [],
+                    keep: true
+                });
             }
+            var reyestrSec = draft.sections[draft.sections.length - 1];
+            reyestrSec.after = [registryTotalSentence(), TEDBIRLER_PLANI];
+            reyestrSec.noteItems = TEDBIR_BULLETS.slice();
         }
 
         var meqsedUnits = unitsByCanon.meqsed || [];
@@ -2098,34 +2495,39 @@ export async function exportTasksToWord(title) {
         });
         var meqsedMetodiki = filterMonthlyUnits(meqsedMain, function(t) { return isMetodikiTask(t); }).concat(digerMetodiki);
         var meqsedRest = filterMonthlyUnits(meqsedMain, function(t) { return !isMetodikiTask(t); });
-        var meqsedDone = filterMonthlyUnits(meqsedRest, function(t, row) { return unitIsDone(row); });
-        var meqsedOpen = filterMonthlyUnits(meqsedRest, function(t, row) { return !unitIsDone(row); });
-        if (meqsedDone.length || meqsedOpen.length || meqsedMetodiki.length || meqsedProcess.length) {
+        var meqsedDone = filterMonthlyUnits(meqsedRest, function(t, row) { return rowStatusGroup(row) === 'done'; });
+        var meqsedEsd = filterMonthlyUnits(meqsedRest, function(t, row) { return rowStatusGroup(row) === 'esd'; });
+        var meqsedOpen = filterMonthlyUnits(meqsedRest, function(t, row) {
+            var g = rowStatusGroup(row);
+            return g !== 'done' && g !== 'esd' && g !== 'rejected' && g !== 'paused';
+        });
+        if (kind === 'month' || meqsedDone.length || meqsedEsd.length || meqsedOpen.length || meqsedMetodiki.length || meqsedProcess.length) {
             var meqsedItems = [];
             groupMonthlyUnits(meqsedDone, false).forEach(function(g) {
-                meqsedItems.push(officialItemText(g, 'item'));
+                meqsedDoneParts(g).forEach(function(line) { meqsedItems.push(line); });
+            });
+            groupMonthlyUnits(meqsedEsd, false).forEach(function(g) {
+                meqsedItems.push(meqsedEsdLine(g));
             });
             if (meqsedOpen.length) {
-                meqsedItems.push('Aşağıdakı müraciətlər isə Elektron Sənəd Dövriyyəsi sistemi vasitəsilə rəsmi daxil olmuşdur və təhlil mərhələsindədir:');
+                meqsedItems.push(TAHLIL_INTRO);
                 groupMonthlyUnits(meqsedOpen, false).forEach(function(g) {
-                    meqsedItems.push(officialItemText(g, 'item'));
+                    meqsedItems.push(meqsedOpenLine(g));
                 });
             }
             if (meqsedMetodiki.length) {
-                meqsedItems.push('Eyni zamanda, aşağıdakı qurumlara məqsədəuyğunluq rəyinin verilməsi ilə bağlı işçi qaydada görüşlər keçirilmiş və müvafiq metodiki dəstək göstərilmişdir:');
+                meqsedItems.push(METODIKI_INTRO);
                 var seenQurum = {};
                 groupMonthlyUnits(meqsedMetodiki, true).forEach(function(g) {
-                    var q = cleanReportProse(g.qurum || '');
+                    var q = registryOrgName(g.qurum || '');
                     var k = normalizeStr(q);
                     if (!k || seenQurum[k]) return;
                     seenQurum[k] = true;
                     meqsedItems.push(q);
                 });
             }
-            groupMonthlyUnits(meqsedProcess, false).forEach(function(g) {
-                meqsedItems.push(officialItemText(g, 'item'));
-            });
             pushSection('meqsed', monthlyIntroForCanon('meqsed', periodPhrase), meqsedItems);
+            draft.sections[draft.sections.length - 1].closing = [MEQSED_REYESTR_PROCESS];
         }
 
         function groupedItems(units, byQurumOnly) {
@@ -2133,27 +2535,33 @@ export async function exportTasksToWord(title) {
                 return officialItemText(g, byQurumOnly ? 'qurum' : 'item');
             });
         }
-        var diagItems = groupedItems(unitsByCanon.diag, true);
-        if (diagItems.length) pushSection('diag', monthlyIntroForCanon('diag', periodPhrase), diagItems);
-        var isqItems = groupedItems(unitsByCanon.isq, true);
+        var diagUnits = unitsByCanon.diag || [];
+        var diagWork = orgProseBullets(diagUnits);
+        var diagItems = diagWork.slice();
+        diagItems.push(OZUNU_STATUS);
+        OZUNU_STATUS_ITEMS.forEach(function(line) { diagItems.push(line); });
+        if (kind === 'month' || diagWork.length) pushSection('diag', diagWork.length ? monthlyIntroForCanon('diag', periodPhrase) : '', diagItems);
+        var isqItems = orgProseBullets(unitsByCanon.isq);
         if (isqItems.length) pushSection('isq', '', isqItems);
-        var exqItems = groupedItems(unitsByCanon.exq, true);
+        var exqItems = orgProseBullets(unitsByCanon.exq);
         if (exqItems.length) pushSection('exq', '', exqItems);
 
         var inteqUnits = unitsByCanon.inteqrasiya || [];
-        var inteqDone = filterMonthlyUnits(inteqUnits, function(t, row) { return unitIsDone(row); });
-        var inteqOpen = filterMonthlyUnits(inteqUnits, function(t, row) { return !unitIsDone(row); });
-        if (inteqDone.length || inteqOpen.length) {
-            var inteqItems = groupedItems(inteqDone, false);
-            if (inteqOpen.length) {
-                inteqItems.push('Həmçinin aşağıdakı sorğular təhlil mərhələsindədir:');
-                groupedItems(inteqOpen, false).forEach(function(x) { inteqItems.push(x); });
-            }
-            pushSection('inteqrasiya', monthlyIntroForCanon('inteqrasiya', periodPhrase), inteqItems);
-        }
+        var inteqItems = taskProseBullets(inteqUnits);
+        if (inteqItems.length) pushSection('inteqrasiya', monthlyIntroForCanon('inteqrasiya', periodPhrase), inteqItems);
 
-        var digerItems = groupedItems(digerUnits, false);
-        if (digerItems.length) pushSection('diger', '', digerItems);
+        var digerRest = filterMonthlyUnits(digerUnits, function(t, row) {
+            return !isFealiyyetPlanUnit(t, row) && !isKonsepsiyaPlanUnit(t, row);
+        });
+        var digerItems = taskLeadParagraphs(digerRest);
+        if (digerItems.length) {
+            pushSection('diger', '', digerItems);
+            draft.sections[draft.sections.length - 1].list = 'none';
+        }
+        if (kind === 'month') {
+            pushSection('fealiyyet', '', FEALIYYET_ITEMS);
+            pushSection('konsepsiya', '', KONSEPSIYA_ITEMS);
+        }
 
         return {
             draft: draft,
@@ -2174,11 +2582,18 @@ export async function exportTasksToWord(title) {
         '{ay_başlıq}',
         'Vahid Reyestr üzrə:',
         '1. Qurumun tam adı sistemin adı;',
-        '2. Qurumun tam adı sistemin adı.',
         'Məqsədəuyğunluq rəyi üzrə:',
-        '1. Qurumun tam adı sistemə dair məqsədəuyğunluq rəyi 18.09.2026 tarixli məktubla quruma təqdim edilmişdir;',
+        'Qurumların informasiya sistemləri və ehtiyatlarına, habelə elektron xidmətlərinə onların texniki və səmərəliliyi baxımından məqsədəuyğunluğuna dair rəyin verilməsi üzrə:',
+        '1. Qurumun tam adı – sistemin adına dair məqsədəuyğunluq rəyi 18.09.2026 tarixli, nömrəli məktubla quruma təqdim edilmişdir;',
+        '2. Qurumun tam adı – sistemin adına dair məqsədəuyğunluq rəyi hazırlanaraq sistemə əlavə edilmişdir (L-00000/26).',
+        'Aşağıdakı müraciətlər isə Elektron Sənəd Dövriyyəsi sistemi vasitəsilə rəsmi daxil olmuşdur və təhlil mərhələsindədir:',
         'Rəqəmsallaşma səviyyəsinin diaqnostikası üzrə:',
-        '• Azərbaycan Respublikası … Nazirliyində diaqnostika prosesi tamamlanmış, sorğulanmış məlumatlar təhlil edilmişdir.'
+        'Cari il ərzində Reyestr vasitəsilə ilkin diaqnostika (özünüqiymətləndirmə) aparılması nəzərdə tutulan 44 dövlət qurumuna müvafiq sorğu anketləri Reyestr üzərindən göndərilmişdir. Sorğularla bağlı statuslar aşağıdakı kimidir:',
+        'İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi üzrə:',
+        'Elektron xidmətlərin qiymətləndirilməsi üzrə:',
+        'Məlumat hədlərinin inteqrasiyası üzrə:',
+        'Digər istiqamətlər üzrə:',
+        '1. Qurumun tam adı – görülmüş iş.'
     ].join('\n');
 
     function officialMonthStyleForPeriod(period, titleLine) {
@@ -2271,6 +2686,10 @@ export async function exportTasksToWord(title) {
         } else {
             sections.forEach(function(sec) {
                 if (!sec) return;
+                (sec.before || []).forEach(function(line) {
+                    var text = officializeDates(cleanReportProse(line), reportDateYear);
+                    if (text) monthChildren.push(bodyParagraph(text, MONTH_FONT));
+                });
                 // Hər bölmə öz 1,2,3… sayını alsın (Reyestr 1–3-dən sonra Məqsədəuyğunluq 4 olmasın)
                 listInstance += 1;
                 var title = cleanReportProse(sec.title || CANON_TITLES[sec.id] || '');
@@ -2283,14 +2702,49 @@ export async function exportTasksToWord(title) {
                 var listKind = defaultSectionListKind(sec.id);
                 if (sec.list === 'bullet' || sec.list === 'number' || sec.list === 'none') listKind = sec.list;
                 var currentKind = listKind;
+                var inServices = false;
                 var items = (sec.items || []).map(function(it) {
                     return officializeDates(cleanReportProse(it), reportDateYear);
                 }).filter(Boolean);
                 items.forEach(function(item, idx) {
+                    var isService = /^\[\[xidmet\]\]\s*/.test(item);
+                    if (isService) item = item.replace(/^\[\[xidmet\]\]\s*/, '');
+                    if (isService) {
+                        if (!inServices) {
+                            listInstance += 1;
+                            inServices = true;
+                        }
+                        var svcRest = 0;
+                        for (var sj = idx; sj < items.length; sj++) {
+                            if (!/^\[\[xidmet\]\]/.test(items[sj])) break;
+                            svcRest += 1;
+                        }
+                        var svcLine = /[.!?]$/.test(item) ? item : (stripEndPunct(item) + (svcRest === 1 ? '.' : ';'));
+                        monthChildren.push(listParagraph(svcLine, MONTH_FONT, 'number', listInstance, 'month-sub'));
+                        return;
+                    }
+                    if (inServices) {
+                        inServices = false;
+                        currentKind = listKind === 'none' ? 'none' : 'number';
+                    }
                     if (/:$/.test(item)) {
+                        var orgHead = item.length < 220 && !/aşağıdakı|statuslar|yoxlamalar aparılmışdır|iş planı|davam edən diaqnostika|məqsədəuyğunluq rəyi|sorğu anketləri/i.test(item);
+                        if (orgHead) {
+                            monthChildren.push(new Paragraph({
+                                spacing: { before: 160, after: 40, line: 276 },
+                                children: [new TextRun({ text: item.replace(/:$/, ''), bold: true, font: MONTH_FONT, size: FONT_SIZE, color: COL_INK })]
+                            }));
+                            listInstance += 1;
+                            currentKind = 'lead';
+                            return;
+                        }
                         monthChildren.push(bodyParagraph(item, MONTH_FONT));
+                        if (/elektron xidmətinə/i.test(item) && /məqsədəuyğunluq rəyi/i.test(item)) {
+                            currentKind = 'svc';
+                            return;
+                        }
                         listInstance += 1;
-                        if (/statuslar aşağıdakı kimidir|yoxlamalar aparılmışdır|iş planı/i.test(item)) {
+                        if (/statuslar aşağıdakı kimidir|yoxlamalar aparılmışdır|iş planı|davam edən diaqnostika/i.test(item)) {
                             currentKind = 'bullet';
                         } else {
                             currentKind = listKind === 'none' ? 'none' : 'number';
@@ -2301,6 +2755,13 @@ export async function exportTasksToWord(title) {
                     for (var j = idx; j < items.length; j++) {
                         if (/:$/.test(items[j])) break;
                         rest += 1;
+                    }
+                    if (currentKind === 'lead') {
+                        var leadLine = /[.!?…:;]$/.test(item) ? item : (stripEndPunct(item) + '.');
+                        monthChildren.push(bodyParagraph(leadLine, MONTH_FONT));
+                        currentKind = 'bullet';
+                        listInstance += 1;
+                        return;
                     }
                     var line = item;
                     if (currentKind === 'none') {
@@ -2315,6 +2776,12 @@ export async function exportTasksToWord(title) {
                         monthChildren.push(listParagraph(line, MONTH_FONT, currentKind, listInstance));
                     }
                 });
+                (sec.after || []).forEach(function(line) {
+                    var text = officializeDates(cleanReportProse(line), reportDateYear);
+                    if (!text) return;
+                    monthChildren.push(bodyParagraph(text, MONTH_FONT));
+                    listInstance += 1;
+                });
                 var noteItems = (sec.noteItems || []).map(cleanReportProse).filter(Boolean);
                 if (noteItems.length) {
                     listInstance += 1;
@@ -2324,6 +2791,10 @@ export async function exportTasksToWord(title) {
                         monthChildren.push(listParagraph(line, MONTH_FONT, 'bullet', listInstance));
                     });
                 }
+                (sec.closing || []).forEach(function(line) {
+                    var text = officializeDates(cleanReportProse(line), reportDateYear);
+                    if (text) monthChildren.push(bodyParagraph(text, MONTH_FONT));
+                });
             });
         }
 
@@ -2341,6 +2812,18 @@ export async function exportTasksToWord(title) {
                             alignment: AlignmentType.LEFT,
                             style: {
                                 paragraph: { indent: { left: 720, hanging: 360 } }
+                            }
+                        }]
+                    },
+                    {
+                        reference: 'month-sub',
+                        levels: [{
+                            level: 0,
+                            format: numFormat,
+                            text: '%1.',
+                            alignment: AlignmentType.LEFT,
+                            style: {
+                                paragraph: { indent: { left: 1080, hanging: 360 } }
                             }
                         }]
                     },
@@ -2425,6 +2908,44 @@ export async function exportTasksToWord(title) {
         target.push(new Paragraph({ text: '', spacing: { after: 200 } }));
     }
 
+    function lockMonthFormat(localDraft, polished) {
+        var out = polished && typeof polished === 'object' ? polished : {};
+        var local = localDraft || {};
+        out.period = local.period;
+        out.title = local.title;
+        var polishedById = {};
+        (out.sections || []).forEach(function(sec) {
+            if (sec && sec.id) polishedById[sec.id] = sec;
+        });
+        out.sections = (local.sections || []).map(function(sec) {
+            var other = polishedById[sec.id] || {};
+            var items = (sec.items || []).slice();
+            var lockItems = sec.id === 'reyestr' || sec.id === 'meqsed' || sec.id === 'diag' || sec.id === 'isq' || sec.id === 'exq' || sec.id === 'inteqrasiya' || sec.id === 'diger' || sec.id === 'fealiyyet' || sec.id === 'konsepsiya';
+            if (!lockItems && Array.isArray(other.items) && other.items.length === items.length) {
+                items = other.items.slice();
+            }
+            if (sec.id === 'reyestr') {
+                items = items.map(function(it) {
+                    if (!it || /:$/.test(it)) return it;
+                    return preserveRegistryLine(it) || it;
+                }).filter(Boolean);
+            }
+            return {
+                id: sec.id,
+                title: CANON_TITLES[sec.id] || sec.title,
+                intro: sec.intro || '',
+                note: sec.note || '',
+                items: items,
+                noteItems: (sec.noteItems || []).slice(),
+                after: (sec.after || []).slice(),
+                before: (sec.before || []).slice(),
+                closing: (sec.closing || []).slice(),
+                list: sec.id === 'diger' ? 'none' : sec.list
+            };
+        });
+        return out;
+    }
+
     async function createMonthlyDocument(info, opts) {
         var pack = buildMonthlyDocument(info, opts);
         showToast('Aylıq hesabat rəsmi üsluba salınır…', 'info');
@@ -2434,50 +2955,7 @@ export async function exportTasksToWord(title) {
         var finalDraft = polished.draft || pack.draft;
         // Calendar month always wins — polish must not swap period/title to another month.
         if (finalDraft && typeof finalDraft === 'object') {
-            finalDraft.period = pack.draft.period;
-            finalDraft.title = pack.draft.title;
-            // LLM Vahid Reyestr sistemlərini ixtisar etməsin — lokal siyahını saxla
-            var localSecs = Array.isArray(pack.draft.sections) ? pack.draft.sections : [];
-            var localReyestr = localSecs.find(function(s) { return s && s.id === 'reyestr'; });
-            if (localReyestr && Array.isArray(localReyestr.items) && localReyestr.items.length) {
-                if (!Array.isArray(finalDraft.sections)) finalDraft.sections = [];
-                var polishedReyestr = finalDraft.sections.find(function(s) { return s && s.id === 'reyestr'; });
-                if (!polishedReyestr) {
-                    finalDraft.sections.unshift(localReyestr);
-                } else {
-                    var localSystems = (localReyestr.items || []).filter(function(it) {
-                        return it && !/:$/.test(it);
-                    });
-                    var polishedItems = Array.isArray(polishedReyestr.items) ? polishedReyestr.items.slice() : [];
-                    var have = {};
-                    polishedItems.forEach(function(it) { have[normalizeStr(it)] = true; });
-                    localSystems.forEach(function(it) {
-                        var key = normalizeStr(it);
-                        if (!key || have[key]) return;
-                        // qismən uyğunluq: eyni sistem adı fərqli üslubda ola bilər
-                        var hit = polishedItems.some(function(p) {
-                            var a = normalizeStr(it);
-                            var b = normalizeStr(p);
-                            return a && b && (a.indexOf(b) !== -1 || b.indexOf(a) !== -1
-                                || a.replace(/["«»„“”]/g, '').indexOf(b.replace(/["«»„“”]/g, '').slice(0, 24)) !== -1);
-                        });
-                        if (!hit) {
-                            polishedItems.push(it);
-                            have[key] = true;
-                        }
-                    });
-                    // Bütün aylarda: Reyestr bəndləri yalnız sistem adı (yiyəlik/qeydiyyat ifadəsi yox)
-                    polishedReyestr.items = polishedItems.map(function(it) {
-                        if (!it || /:$/.test(it)) return it;
-                        return cleanSystemName(it) || it;
-                    }).filter(Boolean);
-                    if (localReyestr.intro) polishedReyestr.intro = localReyestr.intro;
-                    if (localReyestr.note && !polishedReyestr.note) polishedReyestr.note = localReyestr.note;
-                    if (localReyestr.noteItems && localReyestr.noteItems.length && !(polishedReyestr.noteItems && polishedReyestr.noteItems.length)) {
-                        polishedReyestr.noteItems = localReyestr.noteItems;
-                    }
-                }
-            }
+            finalDraft = lockMonthFormat(pack.draft, finalDraft);
         }
         return {
             doc: renderMonthlyDocument(pack, finalDraft),
