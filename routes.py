@@ -837,8 +837,67 @@ def api_jira_attachments():
             'mimeType': a.get('mimeType'),
             'size': a.get('size'),
             'created': a.get('created'),
+            'content': a.get('content') or '',
         })
     return jsonify({'key': key, 'attachments': safe, 'totalOnIssue': len(result.get('attachments') or [])}), 200
+
+
+def _attachment_file_response(result, att_id, disposition='inline'):
+    filename = str(result.get('filename') or ('attachment-' + str(att_id)))
+    mime = str(result.get('mimeType') or 'application/octet-stream').split(';')[0].strip() or 'application/octet-stream'
+    # Content-Type/Disposition HTTP header-ləri latin-1 olmalıdır (Waitress/Flask).
+    mime = mime.encode('ascii', 'ignore').decode('ascii') or 'application/octet-stream'
+    payload = result.get('content') or b''
+    ext = ''
+    if '.' in filename:
+        ext = '.' + filename.rsplit('.', 1)[-1]
+        if any(ord(ch) > 127 for ch in ext) or len(ext) > 12:
+            ext = ''
+    ascii_name = 'attachment-' + str(att_id) + ext
+    # Həmişə ASCII filename= + RFC 5987 filename* — ə/ş və s. Waitress-i öldürməsin.
+    cd = (
+        f'{disposition}; filename="{ascii_name}"; '
+        f"filename*=UTF-8''{quote(filename, safe='')}"
+    )
+    return Response(
+        payload,
+        status=200,
+        mimetype=mime,
+        headers={
+            'Content-Disposition': cd,
+            'Cache-Control': 'private, max-age=120',
+            'X-Content-Type-Options': 'nosniff',
+        },
+    )
+
+
+@api.route('/api/jira/attachments/file', methods=['POST', 'OPTIONS'])
+@login_required
+def api_jira_attachment_download_post():
+    """POST body: { id, key?, content? } — binary fayl (GET 404/cache problemlərindən yayınmaq üçün)."""
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    remember_project_key(data)
+    base_url, pat = resolve_credentials(data)
+    if not all([base_url, pat]):
+        return jsonify({"error": "Jira tokeni yoxdur"}), 400
+    att_id = str(data.get('id') or data.get('attachmentId') or '').strip()
+    issue_key = str(data.get('key') or '').strip()
+    content_hint = str(data.get('content') or '').strip()
+    if not att_id:
+        return jsonify({"error": "Əlavə id lazımdır"}), 400
+    result, error, status = download_jira_attachment(
+        base_url, pat, att_id,
+        issue_key=issue_key or None,
+        content_url=content_hint or None,
+    )
+    if error:
+        return jsonify(error), status
+    disposition = 'attachment' if data.get('download') else 'inline'
+    return _attachment_file_response(result, att_id, disposition=disposition)
 
 
 @api.route('/api/jira/attachment/<att_id>', methods=['GET', 'OPTIONS'])
@@ -850,29 +909,16 @@ def api_jira_attachment_file(att_id):
     if not all([base_url, pat]):
         return jsonify({"error": "Jira tokeni yoxdur"}), 400
     issue_key = str(request.args.get('key') or '').strip()
-    result, error, status = download_jira_attachment(base_url, pat, att_id, issue_key=issue_key or None)
+    content_hint = str(request.args.get('content') or '').strip()
+    result, error, status = download_jira_attachment(
+        base_url, pat, att_id,
+        issue_key=issue_key or None,
+        content_url=content_hint or None,
+    )
     if error:
         return jsonify(error), status
-    filename = result.get('filename') or ('attachment-' + str(att_id))
-    mime = result.get('mimeType') or 'application/octet-stream'
-    payload = result.get('content') or b''
     disposition = 'inline' if request.args.get('download') != '1' else 'attachment'
-    # RFC 5987 for non-ASCII filenames
-    try:
-        filename.encode('ascii')
-        cd = f'{disposition}; filename="{filename}"'
-    except UnicodeEncodeError:
-        cd = f"{disposition}; filename*=UTF-8''{quote(filename)}"
-    return Response(
-        payload,
-        status=200,
-        mimetype=mime,
-        headers={
-            'Content-Disposition': cd,
-            'Cache-Control': 'private, max-age=120',
-            'X-Content-Type-Options': 'nosniff',
-        },
-    )
+    return _attachment_file_response(result, att_id, disposition=disposition)
 
 
 def build_hierarchy(base_url, pat, parent_key, date_filter, exclude_done=True):

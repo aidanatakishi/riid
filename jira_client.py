@@ -1,4 +1,5 @@
 import time
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import requests
 import urllib3
@@ -16,11 +17,59 @@ def make_session():
 
 
 def auth_headers(pat):
+    token = str(pat or '')
+    # HTTP header-ləri latin-1 olmalıdır — tokenə təsadüfi unicode düşməsin.
+    token = token.encode('ascii', 'ignore').decode('ascii')
     return {
-        "Authorization": f"Bearer {pat}",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/json",
         "User-Agent": "Mozilla/5.0"
     }
+
+
+def _latin1_safe(value):
+    text = str(value or '')
+    try:
+        text.encode('latin-1')
+        return text
+    except UnicodeEncodeError:
+        return text.encode('latin-1', 'replace').decode('latin-1')
+
+
+def safe_request_url(url):
+    """URL path/query-də unicode qalmasın (http.client latin-1 tələb edir)."""
+    raw = str(url or '').strip()
+    if not raw:
+        return raw
+    try:
+        return requests.utils.requote_uri(raw)
+    except Exception:
+        parts = urlsplit(raw)
+        path = quote(parts.path or '', safe='/%')
+        query = quote(parts.query or '', safe='=&%')
+        return urlunsplit((parts.scheme, parts.netloc, path, query, parts.fragment))
+
+
+def session_request(session, method, url, **kwargs):
+    """requests wrapper: ASCII URL/header + latin-1 cookie təmizliyi."""
+    url = safe_request_url(url)
+    headers = dict(kwargs.pop('headers', None) or {})
+    kwargs['headers'] = {str(k): _latin1_safe(v) for k, v in headers.items()}
+    # Cookie jar-da latin-1-ə sığmayan dəyər varsa növbəti sorğunu öldürür
+    try:
+        for cookie in list(session.cookies):
+            val = str(getattr(cookie, 'value', '') or '')
+            try:
+                val.encode('latin-1')
+            except UnicodeEncodeError:
+                session.cookies.clear(cookie.domain, cookie.path, cookie.name)
+    except Exception:
+        pass
+    try:
+        return session.request(method, url, **kwargs)
+    except UnicodeEncodeError:
+        session.cookies.clear()
+        return session.request(method, url, **kwargs)
 
 
 def http_error_payload(res):
@@ -77,11 +126,21 @@ def fetch_jira_data(base_url, pat, jql, fields, expand=None):
         params["expand"] = ','.join(expand_parts)
 
         try:
-            res = session.get(url, headers=headers, params=params, verify=False, timeout=REQUEST_TIMEOUT)
+            res = session_request(
+                session, 'GET', url,
+                headers=headers, params=params, verify=False, timeout=REQUEST_TIMEOUT,
+            )
         except requests.exceptions.Timeout:
             return None, {"error": "Jira serveri cavab vermir (timeout)"}, 504
         except requests.exceptions.ConnectionError:
             return None, {"error": "Jira serverinə qoşulmaq mümkün olmadı"}, 503
+        except UnicodeEncodeError:
+            return None, {
+                "error": (
+                    "Jira sorğusu göndərilmədi (unicode/header). "
+                    "Fayl və ya axtarış mətnində xüsusi hərflər problemi yarada bilər — yenidən yoxlayın."
+                )
+            }, 500
         except Exception as e:
             return None, {"error": f"Sorğu xətası: {str(e)}"}, 500
 
@@ -184,8 +243,8 @@ def fetch_issue_attachments(base_url, pat, key):
     session = make_session()
     headers = auth_headers(pat)
     try:
-        res = session.get(
-            f"{base}/rest/api/2/issue/{safe_key}",
+        res = session_request(
+            session, 'GET', f"{base}/rest/api/2/issue/{safe_key}",
             headers=headers,
             params={"fields": "attachment,summary"},
             verify=False,
@@ -229,10 +288,11 @@ def _is_probably_login_html(res):
 
 def _download_content_bytes(session, headers, content_url, base):
     """Download attachment bytes; PAT + /secure/attachment often needs session cookies."""
+    content_url = safe_request_url(content_url)
     try:
         # First call seeds cookies (Atlassian PAT workaround)
-        session.get(
-            f"{base}/rest/api/2/myself",
+        session_request(
+            session, 'GET', f"{base}/rest/api/2/myself",
             headers=headers,
             verify=False,
             timeout=REQUEST_TIMEOUT,
@@ -240,8 +300,8 @@ def _download_content_bytes(session, headers, content_url, base):
     except Exception:
         pass
     try:
-        file_res = session.get(
-            content_url,
+        file_res = session_request(
+            session, 'GET', content_url,
             headers=headers,
             verify=False,
             timeout=max(REQUEST_TIMEOUT, 90),
@@ -249,14 +309,22 @@ def _download_content_bytes(session, headers, content_url, base):
         )
     except requests.exceptions.Timeout:
         return None, {"error": "Fayl yüklənmədi (timeout)"}, 504
+    except UnicodeEncodeError:
+        return None, {
+            "error": "Fayl ünvanında uyğunsuz simvol var (unicode/header). Jira-da faylı birbaşa açın."
+        }, 500
     except Exception as e:
         return None, {"error": f"Fayl xətası: {str(e)}"}, 500
     if file_res.status_code != 200 or _is_probably_login_html(file_res):
         # Cookie-jar retry: Bearer first, then content with cookies only + Bearer
         try:
-            jar_res = session.get(
-                content_url,
-                headers={"Accept": "*/*", "User-Agent": "Mozilla/5.0", "Authorization": headers.get("Authorization", "")},
+            jar_res = session_request(
+                session, 'GET', content_url,
+                headers={
+                    "Accept": "*/*",
+                    "User-Agent": "Mozilla/5.0",
+                    "Authorization": headers.get("Authorization", ""),
+                },
                 verify=False,
                 timeout=max(REQUEST_TIMEOUT, 90),
                 allow_redirects=True,
@@ -276,7 +344,36 @@ def _download_content_bytes(session, headers, content_url, base):
     return file_res.content, None, 200
 
 
-def download_jira_attachment(base_url, pat, attachment_id, issue_key=None):
+def _attachment_content_candidates(base, att_id, content_url='', filename=''):
+    """Ordered list of URLs that may yield attachment bytes on Jira Server/DC."""
+    base = (base or '').rstrip('/')
+    att_id = str(att_id or '').strip()
+    content_url = str(content_url or '').strip()
+    filename = str(filename or '').strip()
+    out = []
+
+    def add(url):
+        url = str(url or '').strip()
+        if not url:
+            return
+        # Relative → absolute on same Jira host
+        if url.startswith('/'):
+            url = base + url
+        if not url.startswith(base):
+            return
+        if url not in out:
+            out.append(url)
+
+    add(content_url)
+    # REST content endpoint — Bearer PAT ilə /secure/attachment-dan etibarlıdır
+    add(f"{base}/rest/api/2/attachment/content/{att_id}")
+    add(f"{base}/secure/attachment/{att_id}/")
+    if filename:
+        add(f"{base}/secure/attachment/{att_id}/{quote(filename)}")
+    return out
+
+
+def download_jira_attachment(base_url, pat, attachment_id, issue_key=None, content_url=None):
     """Download attachment bytes by Jira attachment id (optionally scoped to issue key)."""
     att_id = str(attachment_id or '').strip()
     if not att_id or not att_id.isdigit():
@@ -284,7 +381,7 @@ def download_jira_attachment(base_url, pat, attachment_id, issue_key=None):
     base = base_url.rstrip('/')
     session = make_session()
     headers = auth_headers(pat)
-    content_url = ''
+    known_content = str(content_url or '').strip()
     filename = 'attachment-' + att_id
     mime = 'application/octet-stream'
 
@@ -294,15 +391,19 @@ def download_jira_attachment(base_url, pat, attachment_id, issue_key=None):
         if not err and listed:
             for row in listed.get('attachments') or []:
                 if str(row.get('id') or '') == att_id:
-                    content_url = str(row.get('content') or '').strip()
+                    if not known_content:
+                        known_content = str(row.get('content') or '').strip()
                     filename = str(row.get('filename') or filename)
                     mime = str(row.get('mimeType') or mime)
                     break
 
-    if not content_url:
+    if not known_content or filename.startswith('attachment-'):
         meta_url = f"{base}/rest/api/2/attachment/{att_id}"
         try:
-            meta_res = session.get(meta_url, headers=headers, verify=False, timeout=REQUEST_TIMEOUT)
+            meta_res = session_request(
+                session, 'GET', meta_url,
+                headers=headers, verify=False, timeout=REQUEST_TIMEOUT,
+            )
         except requests.exceptions.Timeout:
             return None, {"error": "Jira serveri cavab vermir (timeout)"}, 504
         except Exception as e:
@@ -311,27 +412,41 @@ def download_jira_attachment(base_url, pat, attachment_id, issue_key=None):
             try:
                 meta = meta_res.json()
             except Exception:
-                return None, {"error": "Jira cavabı JSON formatında deyil"}, 502
-            content_url = str(meta.get('content') or '').strip()
-            filename = str(meta.get('filename') or filename)
-            mime = str(meta.get('mimeType') or mime)
-        elif not content_url:
-            # Son çarə: klassik secure URL
-            content_url = f"{base}/secure/attachment/{att_id}/"
+                meta = None
+            if isinstance(meta, dict):
+                if not known_content:
+                    known_content = str(meta.get('content') or '').strip()
+                filename = str(meta.get('filename') or filename)
+                mime = str(meta.get('mimeType') or mime)
 
-    if not content_url:
+    candidates = _attachment_content_candidates(base, att_id, known_content, filename)
+    if not candidates:
         return None, {"error": "Əlavə faylı tapılmadı"}, 404
-    if not content_url.startswith(base):
-        return None, {"error": "Əlavə ünvanı etibarsızdır"}, 400
 
-    payload, err, status = _download_content_bytes(session, headers, content_url, base)
-    if err:
-        return None, err, status
-    return {
-        "filename": filename,
-        "mimeType": mime,
-        "content": payload,
-    }, None, 200
+    last_err = {"error": "Əlavə faylı yüklənmədi"}
+    last_status = 502
+    for url in candidates:
+        payload, err, status = _download_content_bytes(session, headers, url, base)
+        if not err and payload is not None:
+            return {
+                "filename": filename,
+                "mimeType": mime,
+                "content": payload,
+            }, None, 200
+        last_err = err or last_err
+        last_status = status or last_status
+        # 401/403/login HTML — digər URL-ləri də yoxla; 404 üçün də növbəti namizəd
+        continue
+
+    # İstifadəçiyə daha aydın mesaj
+    if last_status == 404:
+        return None, {
+            "error": (
+                "Jira əlavə faylını tapmadı (404). Token layihəyə baxa bilir, "
+                "amma fayl silinib və ya ünvan dəyişib ola bilər."
+            )
+        }, 404
+    return None, last_err, last_status
 
 
 def fetch_jira_fields(base_url, pat):

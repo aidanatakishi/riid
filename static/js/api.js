@@ -277,14 +277,14 @@ async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot, fie
         throw new Error('Lokal proxy-ə qoşulmaq mümkün olmadı (' + (proxyRoot || '/api/jira') + '). python app.py işləyirmi?');
     }
     var text = await res.text();
+    var data;
     try {
-        var data = JSON.parse(text);
-        if (!res.ok) throw new Error(formatJiraFail(res, data));
-        return data;
+        data = JSON.parse(text);
     } catch (e) {
-        if (e.message && e.message.indexOf('Jira API xətası') === 0) throw e;
-        throw new Error('Server cavabı JSON deyil: ' + text.substring(0, 150));
+        throw new Error('Server cavabı JSON deyil: ' + String(text).substring(0, 150));
     }
+    if (!res.ok) throw new Error(formatJiraFail(res, data));
+    return data;
 }
 
 var jqlInflight = {};
