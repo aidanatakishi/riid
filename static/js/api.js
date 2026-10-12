@@ -30,7 +30,10 @@ function useFlaskProxy() {
 }
 
 function hasJiraAuth(pat) {
-    return !!(pat || state.hasServerToken);
+    if (pat || state.hasServerToken) return true;
+    // Lokal Flask proxy sessiya ilə serverdəki PAT-i işlədir; hasToken bayrağı
+    // köhnə/qüsurlu olsa belə sorğunu serverə buraxırıq.
+    return useFlaskProxy();
 }
 
 function readInputValue(id) {
@@ -81,11 +84,11 @@ export async function loadServerConfig() {
                 if (remote.currentProjectKey) cfg.currentProjectKey = remote.currentProjectKey;
                 if (remote.currentTeam) cfg.currentTeam = remote.currentTeam;
                 if (remote.homeProjectKey) cfg.homeProjectKey = remote.homeProjectKey;
-                if (remote.hasToken) cfg.hasToken = true;
+                cfg.hasToken = !!(remote.hasToken || (remote.user && remote.user.hasPat));
                 if (remote.hasChatLlm) cfg.hasChatLlm = true;
                 if (remote.user) cfg.user = remote.user;
                 if (typeof remote.canSeeDiagnostics === 'boolean') cfg.canSeeDiagnostics = remote.canSeeDiagnostics;
-                state.hasServerToken = !!remote.hasToken;
+                state.hasServerToken = cfg.hasToken;
                 if (remote.homeProjectKey) state.homeProjectKey = String(remote.homeProjectKey).toUpperCase();
                 if (remote.projectKey) state.currentProjectKey = String(remote.projectKey).toUpperCase();
                 if (remote.user) state.currentUser = remote.user;

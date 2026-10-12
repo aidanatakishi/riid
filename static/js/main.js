@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js?v=idda7';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda15';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda44';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda45';
 import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange } from './filters.js?v=idda46';
 import { renderStatusChart, renderAssigneeChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda46';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda16';
@@ -216,10 +216,10 @@ window.onload = async function() {
     }
     var baseUrl = baseElNow ? baseElNow.value : '';
     var projectKey = projectEl ? projectEl.value : '';
-    if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey) && (serverCfg.hasToken || state.hasServerToken)) {
+    // Token serverdədir (sessiya). hasToken bayrağı geciksə belə yükləməyə cəhd et —
+    // əks halda səhv "token yoxdur" toast-ı və boş panel alınır.
+    if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey)) {
         fetchDashboardData().catch(function (err) { console.error(err); });
-    } else if (!(serverCfg.hasToken || state.hasServerToken)) {
-        showToast('Jira tokeni yoxdur. Tənzimləmələrdə və ya çıxıb yenidən daxil olanda PAT yazın — əks halda panel 0 qalır.', 'error');
     }
     try { renderAssessmentSections(); } catch (e) {}
     try { syncNk303Route(); } catch (e) {}
