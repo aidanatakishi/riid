@@ -9,10 +9,11 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/tokens.css?v=idda3">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda144">
+    <link rel="stylesheet" href="/static/css/tokens.css?v=idda4">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda148">
+    <link rel="stylesheet" href="/static/css/service_digitization.css?v=idda16">
     <link rel="stylesheet" href="/static/css/done_bot.css?v=idda3">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda87">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda94">
 </head>
 <body class="app-page">
 
@@ -325,7 +326,8 @@
         </div>
     </div>
 
-    <div class="card mb-6 fade-in assess-hub-card" id="assessHubCard">
+    <div class="dash-split-row">
+    <div class="card mb-0 fade-in assess-hub-card" id="assessHubCard">
         <div class="assess-hub-head app-sec-head p-4 md:p-5 flex flex-wrap items-center gap-3 border-b border-slate-200">
             <div class="flex items-center gap-3 min-w-0">
                 <span class="assess-hub-icon shrink-0">
@@ -413,6 +415,21 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <div class="card p-3 md:p-4 fade-in priority-dash-card" id="priorityDashCard">
+        <div class="dash-chart-head">
+            <h2>Tapşırıqların prioritetləri</h2>
+            <p class="chart-card-hint">Prioritetə kliklə — tapşırıq siyahısını aç</p>
+        </div>
+        <div class="priority-dash-body">
+            <div class="chart-box priority-dash-chart">
+                <canvas id="priorityChart" aria-label="Tapşırıqların prioritetləri"></canvas>
+            </div>
+            <div id="priorityChartLegend" class="priority-dash-legend" role="list"></div>
+        </div>
+        <p id="priorityChartEmpty" class="priority-dash-empty hidden">Bu dövr üçün prioritet məlumatı yoxdur.</p>
+    </div>
     </div>
 
     <div class="card overflow-hidden mb-6 fade-in">
@@ -662,6 +679,19 @@
                 </div>
             </div>
         </div>
+        <div id="nk303ExqStageOverlay" class="nk303-exq-stage-overlay hidden" hidden role="dialog" aria-modal="true" aria-labelledby="nk303ExqStageTitle" onclick="nk303Call('closeExqStages')">
+            <div class="nk303-exq-stage-panel" onclick="event.stopPropagation()">
+                <header class="nk303-exq-stage-head">
+                    <div>
+                        <p class="nk303-exq-stage-kicker">EXQ meyarları</p>
+                        <h3 id="nk303ExqStageTitle">Mərhələlər üzrə nəticə və hədəf</h3>
+                        <p id="nk303ExqStageMeta" class="nk303-exq-stage-meta"></p>
+                    </div>
+                    <button type="button" class="nk303-exq-stage-close" onclick="nk303Call('closeExqStages')" aria-label="Bağla">×</button>
+                </header>
+                <div id="nk303ExqStageBody" class="nk303-exq-stage-body"></div>
+            </div>
+        </div>
         <div id="nk303HubOverlay" class="nk303-hub-overlay hidden" hidden role="presentation" onclick="nk303Call('closeHub')">
             <div class="nk303-hub-panel" role="dialog" aria-modal="true" aria-labelledby="nk303HubTitle" onclick="event.stopPropagation()">
                 <div id="nk303HubRoot"></div>
@@ -720,7 +750,7 @@
             <option value="servis-dizayn">Servis dizayn</option>
         </select>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda230"></script>
+    <script type="module" src="/static/js/main.js?v=idda253"></script>
 
 </body>
 </html>

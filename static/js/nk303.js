@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda49';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda57';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -19,12 +19,14 @@ import {
     exqStarFromPercent,
     exqStarTarget,
     exqStarColor,
-    exqStarLabel
-} from './model.js?v=idda10';
-import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda3';
+    exqStarLabel,
+    EXQ_DIGIT_STAGES
+} from './model.js?v=idda19';
+import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda4';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { state } from './state.js';
 import { apiFetch, canSeeDiagnostics } from './session.js?v=idda14';
+import { serviceDigitizationHtml, exqOrgStagesPanelHtml } from './service_digitization.js?v=idda15';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
@@ -467,8 +469,9 @@ function radarPairDatasets(nowVals, goalVals, nowHex, goalHex) {
             pointBackgroundColor: nowCol,
             pointBorderColor: '#fff',
             pointBorderWidth: 2,
-            pointRadius: 4,
-            pointHoverRadius: 5
+            pointRadius: 5,
+            pointHoverRadius: 8,
+            pointHitRadius: 16
         },
         {
             label: 'Hədəf olunan',
@@ -481,8 +484,9 @@ function radarPairDatasets(nowVals, goalVals, nowHex, goalHex) {
             pointBackgroundColor: goalCol,
             pointBorderColor: '#fff',
             pointBorderWidth: 2,
-            pointRadius: 4,
-            pointHoverRadius: 5
+            pointRadius: 5,
+            pointHoverRadius: 8,
+            pointHitRadius: 16
         }
     ];
 }
@@ -1063,6 +1067,7 @@ function iconSvg(name) {
         down: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8"/><path d="M8.5 12.5L12 16l3.5-3.5"/>',
         flag: '<path d="M5 21V4"/><path d="M5 4s1.2 1 4 1 4.8-2 8-2 3 .7 3 .7v9s-1.2-.7-3-.7-5 2-8 2-4-1-4-1"/>',
         search: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-3.2-3.2"/>',
+        eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
         refresh: '<path d="M21 12a9 9 0 11-3.2-6.8"/><path d="M21 4v5h-5"/>',
         download: '<path d="M12 4v11"/><path d="M8 11l4 4 4-4"/><path d="M5 19h14"/>',
         upload: '<path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M5 20h14"/>',
@@ -1255,16 +1260,7 @@ function curvedTrendSeries(trend) {
 }
 
 function hubPageHtml(view) {
-    var period = view.period || getAssessmentPeriodLabel() || 'Bütün illər';
-    return '<div class="nk303-hub-toolbar">'
-        + '<div class="nk303-hub-toolbar-main">'
-        + '<div class="nk303-hub-toolbar-title">'
-        + '<h3 id="nk303HubTitle">' + esc(view.label) + ' nəticələri</h3>'
-        + '<p class="nk303-hint">Dövr: ' + esc(period)
-        + (view.section === 'exq' || view.section === 'isq' ? ' · Qərar 380, bənd 4.14–4.18' : '')
-        + '</p>'
-        + '</div></div>'
-        + '</div>'
+    return '<h3 id="nk303HubTitle" class="sr-only">' + esc(view.label) + ' nəticələri</h3>'
         + '<div class="nk303-hub-page">' + hubBodyHtml(view) + '</div>';
 }
 
@@ -1995,7 +1991,7 @@ function teqdimatBtnHtml(key) {
         + qarg(key) + '\')" title="Jira-dakı Təqdimat faylını göstər">Təqdimat</button>';
 }
 
-var teqdimatState = { key: '', blobUrl: '', loading: false };
+var teqdimatState = { key: '', blobUrl: '', loading: false, pptxViewer: null };
 
 function isPresentationFilename(name) {
     var lower = String(name || '').toLowerCase();
@@ -2017,7 +2013,8 @@ function pickTeqdimatAttachments(rawList) {
             filename: String(a.filename || ''),
             mimeType: String(a.mimeType || ''),
             size: a.size || 0,
-            created: a.created || ''
+            created: a.created || '',
+            content: String(a.content || '')
         };
     });
     var named = all.filter(function(a) { return isTeqdimatFilename(a.filename); });
@@ -2073,6 +2070,13 @@ async function fetchIssueAttachmentList(key) {
     throw new Error(msg);
 }
 
+function destroyTeqdimatPptxViewer() {
+    if (teqdimatState.pptxViewer && typeof teqdimatState.pptxViewer.destroy === 'function') {
+        try { teqdimatState.pptxViewer.destroy(); } catch (e) {}
+    }
+    teqdimatState.pptxViewer = null;
+}
+
 function closeTeqdimatModal() {
     var overlay = document.getElementById('nk303TeqdimatOverlay');
     if (overlay) {
@@ -2080,6 +2084,7 @@ function closeTeqdimatModal() {
         overlay.hidden = true;
     }
     document.body.classList.remove('nk303-teq-open');
+    destroyTeqdimatPptxViewer();
     if (teqdimatState.blobUrl) {
         try { URL.revokeObjectURL(teqdimatState.blobUrl); } catch (e) {}
         teqdimatState.blobUrl = '';
@@ -2093,6 +2098,64 @@ function closeTeqdimatModal() {
         dl.classList.add('hidden');
         dl.removeAttribute('href');
     }
+}
+
+function findExqHubOrgRow(payload) {
+    var want = String(darg(payload || '') || '').trim();
+    if (!want) return null;
+    var view = currentHubView();
+    if (!view || view.section !== 'exq') return null;
+    var list = collapseExqHubRows(view.rows || [], true);
+    var wantFold = fold(want);
+    var i;
+    for (i = 0; i < list.length; i++) {
+        var r = list[i];
+        if (!r) continue;
+        if (r.key && r.key === want) return r;
+        if (fold(r.qurum) === wantFold) return r;
+    }
+    return null;
+}
+
+function openExqStagesPopup(payload) {
+    var row = findExqHubOrgRow(payload);
+    var overlay = document.getElementById('nk303ExqStageOverlay');
+    var body = document.getElementById('nk303ExqStageBody');
+    var titleEl = document.getElementById('nk303ExqStageTitle');
+    var metaEl = document.getElementById('nk303ExqStageMeta');
+    if (!overlay || !body) return;
+    if (!row) {
+        body.innerHTML = '<p class="svc-digit-kpi-sub">Qurum tapılmadı.</p>';
+    } else {
+        if (titleEl) titleEl.textContent = row.qurum || 'Qurum';
+        if (metaEl) {
+            var bits = [];
+            if (row.year) bits.push('İl: ' + row.year);
+            if (row.svc != null) bits.push('Xidmət: ' + row.svc);
+            if (row.score != null && isFinite(Number(row.score))) bits.push('Yekun: ' + fmt1(row.score) + '%');
+            var star = exqStarOfRow(row);
+            if (star) bits.push(exqStarLabel(star));
+            metaEl.textContent = bits.join(' · ');
+        }
+        body.innerHTML = '<div class="svc-digit">' + exqOrgStagesPanelHtml(row.exqStages || {}, {
+            title: 'Meyarlar üzrə nəticə və hədəf',
+            hint: 'Şaquli xətt hədəfi göstərir · qırmızı rəqəm hədəfdən geriliyi bildirir'
+        }) + '</div>';
+    }
+    overlay.classList.remove('hidden');
+    overlay.hidden = false;
+    document.body.classList.add('nk303-exq-stage-open');
+}
+
+function closeExqStagesPopup() {
+    var overlay = document.getElementById('nk303ExqStageOverlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.hidden = true;
+    }
+    document.body.classList.remove('nk303-exq-stage-open');
+    var body = document.getElementById('nk303ExqStageBody');
+    if (body) body.innerHTML = '';
 }
 
 function formatFileSize(n) {
@@ -2112,6 +2175,56 @@ function isPptAttachment(att) {
     var name = String((att && att.filename) || '').toLowerCase();
     var mime = String((att && att.mimeType) || '').toLowerCase();
     return /\.pptx?$|\.pptm$/i.test(name) || mime.indexOf('presentation') !== -1 || mime.indexOf('powerpoint') !== -1;
+}
+
+function isModernPptx(att) {
+    var name = String((att && att.filename) || '').toLowerCase();
+    return /\.pptx$/i.test(name) || /\.pptm$/i.test(name);
+}
+
+function pptxDownloadActionsHtml(att, dlUrl, fileUrl) {
+    return '<div class="nk303-teq-ppt-actions">'
+        + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download="' + esc(att.filename || 'teqdimat') + '">Faylı yüklə</a>'
+        + '<a class="nk303-btn nk303-btn--ghost" href="' + fileUrl + '" target="_blank" rel="noopener noreferrer">Yeni tabda aç</a>'
+        + '</div>';
+}
+
+async function renderPptxPreview(blob, body, att, dlUrl, fileUrl) {
+    destroyTeqdimatPptxViewer();
+    body.innerHTML = '<div class="nk303-teq-pptx">'
+        + '<div class="nk303-teq-pptx-bar">'
+        + '<span class="nk303-teq-pptx-bar-name">' + esc(att.filename || 'Təqdimat') + '</span>'
+        + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
+        + '</div>'
+        + '<div class="nk303-teq-pptx-stage"><div id="nk303TeqPptxHost" class="nk303-teq-pptx-host">'
+        + '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Slaydlar hazırlanır…</p></div>'
+        + '</div></div></div>';
+    var host = document.getElementById('nk303TeqPptxHost');
+    if (!host) return;
+    try {
+        var mod = await import('https://esm.sh/pptx-preview@1.0.5');
+        var initFn = mod.init || (mod.default && mod.default.init) || mod.default;
+        if (typeof initFn !== 'function') throw new Error('pptx-preview yüklənmədi');
+        host.innerHTML = '';
+        var width = Math.max(640, Math.min(host.clientWidth || 960, 1100));
+        var height = Math.max(360, Math.round(width * 0.5625));
+        var viewer = initFn(host, { width: width, height: height });
+        teqdimatState.pptxViewer = viewer;
+        var buf = await blob.arrayBuffer();
+        if (viewer && typeof viewer.preview === 'function') {
+            await viewer.preview(buf);
+        } else {
+            throw new Error('preview metodu yoxdur');
+        }
+    } catch (err) {
+        console.error(err);
+        body.innerHTML = '<div class="nk303-teq-ppt"><div class="nk303-teq-ppt-card">'
+            + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
+            + '<p class="nk303-hint">PPTX önizləmə açıla bilmədi. Faylı yükləyib PowerPoint-də açın.</p>'
+            + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
+            + '</div></div>';
+        showToast('PPTX önizləmə alınmadı — faylı yükləyin', 'info');
+    }
 }
 
 async function openTeqdimatModal(issueKey) {
@@ -2170,7 +2283,24 @@ async function showTeqdimatAttachment(key, atts, att, body, titleEl, metaEl, dl)
     }
     var fileUrl = '/api/jira/attachment/' + encodeURIComponent(att.id)
         + '?key=' + encodeURIComponent(key);
-    var fileRes = await apiFetch(fileUrl, { method: 'GET' });
+    body.innerHTML = '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Fayl yüklənir…</p></div>';
+    // POST — bir neçə köhnə Flask prosesi GET route-u bilməyə bilər; content URL də göndərilir
+    var fileRes = await apiFetch('/api/jira/attachments/file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            id: att.id,
+            key: key,
+            content: att.content || '',
+            filename: att.filename || ''
+        })
+    });
+    if (!fileRes.ok) {
+        // Köhnə serverlərdə POST yoxdursa GET-ə düş
+        if (fileRes.status === 404 || fileRes.status === 405) {
+            fileRes = await apiFetch(fileUrl, { method: 'GET' });
+        }
+    }
     if (!fileRes.ok) {
         var errData = await fileRes.json().catch(function() { return {}; });
         var errMsg = (errData && errData.error) || ('Fayl yüklənmədi (HTTP ' + fileRes.status + ')');
@@ -2191,22 +2321,22 @@ async function showTeqdimatAttachment(key, atts, att, body, titleEl, metaEl, dl)
     teqdimatState.blobUrl = URL.createObjectURL(blob);
     var dlUrl = fileUrl + (fileUrl.indexOf('?') >= 0 ? '&' : '?') + 'download=1';
     if (dl) {
-        dl.href = dlUrl;
+        dl.href = teqdimatState.blobUrl;
         dl.setAttribute('download', att.filename || 'teqdimat');
         dl.classList.remove('hidden');
     }
     if (isPdfAttachment(att)) {
         body.innerHTML = '<iframe class="nk303-teq-frame" title="' + esc(att.filename || 'Təqdimat')
             + '" src="' + teqdimatState.blobUrl + '#view=FitH"></iframe>';
+    } else if (isModernPptx(att)) {
+        await renderPptxPreview(blob, body, att, dlUrl, fileUrl);
     } else if (isPptAttachment(att)) {
         body.innerHTML = '<div class="nk303-teq-ppt">'
             + '<div class="nk303-teq-ppt-card">'
             + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
-            + '<p class="nk303-hint">PPTX brauzerdə birbaşa göstərilmir. Faylı yükləyin və ya yeni tabda açın.</p>'
-            + '<div class="nk303-teq-ppt-actions">'
-            + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download="' + esc(att.filename || 'teqdimat') + '">Faylı yüklə</a>'
-            + '<a class="nk303-btn nk303-btn--ghost" href="' + fileUrl + '" target="_blank" rel="noopener noreferrer">Yeni tabda aç</a>'
-            + '</div></div></div>';
+            + '<p class="nk303-hint">Köhnə .ppt formatı brauzerdə açılmır. Faylı yükləyib PowerPoint-də açın.</p>'
+            + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
+            + '</div></div>';
     } else {
         body.innerHTML = '<div class="nk303-teq-empty"><p>' + esc(att.filename || 'Fayl') + '</p>'
             + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download>Yüklə</a></div>';
@@ -3632,7 +3762,7 @@ function hubKpisHtml(view) {
     var cards = '';
     var kpiCls = '';
     if (view.section === 'meqsed') {
-        kpiCls = ' nk303-kpis--4';
+        kpiCls = ' nk303-kpis--4 nk303-kpis--meqsed';
         cards = kpiCardHtml({
             ic: 'is-blue', icon: 'chart', label: 'Ümumi müraciət',
             valueHtml: esc(String(st.total || 0)), subHtml: '<div class="sub">' + esc(String(st.baxilir || 0)) + ' icradadır</div>',
@@ -3660,9 +3790,11 @@ function hubKpisHtml(view) {
         cards = kpiCardHtml({
             ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə yekun nəticə',
             valueHtml: avg == null ? '—' : esc(fmt1(avg)) + ' <small>%</small>',
-            subHtml: star
+            subHtml: (star
                 ? '<div class="sub">' + esc(exqStarLabel(star)) + ' · Qərar 380, bənd 4.18</div>'
-                : '<div class="sub">xidmət sayı ilə çəkili ortalama</div>'
+                    + '<div class="nk303-kpi-stars">' + exqStarsHtml(star) + '</div>'
+                : '<div class="sub">xidmət sayı ilə çəkili ortalama</div>'),
+            onclick: hubKpiHit('has_result'), on: f === 'has_result'
         })
         + kpiCardHtml({
             ic: 'is-blue', icon: 'building', label: 'Əhatə olunan qurumlar',
@@ -3851,6 +3983,13 @@ function hubRowMatchesFilter(section, r, filter) {
         var want = Number(filter.slice(5));
         return exqStarOfRow(r) === want;
     }
+    if (filter.indexOf('exq_stage_') === 0) {
+        var sk = filter.slice('exq_stage_'.length);
+        var stages = r && r.exqStages;
+        if (!stages) return false;
+        var sv = stages[sk];
+        return sv != null && sv !== '';
+    }
     return true;
 }
 
@@ -3936,7 +4075,8 @@ function collapseExqHubRows(list, keepUnevaluated) {
                 result: r.result || '',
                 time: Number(r.time) || 0,
                 canOpen: !!r.canOpen,
-                scoredKey: ''
+                scoredKey: '',
+                exqStages: {}
             };
             order.push(k);
         }
@@ -3950,6 +4090,20 @@ function collapseExqHubRows(list, keepUnevaluated) {
                 row.key = r.key;
                 row.canOpen = !!r.canOpen;
             }
+        }
+        if (r.exqStages) {
+            Object.keys(r.exqStages).forEach(function(sk) {
+                var nv = r.exqStages[sk];
+                if (nv == null || nv === '') return;
+                var cur = row.exqStages[sk];
+                if (cur == null || cur === '') {
+                    row.exqStages[sk] = nv;
+                    return;
+                }
+                if (typeof nv === 'number' && typeof cur === 'number') {
+                    row.exqStages[sk] = Math.round(((cur + nv) / 2) * 10) / 10;
+                }
+            });
         }
         var rowStar = exqStarOfRow(r);
         if (rowStar) row.stars.push(rowStar);
@@ -4066,6 +4220,7 @@ function hubFilterLabel(key) {
     if (key === 'orgs') return ui.hub === 'exq' || ui.hub === 'isq' ? 'Əhatə olunan qurumlar' : 'Müraciət edən qurumlar';
     if (key === 'has_result') return 'Nəticəsi olan';
     if (key === 'no_result') return 'Nəticəsiz';
+    if (key === 'svc_sum') return 'Xidməti olan';
     if (key === 'done') return 'Tamamlanmış';
     if (key === 'in_progress') return 'İcradadır';
     if (key === 'review') return 'Rəydə';
@@ -4079,6 +4234,11 @@ function hubFilterLabel(key) {
     if (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[key]) return MEQSED_NOVU_LABELS[key];
     if (key === 'svc_sum') return 'Xidməti olan';
     if (key.indexOf('star_') === 0) return exqStarLabel(Number(key.slice(5))) || key;
+    if (key.indexOf('exq_stage_') === 0) {
+        var stageKey = key.slice('exq_stage_'.length);
+        var stageDef = (EXQ_DIGIT_STAGES || []).filter(function(d) { return d.key === stageKey; })[0];
+        return (stageDef && (stageDef.short || stageDef.name)) || stageKey;
+    }
     return key;
 }
 
@@ -4095,9 +4255,8 @@ function hubTableHtml(view) {
             || fold(r.status || '').indexOf(q) !== -1;
     });
     if (view.section === 'exq') {
-        var keepAll = ui.hubFilter === 'orgs'
-            || !!(ui.hubFilter && ui.hubFilter !== 'all' && ui.hubFilter !== 'svc_sum');
-        list = collapseExqHubRows(list, keepAll);
+        /* Həmişə bütün qurumlar — xidmətsizlər də siyahıda qalır */
+        list = collapseExqHubRows(list, true);
     }
     else if (ui.hubFilter === 'orgs') list = uniqueHubOrgs(list);
     list = sortHubRows(list, view.section, hubSortMode());
@@ -4106,7 +4265,7 @@ function hubTableHtml(view) {
     if (ui.hubPage < 1) ui.hubPage = 1;
     var slice = list.slice((ui.hubPage - 1) * HUB_PAGE_SIZE, ui.hubPage * HUB_PAGE_SIZE);
     var heads;
-    if (view.section === 'exq') heads = ['№', 'Qurum', 'İl', 'Xidmət', 'Yekun', 'Status'];
+    if (view.section === 'exq') heads = ['№', 'Qurum', 'İl', 'Xidmət', 'Yekun', 'Status', ''];
     else if (view.section === 'meqsed') heads = ['№', 'Qurum', 'Müraciət növü', 'Rəy', 'Tarix'];
     else if (view.section === 'isq') heads = ['№', 'Qurum', 'İl', 'Yekun', 'Status'];
     else heads = ['№', 'Qurum', 'İl', 'Bal', 'Status'];
@@ -4115,6 +4274,13 @@ function hubTableHtml(view) {
         var href = r.key ? jiraBrowseUrl(r.key) : '';
         var click = href
             ? ' class="is-click" onclick="nk303Call(\'hubOpen\',\'' + qarg(r.key) + '\')" title="Jira-da aç: ' + esc(r.key) + '"'
+            : '';
+        var eyeId = r.key || fold(r.qurum) || '';
+        var eyeBtn = (view.section === 'exq' && eyeId)
+            ? '<button type="button" class="nk303-eye-btn" title="Mərhələlər üzrə nəticə və hədəf"'
+                + ' aria-label="Mərhələlərə bax: ' + esc(r.qurum) + '"'
+                + ' onclick="event.stopPropagation(); nk303Call(\'exqStages\',\'' + qarg(eyeId) + '\')">'
+                + iconSvg('eye') + '</button>'
             : '';
         var cells = '<td class="num">' + rank + '</td>'
             + '<td class="q" title="' + esc(r.qurum) + (r.key ? ' · ' + esc(r.key) : '') + '">'
@@ -4135,7 +4301,8 @@ function hubTableHtml(view) {
                 + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score) + '%') + '</b>'
                 + (rowStar ? '<em class="nk303-star-mini">' + esc(exqStarLabel(rowStar)) + '</em>' : '')
                 + '<span class="bar"><i style="width:' + w + '%;background:' + exqBarColor(r.score) + '"></i></span></div></td>'
-                + '<td>' + esc(r.status || '—') + '</td>';
+                + '<td>' + esc(r.status || '—') + '</td>'
+                + '<td class="nk303-eye-cell">' + eyeBtn + '</td>';
         } else if (view.section === 'isq') {
             var iw = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
             var isqStar = exqStarOfRow(r);
@@ -4191,8 +4358,14 @@ function hubTableHtml(view) {
         + (slice.some(function(r) { return r.key; }) ? ' · sətirə klikləyib tapşırığı Jira-da açın' : '')
         + '</p></div>'
         + (list.length
-            ? '<div class="nk303-table-wrap"><table class="nk303-table"><thead><tr>'
-                + heads.map(function(h) { return '<th>' + esc(h) + '</th>'; }).join('')
+            ? '<div class="nk303-table-wrap"><table class="nk303-table'
+                + (view.section === 'exq' ? ' nk303-table--exq' : '')
+                + '"><thead><tr>'
+                + heads.map(function(h) {
+                    return '<th' + (!h ? ' class="nk303-eye-cell"' : '') + '>'
+                        + (h ? esc(h) : '<span class="sr-only">Mərhələlər</span>')
+                        + '</th>';
+                }).join('')
                 + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager
             : '<p class="nk303-empty">' + esc(NA) + '</p>');
 }
@@ -4232,17 +4405,11 @@ function meqsedHubExtraHtml(st) {
     st = st || {};
     var hasMonth = (st.byMonth || []).some(function(m) { return m && m.total > 0; });
     var orgs = st.topQurums || [];
-    var max = orgs.length ? (orgs[0].n || 1) : 1;
     var orgHtml = orgs.length
-        ? '<ul class="nk303-orgshare">' + orgs.map(function(row, i) {
-            var w = max ? Math.round((row.n / max) * 100) : 0;
-            return '<li><button type="button" onclick="nk303Call(\'hubSearch\',\'' + qarg(row.name || '') + '\')">'
-                + '<em>' + (i + 1) + '</em>'
-                + '<span title="' + esc(row.name) + '">' + esc(row.name) + '</span>'
-                + '<div class="trk" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
-                + '<b>' + esc(String(row.n || 0)) + '</b>'
-                + '</button></li>';
-        }).join('') + '</ul>'
+        ? '<div class="nk303-orgpie">'
+            + '<div class="nk303-orgpie-chart"><canvas id="meqsedTopOrgChart" aria-label="Ən çox müraciət edən qurumlar"></canvas></div>'
+            + '<ul class="nk303-orgpie-legend" id="meqsedTopOrgLegend" aria-label="Qurum payı"></ul>'
+            + '</div>'
         : '<p class="nk303-empty">' + esc(NA) + '</p>';
     return '<div class="nk303-mid nk303-mid--two nk303-mid--meqsed-extra">'
         + '<section class="nk303-card">'
@@ -4346,30 +4513,39 @@ function hubBodyHtml(view) {
         + 'sonra bənd 4.18 ulduz şkalasına salınır.';
     var gaugeHtml = view.section === 'meqsed'
         ? '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>'
-        : (view.section === 'exq'
-            ? hubExqGaugeHtml(avg)
-            : (view.section === 'isq'
-                ? hubExqGaugeHtml(avg, isqFormula)
-                : hubGaugeHtml(avg, isRadar)));
-    return hubKpisHtml(view)
-        + '<div class="nk303-mid' + (view.section === 'exq' ? ' nk303-mid--exq' : '') + (view.section === 'meqsed' ? ' nk303-mid--meqsed' : '') + '">'
-        + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
-        + gaugeHtml
-        + '</section>'
-        + '<section class="nk303-card nk303-card--radar' + (view.section === 'exq' ? ' nk303-card--exq-bars' : '') + '"><h3>' + esc(midRightTitle) + '</h3>'
-        + midRight
-        + '</section>'
-        + '<section class="nk303-card nk303-card--status"><h3>' + esc(statusTitle) + '</h3>'
-        + (view.section === 'meqsed'
-            ? '<p class="nk303-hint" style="margin-top:0">Yeni / mövcud və sistem / xidmət kəsimi</p>'
-                + '<div class="nk303-chart nk303-chart--trend" style="height:9.2rem"><canvas id="nkHubLife"></canvas></div>'
-            : '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>')
-        + legend
-        + (view.section === 'meqsed' ? '' : ('<div class="nk303-complete is-click" onclick="nk303Call(\'hubFilter\',\'done\')" title="Tamamlanmış qiymətləndirmələrə bax">'
-            + '<div class="nk303-complete-top"><span>Tamamlanma faizi</span><b>' + donePct + '%</b></div>'
-            + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div></div>'))
-        + '</section></div>'
+        : (view.section === 'isq'
+            ? hubExqGaugeHtml(avg, isqFormula)
+            : hubGaugeHtml(avg, isRadar));
+    var midBlock = '';
+    if (view.section !== 'exq') {
+        midBlock = '<div class="nk303-mid' + (view.section === 'meqsed' ? ' nk303-mid--meqsed' : '') + '">'
+            + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
+            + gaugeHtml
+            + '</section>'
+            + '<section class="nk303-card nk303-card--radar"><h3>' + esc(midRightTitle) + '</h3>'
+            + midRight
+            + '</section>'
+            + '<section class="nk303-card nk303-card--status"><h3>' + esc(statusTitle) + '</h3>'
+            + (view.section === 'meqsed'
+                ? '<p class="nk303-hint" style="margin-top:0">Yeni / mövcud və sistem / xidmət kəsimi</p>'
+                    + '<div class="nk303-chart nk303-chart--trend" style="height:9.2rem"><canvas id="nkHubLife"></canvas></div>'
+                : '<div class="nk303-chart nk303-chart--donut"><canvas id="nkHubDonut"></canvas></div>')
+            + legend
+            + (view.section === 'meqsed' ? '' : ('<div class="nk303-complete is-click" onclick="nk303Call(\'hubFilter\',\'done\')" title="Tamamlanmış qiymətləndirmələrə bax">'
+                + '<div class="nk303-complete-top"><span>Tamamlanma faizi</span><b>' + donePct + '%</b></div>'
+                + '<div class="nk303-mini-bar is-green"><i style="width:' + donePct + '%"></i></div></div>'))
+            + '</section></div>';
+    }
+    var digitBlock = '';
+    if (view.section === 'exq') {
+        digitBlock = '<div id="serviceDigitizationMount" class="nk303-exq-digit">'
+            + serviceDigitizationHtml(st.digitization)
+            + '</div>';
+    }
+    return (view.section === 'exq' ? '' : hubKpisHtml(view))
+        + midBlock
         + (view.section === 'meqsed' ? meqsedHubExtraHtml(st) : '')
+        + digitBlock
         + '<section class="nk303-card" id="nk303HubList">'
         + hubTableHtml(view)
         + '</section>';
@@ -4469,6 +4645,17 @@ function drawHubCharts(view) {
                         }
                     }
                 },
+                onClick: function(evt, els) {
+                    if (!els || !els.length) return;
+                    var d = dirs[els[0].index];
+                    if (!d) return;
+                    var f = d.filter || 'has_result';
+                    nk303Call('hubFilter', f);
+                },
+                onHover: function(evt, els) {
+                    var t = evt && evt.native && evt.native.target;
+                    if (t && t.style) t.style.cursor = els && els.length ? 'pointer' : 'default';
+                },
                 scales: {
                     r: {
                         min: 0, max: 100,
@@ -4485,6 +4672,8 @@ function drawHubCharts(view) {
                 }
             }
         });
+        var hubRadarEl = document.getElementById('nkHubRadar');
+        if (hubRadarEl) hubRadarEl.style.cursor = 'pointer';
         }
     }
     if (document.getElementById('nkHubDonut')) {
@@ -5406,6 +5595,12 @@ export function nk303Call(action, payload) {
         var issueKey = darg(payload || '');
         var href = jiraBrowseUrl(issueKey);
         if (href) window.open(href, '_blank', 'noopener,noreferrer');
+        return;
+    } else if (action === 'exqStages') {
+        openExqStagesPopup(payload);
+        return;
+    } else if (action === 'closeExqStages') {
+        closeExqStagesPopup();
         return;
     } else if (action === 'openTeqdimat') {
         openTeqdimatModal(darg(payload || ''));

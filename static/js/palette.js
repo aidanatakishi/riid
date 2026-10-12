@@ -33,11 +33,12 @@ export var KIND = {
     report: '#0f766e'
 };
 
+/* Solğun pastel — məqsədəuyğunluq chart/legend (STATUS-dan ayrı) */
 export var OPINION = {
-    pos: STATUS.done,
-    neg: STATUS.rejected,
-    revision: STATUS.paused,
-    baxilir: STATUS.progress
+    pos: '#8fbfa8',
+    neg: '#d4a0a6',
+    revision: '#c4b5e8',
+    baxilir: '#d4cdf0'
 };
 
 export var STAR = ['#94a3b8', '#dc2626', '#d97706', '#2563eb', '#059669'];

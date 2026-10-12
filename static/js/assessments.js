@@ -15,6 +15,8 @@ import {
     getExqServiceCount,
     getExqScore,
     getExqResult,
+    buildExqServiceDigitization,
+    getExqDigitStageMap,
     getIsqResult,
     getIsqScore,
     getIsqInfo,
@@ -47,8 +49,8 @@ import {
     belongsToDept,
     isTaskOrSubtaskType,
     isDiagOverallLabel
-} from './model.js?v=idda10';
-import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda3';
+} from './model.js?v=idda19';
+import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda4';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
 var searchState = { diag: '', isq: '', self: '', exq: '', meqsed: '' };
@@ -95,7 +97,7 @@ var CAT_COLORS = {
 };
 var MEQSED_RESULT_COLORS = {
     pos: OPINION.pos,
-    posAlt: '#34d399',
+    posAlt: '#a8d4bc',
     neg: OPINION.neg,
     revision: OPINION.revision,
     baxilir: OPINION.baxilir
@@ -543,6 +545,7 @@ function serializeHubRow(section, r, i) {
             row.star = exq.star || (row.score != null ? exqStarFromPercent(row.score) : null);
         }
         row.result = formatAssessmentFieldText(t && t.fields && t.fields.customfield_17317);
+        row.exqStages = getExqDigitStageMap(t);
     } else if (section === 'meqsed') {
         var info = getMeqsedInfo(t);
         var units = meqsedRowUnits(info);
@@ -2487,7 +2490,8 @@ function isqStarFillRadar(yekun) {
             short: s.star + '★',
             avg: avg,
             target: exqStarTarget(avg),
-            qurumN: s.possible || 0
+            qurumN: s.possible || 0,
+            filter: 'star_' + s.star
         };
     });
 }
@@ -2501,7 +2505,8 @@ function isqStarShareRadar(byStar, qurumN) {
             short: b.star + '★',
             avg: den ? Math.round((n / den) * 1000) / 10 : null,
             target: null,
-            qurumN: n
+            qurumN: n,
+            filter: 'star_' + b.star
         };
     });
 }
@@ -2769,6 +2774,11 @@ function collectExqListStats(rows) {
         if (st) stats.byStar[st] += 1;
         else stats.byStar.none += 1;
     });
+    try {
+        stats.digitization = buildExqServiceDigitization(rows, stats);
+    } catch (e) {
+        stats.digitization = null;
+    }
     return stats;
 }
 
@@ -3124,21 +3134,37 @@ function meqsedKindRowsHtml(stats) {
     }).join('') + '</div>';
 }
 
+var MEQSED_TOP_ORG_COLORS = [
+    '#b7a4e0', '#a8c4ea', '#9dcdc0', '#e8c89a',
+    '#e5b3c8', '#b0b8e8', '#a9d0e0', '#c5c9d4'
+];
+
+function meqsedOrgShortLabel(name) {
+    return String(name || '')
+        .replace(/^Azərbaycan Respublikasının\s+/i, '')
+        .replace(/^Azərbaycan Respublikası\s+/i, '')
+        .trim();
+}
+
+function meqsedTopOrgSearch(name) {
+    var q = String(name || '');
+    if (!q) return;
+    if (document.body.classList.contains('nk303-hub-open') && typeof window.nk303Call === 'function') {
+        window.nk303Call('hubSearch', q);
+        return;
+    }
+    if (typeof window.setAssessmentSearch === 'function') {
+        window.setAssessmentSearch('meqsed', q);
+    }
+}
+
 function meqsedTopQurumHtml(stats) {
     var rows = stats.topQurums || [];
     if (!rows.length) return '<p class="meqsed-ld-chart-empty">Qurum müraciəti yoxdur.</p>';
-    var max = rows[0].n || 1;
-    return '<ul class="meqsed-ov-orgs">' + rows.map(function(row) {
-        var pct = max ? Math.round((row.n / max) * 100) : 0;
-        return '<li><button type="button" class="meqsed-ov-org"'
-            + ' title="' + escapeHtml(row.name) + '"'
-            + ' onclick="event.stopPropagation(); setAssessmentSearch(\'meqsed\', \''
-            + String(row.name).replace(/\\/g, '\\\\').replace(/'/g, '\\\'') + '\')">'
-            + '<span>' + escapeHtml(row.name) + '</span>'
-            + '<div class="meqsed-ov-org-track"><i style="width:' + pct + '%"></i></div>'
-            + '<b>' + row.n + '</b>'
-            + '</button></li>';
-    }).join('') + '</ul>';
+    return '<div class="meqsed-ov-orgpie">'
+        + '<div class="meqsed-ov-orgpie-chart"><canvas id="meqsedTopOrgChart" aria-label="Ən çox müraciət edən qurumlar"></canvas></div>'
+        + '<ul class="meqsed-ov-orgpie-legend" id="meqsedTopOrgLegend" aria-label="Qurum payı"></ul>'
+        + '</div>';
 }
 
 function meqsedOverviewBodyHtml(stats) {
@@ -3207,10 +3233,116 @@ export function meqsedOverviewHtml(stats, filter) {
 
 export function drawMeqsedOverviewCharts(stats) {
     drawMeqsedMonthChart(stats);
+    drawMeqsedTopOrgChart(stats);
 }
 
 export function destroyMeqsedOverviewCharts() {
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
+    destroyAssessChart('meqsedTopOrgChart', 'meqsedTopOrgChart');
+}
+
+function fillMeqsedTopOrgLegend(rows, total) {
+    var el = document.getElementById('meqsedTopOrgLegend');
+    if (!el) return;
+    el.innerHTML = rows.map(function(row, i) {
+        var color = MEQSED_TOP_ORG_COLORS[i % MEQSED_TOP_ORG_COLORS.length];
+        var short = meqsedOrgShortLabel(row.name);
+        var pct = total ? Math.round((row.n / total) * 100) : 0;
+        return '<li><button type="button" class="meqsed-top-org-leg"'
+            + ' title="' + escapeHtml(row.name) + ' · ' + row.n + ' (' + pct + '%)"'
+            + ' data-idx="' + i + '">'
+            + '<i style="background:' + color + '" aria-hidden="true"></i>'
+            + '<span>' + escapeHtml(short || row.name) + '</span>'
+            + '<b>' + row.n + '</b>'
+            + '</button></li>';
+    }).join('');
+    el.onclick = function(evt) {
+        var btn = evt.target && evt.target.closest ? evt.target.closest('[data-idx]') : null;
+        if (!btn) return;
+        evt.preventDefault();
+        evt.stopPropagation();
+        var row = rows[Number(btn.getAttribute('data-idx'))];
+        if (row) meqsedTopOrgSearch(row.name);
+    };
+}
+
+function drawMeqsedTopOrgChart(stats) {
+    if (typeof Chart === 'undefined' || !stats) return;
+    destroyAssessChart('meqsedTopOrgChart', 'meqsedTopOrgChart');
+    var canvas = document.getElementById('meqsedTopOrgChart');
+    var rows = (stats.topQurums || []).filter(function(r) { return r && r.n > 0; });
+    if (!canvas || !rows.length) return;
+    var total = rows.reduce(function(s, r) { return s + (r.n || 0); }, 0);
+    var colors = rows.map(function(_, i) { return MEQSED_TOP_ORG_COLORS[i % MEQSED_TOP_ORG_COLORS.length]; });
+    fillMeqsedTopOrgLegend(rows, total);
+    var centerPlugin = {
+        id: 'meqsedTopOrgCenter',
+        afterDraw: function(chart) {
+            var area = chart.chartArea;
+            var c = chart.ctx;
+            var cx = area.left + area.width / 2;
+            var cy = area.top + area.height / 2;
+            c.save();
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.font = '800 18px Inter, system-ui, sans-serif';
+            c.fillStyle = '#0f172a';
+            c.fillText(String(total), cx, cy - 7);
+            c.font = '600 10px Inter, system-ui, sans-serif';
+            c.fillStyle = '#64748b';
+            c.fillText('müraciət', cx, cy + 10);
+            c.restore();
+        }
+    };
+    state.meqsedTopOrgChart = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: rows.map(function(r) { return meqsedOrgShortLabel(r.name) || r.name; }),
+            datasets: [{
+                data: rows.map(function(r) { return r.n; }),
+                backgroundColor: colors.slice(),
+                borderWidth: 3,
+                borderColor: '#fff',
+                hoverOffset: 4,
+                _orgNames: rows.map(function(r) { return r.name; })
+            }]
+        },
+        options: {
+            animation: false,
+            animations: false,
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '66%',
+            layout: { padding: 2 },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            var n = ctx.raw || 0;
+                            var pct = total ? Math.round((n / total) * 100) : 0;
+                            return ' ' + n + ' · ' + pct + '%';
+                        }
+                    }
+                }
+            },
+            onClick: function(evt, els) {
+                if (!els || !els.length) return;
+                var ds = this.data.datasets[0];
+                var name = ds && ds._orgNames ? ds._orgNames[els[0].index] : '';
+                meqsedTopOrgSearch(name);
+            },
+            onHover: function(evt, els) {
+                var target = (evt && evt.native && evt.native.target)
+                    || (evt && evt.chart && evt.chart.canvas);
+                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+            }
+        },
+        plugins: [centerPlugin]
+    });
 }
 
 var STATUS_CHART_COLORS = STATUS;
@@ -3226,6 +3358,7 @@ function destroyMeqsedOpinionCharts() {
     destroyAssessListDonut();
     destroyAssessChart('meqsedOpinionBarChart', 'meqsedOpinionBar');
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
+    destroyAssessChart('meqsedTopOrgChart', 'meqsedTopOrgChart');
     destroyAssessChart('assessScoreBandChart', 'assessScoreBandChart');
     destroyAssessChart('assessDiagRadarChart', 'assessDiagRadarChart');
     destroyAssessChart('assessIsqRadarChart', 'assessIsqRadarChart');
@@ -3792,6 +3925,7 @@ function drawMeqsedMonthChart(stats) {
 function drawMeqsedOpinionCharts(stats) {
     if (!stats) return;
     drawMeqsedMonthChart(stats);
+    drawMeqsedTopOrgChart(stats);
 }
 
 function drawDiagRadarChart(stats) {
