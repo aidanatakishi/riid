@@ -40,6 +40,7 @@ from users import (
     delete_user,
     find_user_by_id,
     first_name,
+    effective_jira_pat,
     get_shared_jira_pat,
     has_users,
     list_users,
@@ -47,6 +48,7 @@ from users import (
     normalize_team,
     public_user,
     save_user_jira_pat,
+    set_shared_jira_pat,
     unique_username,
     update_user,
     user_jira_pat,
@@ -115,15 +117,11 @@ TOKEN_MISSING = 'Jira tokeni yoxdur. Daxil olanda öz tokeninizi yazın; bir də
 def viewer_jira_pat(user=None):
     if user is None and is_logged_in():
         user = find_user_by_id(session_user_id())
-    return user_jira_pat(user)
+    return effective_jira_pat(user)
 
 
 def has_jira_token(user=None):
-    if viewer_jira_pat(user):
-        return True
-    if session.get('home_panel') == 'rehber':
-        return bool(get_shared_jira_pat())
-    return False
+    return bool(viewer_jira_pat(user))
 
 
 def remember_project_key(data):
@@ -390,11 +388,10 @@ def auth_login():
         panel = 'ops'
     if incoming:
         save_user_jira_pat(user.get('id'), incoming)
-    elif not user_jira_pat(user) and (user.get('role') == 'superadmin'):
-        shared = get_shared_jira_pat()
-        if shared:
-            save_user_jira_pat(user.get('id'), shared)
-    if panel != 'rehber' and not user_jira_pat(user):
+        # Superadmin tokeni ümumi olur — digər əməkdaşlar PAT yazmadan işləyir.
+        if user.get('role') == 'superadmin':
+            set_shared_jira_pat(incoming)
+    if panel != 'rehber' and not effective_jira_pat(user):
         return jsonify({
             'error': 'Jira tokeninizi yazın. Bir dəfə yadda qalır, növbəti girişdə lazım olmayacaq.',
             'needsToken': True
@@ -570,15 +567,18 @@ def api_own_jira_token():
     user = find_user_by_id(session_user_id())
     if request.method == 'GET':
         return jsonify({
-            'hasToken': bool(user_jira_pat(user)),
-            'hasOwnToken': bool(user_jira_pat(user))
+            'hasToken': bool(effective_jira_pat(user)),
+            'hasOwnToken': bool(user_jira_pat(user)),
+            'hasSharedToken': bool(get_shared_jira_pat()),
         }), 200
     if request.method == 'DELETE':
         save_user_jira_pat((user or {}).get('id'), '')
+        # Şəxsi token silinir; ümumi (shared) token qalır ki, panel işləməyə davam etsin.
         return jsonify({
             'ok': True,
-            'hasToken': False,
-            'hasOwnToken': False
+            'hasToken': bool(effective_jira_pat(user)),
+            'hasOwnToken': False,
+            'hasSharedToken': bool(get_shared_jira_pat()),
         }), 200
     data = request_json()
     if not isinstance(data, dict):
@@ -587,10 +587,13 @@ def api_own_jira_token():
     if not token:
         return jsonify({'error': 'Token boş ola bilməz'}), 400
     save_user_jira_pat((user or {}).get('id'), token)
+    if is_superadmin():
+        set_shared_jira_pat(token)
     return jsonify({
         'ok': True,
         'hasToken': True,
-        'hasOwnToken': True
+        'hasOwnToken': True,
+        'hasSharedToken': bool(get_shared_jira_pat()),
     }), 200
 
 
@@ -683,10 +686,7 @@ def resolve_credentials(data):
     base_url = (JIRA_BASE_URL or '').rstrip('/')
     if is_superadmin() and str(data.get('baseUrl') or '').strip():
         base_url = str(data.get('baseUrl') or '').rstrip('/')
-    pat = viewer_jira_pat()
-    if not pat and session.get('home_panel') == 'rehber':
-        pat = get_shared_jira_pat()
-    return base_url, pat
+    return base_url, viewer_jira_pat()
 
 
 @api.route('/api/config', methods=['GET'])

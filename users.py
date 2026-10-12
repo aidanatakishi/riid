@@ -191,7 +191,11 @@ def save_user_jira_pat(user_id, token):
 
 
 def effective_jira_pat(user=None):
-    return user_jira_pat(user)
+    """Personal PAT first; fall back to shared org token from secrets.json."""
+    own = user_jira_pat(user)
+    if own:
+        return own
+    return get_shared_jira_pat()
 
 
 def has_users():

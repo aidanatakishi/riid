@@ -218,6 +218,8 @@ window.onload = async function() {
     var projectKey = projectEl ? projectEl.value : '';
     if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey) && (serverCfg.hasToken || state.hasServerToken)) {
         fetchDashboardData().catch(function (err) { console.error(err); });
+    } else if (!(serverCfg.hasToken || state.hasServerToken)) {
+        showToast('Jira tokeni yoxdur. Tənzimləmələrdə və ya çıxıb yenidən daxil olanda PAT yazın — əks halda panel 0 qalır.', 'error');
     }
     try { renderAssessmentSections(); } catch (e) {}
     try { syncNk303Route(); } catch (e) {}
