@@ -38,6 +38,7 @@ from users import (
     component_matches_team,
     create_user,
     delete_user,
+    find_login_candidates,
     find_user_by_id,
     first_name,
     effective_jira_pat,
@@ -278,12 +279,16 @@ def login_rate_limited():
     ip = client_ip() or 'unknown'
     now = time.time()
     recent = [stamp for stamp in _LOGIN_HITS[ip] if now - stamp < _LOGIN_WINDOW_SEC]
-    if len(recent) >= _LOGIN_MAX_HITS:
-        _LOGIN_HITS[ip] = recent
-        return True
+    _LOGIN_HITS[ip] = recent
+    return len(recent) >= _LOGIN_MAX_HITS
+
+
+def record_login_failure():
+    ip = client_ip() or 'unknown'
+    now = time.time()
+    recent = [stamp for stamp in _LOGIN_HITS[ip] if now - stamp < _LOGIN_WINDOW_SEC]
     recent.append(now)
     _LOGIN_HITS[ip] = recent
-    return False
 
 
 def public_orgs(index):
@@ -381,6 +386,12 @@ def auth_login():
         data = {}
     user = verify_login(data.get('username'), data.get('password'))
     if not user:
+        record_login_failure()
+        hits = find_login_candidates(data.get('username'))
+        if len(hits) > 1:
+            return jsonify({
+                'error': 'Bu ad bir neçə hesaba uyğun gəlir. Tam istifadəçi adını yazın (məs: ad.soyad).'
+            }), 401
         return jsonify({'error': 'İstifadəçi adı və ya parol səhvdir'}), 401
     incoming = str(data.get('jiraPat') or data.get('pat') or data.get('token') or '').strip()
     panel = str(data.get('panel') or '').strip().lower()

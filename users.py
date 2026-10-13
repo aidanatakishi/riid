@@ -2,7 +2,9 @@ import json
 import os
 import re
 import threading
+import time
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -14,10 +16,12 @@ USERS_PATH = os.path.join(BASE_DIR, 'data', 'users.json')
 USERS_BACKUP_PATH = os.path.join(BASE_DIR, 'data', 'users.json.bak')
 ACCOUNTS_STATE_PATH = os.path.join(BASE_DIR, 'data', 'accounts.state.json')
 SECRETS_PATH = os.path.join(BASE_DIR, 'data', 'secrets.json')
+STORE_LOCK_PATH = os.path.join(BASE_DIR, 'data', 'store.lock')
 
 WEAK_PASSWORDS = frozenset(('admin123', 'user123', 'password', '123456', 'admin', 'user'))
 
-_lock = threading.Lock()
+_lock = threading.RLock()
+_lock_depth = threading.local()
 
 
 def _now():
@@ -30,6 +34,55 @@ def _empty_store():
 
 def _empty_secrets():
     return {}
+
+
+@contextmanager
+def _store_lock(timeout_sec=12):
+    """Thread + cross-process lock so parallel app.py instances cannot clobber users.json."""
+    with _lock:
+        depth = getattr(_lock_depth, 'n', 0)
+        handle = None
+        locked = False
+        if depth == 0:
+            os.makedirs(os.path.dirname(STORE_LOCK_PATH), exist_ok=True)
+            handle = open(STORE_LOCK_PATH, 'a+b')
+            deadline = time.time() + timeout_sec
+            while True:
+                try:
+                    if os.name == 'nt':
+                        import msvcrt
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+                        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locked = True
+                    break
+                except OSError:
+                    if time.time() >= deadline:
+                        handle.close()
+                        raise RuntimeError(
+                            'Hesab faylı kiliddədir — bir neçə server eyni anda işləyir ola bilər.'
+                        )
+                    time.sleep(0.05)
+        _lock_depth.n = depth + 1
+        try:
+            yield
+        finally:
+            _lock_depth.n = depth
+            if depth == 0 and handle is not None:
+                if locked:
+                    try:
+                        if os.name == 'nt':
+                            import msvcrt
+                            handle.seek(0)
+                            msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                        else:
+                            import fcntl
+                            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                    except OSError:
+                        pass
+                handle.close()
 
 
 def _read_json(path, fallback):
@@ -128,7 +181,7 @@ def _maybe_restore_users_from_backup():
 
 def ensure_users_store_integrity():
     """Keep local accounts if users.json was replaced (git pull, copy, deploy)."""
-    with _lock:
+    with _store_lock():
         store = _read_json(USERS_PATH, _empty_store)
         count = _user_count(store)
         if count > 0:
@@ -200,19 +253,20 @@ def _set_user_secret_pat(user_id, token):
     uid = str(user_id or '').strip()
     if not uid:
         return
-    secrets = load_secrets()
-    pats = dict(secrets.get('user_pats') or {})
-    value = str(token or '').strip()
-    if value:
-        pats[uid] = value
-    else:
-        pats.pop(uid, None)
-    secrets['user_pats'] = pats
-    save_secrets(secrets)
+    with _store_lock():
+        secrets = load_secrets()
+        pats = dict(secrets.get('user_pats') or {})
+        value = str(token or '').strip()
+        if value:
+            pats[uid] = value
+        else:
+            pats.pop(uid, None)
+        secrets['user_pats'] = pats
+        save_secrets(secrets)
 
 
 def migrate_secrets():
-    with _lock:
+    with _store_lock():
         store = load_store()
         secrets = load_secrets()
         store_changed = False
@@ -254,7 +308,7 @@ def get_shared_jira_pat():
 
 
 def set_shared_jira_pat(token):
-    with _lock:
+    with _store_lock():
         secrets = load_secrets()
         value = str(token or '').strip()
         if value:
@@ -280,7 +334,7 @@ def user_jira_pat(user):
 
 
 def save_user_jira_pat(user_id, token):
-    with _lock:
+    with _store_lock():
         _set_user_secret_pat(user_id, token)
     return bool(str(token or '').strip())
 
@@ -355,7 +409,7 @@ def can_manage_tech(user):
 
 
 def ensure_superadmin():
-    with _lock:
+    with _store_lock():
         store = load_store()
         users = store.get('users') or []
         if any(str(u.get('role') or '') == 'superadmin' for u in users):
@@ -369,7 +423,7 @@ def ensure_superadmin():
 
 
 def sync_display_names():
-    with _lock:
+    with _store_lock():
         store = load_store()
         changed = False
         for user in store.get('users') or []:
@@ -592,7 +646,7 @@ def create_user(username, password, display_name='', role='user', project_key='D
     team_id = normalize_team(team)
     jira_id = str(jira_account_id or '').strip()
     jira_name = str(jira_display_name or '').strip()
-    with _lock:
+    with _store_lock():
         store = load_store()
         users = store['users']
         if any(normalize_username(u.get('username')) == name for u in users):
@@ -621,7 +675,7 @@ def create_user(username, password, display_name='', role='user', project_key='D
 
 
 def update_user(user_id, **fields):
-    with _lock:
+    with _store_lock():
         store = load_store()
         users = store['users']
         target = None
@@ -684,7 +738,7 @@ def update_user(user_id, **fields):
 
 
 def delete_user(user_id, actor_id=None):
-    with _lock:
+    with _store_lock():
         store = load_store()
         users = store['users']
         target = None

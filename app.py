@@ -260,8 +260,22 @@ def serve_diaqnostika():
     return render_template('index.html')
 
 
+def _port_in_use(port):
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(0.5)
+        return sock.connect_ex(('127.0.0.1', int(port))) == 0
+    finally:
+        sock.close()
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    if _port_in_use(port):
+        print('Port %s artıq məşğuldur. Köhnə app.py prosesini bağlayın, sonra yenidən başladın.' % port)
+        print('  PowerShell: Get-NetTCPConnection -LocalPort %s | Select OwningProcess' % port)
+        raise SystemExit(1)
     if is_production():
         try:
             from waitress import serve
