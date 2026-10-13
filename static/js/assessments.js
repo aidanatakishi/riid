@@ -1713,11 +1713,16 @@ function emptyMeqsedKindSplits() {
     return o;
 }
 
+function meqsedIsIcradaStatus(r) {
+    var g = rowStatusGroup(r);
+    return g === 'progress' || g === 'esd';
+}
+
 function meqsedResultKey(r) {
     var info = getMeqsedInfo(r && r.task);
     var op = (info && info.opinionKind) || '';
     if (op === 'pos' || op === 'neg' || op === 'revision') return op;
-    if (rowStatusGroup(r) === 'progress') return 'baxilir';
+    if (meqsedIsIcradaStatus(r)) return 'baxilir';
     return '';
 }
 
@@ -1770,6 +1775,7 @@ function collectMeqsedListStats(rows) {
         xidmetUnitsRevision: 0,
         byStatus: emptyStatusCounts(),
         baxilir: 0,
+        icrada: 0,
         progressAll: 0,
         avgDays: null,
         avgDaysN: 0,
@@ -1796,6 +1802,7 @@ function collectMeqsedListStats(rows) {
         if (!Object.prototype.hasOwnProperty.call(stats.byStatus, sg)) sg = 'other';
         stats.byStatus[sg] += 1;
         if (sg === 'progress') stats.progressAll += 1;
+        if (sg === 'progress' || sg === 'esd') stats.icrada += 1;
         if (result === 'baxilir') stats.baxilir += 1;
         var qk = qurumMatchKey(r && r.qurum) || (r && r.qurum) || (r && r.task && r.task.key) || '';
         if (qk) {
@@ -2145,7 +2152,7 @@ function meqsedRowMatchesDashFilter(r, filter) {
     if (filter === 'neg') return opinion === 'neg';
     if (filter === 'partial') return opinion === 'partial';
     if (filter === 'revision') return opinion === 'revision';
-    if (filter === 'baxilir') return meqsedResultKey(r) === 'baxilir';
+    if (filter === 'baxilir') return meqsedIsIcradaStatus(r);
     if (filter === 'yeni') return !!units.isNew;
     if (filter === 'movcud') return !!units.isExist;
     if (filter === 'sistem') return !!units.isSystem;
@@ -3047,7 +3054,13 @@ function meqsedResultItems(stats) {
         { key: 'pos', label: 'Müsbət', n: stats.pos || 0, color: MEQSED_RESULT_COLORS.pos, filter: 'pos' },
         { key: 'neg', label: 'Mənfi', n: stats.neg || 0, color: MEQSED_RESULT_COLORS.neg, filter: 'neg' },
         { key: 'revision', label: 'Düzəlişə göndərilib', n: stats.other || 0, color: MEQSED_RESULT_COLORS.revision, filter: 'revision' },
-        { key: 'baxilir', label: 'İcradadır', n: stats.baxilir || 0, color: MEQSED_RESULT_COLORS.baxilir, filter: 'baxilir' }
+        {
+            key: 'baxilir',
+            label: 'İcradadır',
+            n: stats.icrada != null ? stats.icrada : (stats.baxilir || 0),
+            color: MEQSED_RESULT_COLORS.baxilir,
+            filter: 'baxilir'
+        }
     ];
 }
 
@@ -3187,7 +3200,7 @@ function meqsedOverviewBodyHtml(stats) {
     var hasMonth = (stats.byMonth || []).some(function(m) { return m && m.total > 0; });
     return '<div class="meqsed-ov">'
         + '<div class="meqsed-ov-kpis">'
-        + meqsedOvKpi('Ümumi müraciət', total, (stats.baxilir || 0) + ' icradadır', 'all')
+        + meqsedOvKpi('Ümumi müraciət', total, (stats.icrada || 0) + ' icradadır', 'all')
         + meqsedOvKpi('Müraciət edən qurum', stats.qurum || 0, qurumSub, 'orgs')
         + meqsedOvKpi('Müsbət rəy', posPct + '%', (stats.pos || 0) + ' rəy', 'pos', 'is-pos')
         + meqsedOvKpi('Mənfi rəy', negPct + '%', (stats.neg || 0) + ' rəy', 'neg', 'is-neg')

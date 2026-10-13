@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda57';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda58';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -1260,8 +1260,9 @@ function curvedTrendSeries(trend) {
 }
 
 function hubPageHtml(view) {
+    var cls = 'nk303-hub-page' + (view.section === 'meqsed' ? ' is-meqsed' : '');
     return '<h3 id="nk303HubTitle" class="sr-only">' + esc(view.label) + ' nəticələri</h3>'
-        + '<div class="nk303-hub-page">' + hubBodyHtml(view) + '</div>';
+        + '<div class="' + cls + '">' + hubBodyHtml(view) + '</div>';
 }
 
 function toggleCountryNav(nav) {
@@ -3661,7 +3662,7 @@ function meqsedOpinionItems(st) {
         { id: 'pos', label: 'Müsbət', n: st.pos || 0, color: OPINION.pos, filter: 'pos' },
         { id: 'neg', label: 'Mənfi', n: st.neg || 0, color: OPINION.neg, filter: 'neg' },
         { id: 'rev', label: 'Düzəliş', n: st.other || 0, color: OPINION.revision, filter: 'revision' },
-        { id: 'wait', label: 'İcradadır', n: st.baxilir || 0, color: OPINION.baxilir, filter: 'baxilir' }
+        { id: 'wait', label: 'İcradadır', n: st.icrada != null ? st.icrada : (st.baxilir || 0), color: OPINION.baxilir, filter: 'baxilir' }
     ];
 }
 
@@ -3765,7 +3766,8 @@ function hubKpisHtml(view) {
         kpiCls = ' nk303-kpis--4 nk303-kpis--meqsed';
         cards = kpiCardHtml({
             ic: 'is-blue', icon: 'chart', label: 'Ümumi müraciət',
-            valueHtml: esc(String(st.total || 0)), subHtml: '<div class="sub">' + esc(String(st.baxilir || 0)) + ' icradadır</div>',
+            valueHtml: esc(String(st.total || 0)),
+            subHtml: '<div class="sub">' + esc(String(st.icrada != null ? st.icrada : (st.baxilir || 0))) + ' icradadır</div>',
             onclick: hubKpiHit('all'), on: !f
         })
         + kpiCardHtml({
@@ -4148,7 +4150,10 @@ function hubRowMatchesMeqsedFilter(r, filter) {
     var kind = (r && r.novuKind) || 'other';
     var resultKey = (r && r.resultKey) || '';
     if (filter === 'pos' || filter === 'neg' || filter === 'partial' || filter === 'revision') return opinion === filter;
-    if (filter === 'baxilir') return resultKey === 'baxilir';
+    if (filter === 'baxilir') {
+        var g = (r && r.statusGroup) || '';
+        return g === 'progress' || g === 'esd';
+    }
     if (filter === 'new_system' || filter === 'exist_system' || filter === 'new_service'
         || filter === 'exist_service' || filter === 'fiziki' || filter === 'rsd'
         || filter === 'cloud' || filter === 'other') {
@@ -4430,7 +4435,204 @@ function meqsedHubExtraHtml(st) {
         + '</section></div>';
 }
 
+var MQ_COLORS = {
+    pos: '#1a9b64',
+    neg: '#e25d6c',
+    revision: '#7b68d6',
+    baxilir: '#c9c3d4',
+    org: '#0e2744'
+};
+var MQ_MONTHS = ['Yan', 'Fev', 'Mar', 'Apr', 'May', 'İyn', 'İyl', 'Avq', 'Sen', 'Okt', 'Noy', 'Dek'];
+
+function mqOfSuffix(n) {
+    var v = Math.abs(parseInt(n, 10) || 0);
+    var tens = v % 100;
+    if (v && tens === 0) return 'ü';
+    if (tens === 10 || tens === 30) return 'u';
+    if (tens === 20 || tens === 50) return 'si';
+    if (tens === 40 || tens === 60 || tens === 90) return 'ı';
+    if (tens === 70 || tens === 80) return 'i';
+    var d = v % 10;
+    if (d === 2 || d === 7) return 'si';
+    if (d === 6) return 'sı';
+    if (d === 3 || d === 4) return 'ü';
+    if (d === 9) return 'u';
+    if (!d) return 'ı';
+    return 'i';
+}
+
+function mqOpinionItems(st) {
+    st = st || {};
+    return [
+        { key: 'pos', label: 'Müsbət', n: st.pos || 0, color: MQ_COLORS.pos, filter: 'pos' },
+        { key: 'neg', label: 'Mənfi', n: st.neg || 0, color: MQ_COLORS.neg, filter: 'neg' },
+        { key: 'revision', label: 'Düzəliş', n: st.other || 0, color: MQ_COLORS.revision, filter: 'revision' },
+        { key: 'baxilir', label: 'İcradadır', n: st.icrada != null ? st.icrada : (st.baxilir || 0), color: MQ_COLORS.baxilir, filter: 'baxilir' }
+    ];
+}
+
+function mqFilterOn(key) {
+    var f = ui.hubFilter || '';
+    if (key === 'all') return !f;
+    return f === key;
+}
+
+function mqHit(key) {
+    return 'nk303Call(\'hubFilter\',\'' + key + '\')';
+}
+
+function mqHeroSentence(st) {
+    var total = st.total || 0;
+    var pos = st.pos || 0;
+    if (!total) return 'Bu dövrdə müraciət yoxdur.';
+    var icrada = st.icrada != null ? st.icrada : (st.baxilir || 0);
+    return total + ' müraciətin ' + pos + '-' + mqOfSuffix(pos)
+        + ' müsbət rəy aldı. ' + (st.qurum || 0) + ' unikal qurum müraciət edib, icradadır: '
+        + icrada + '.';
+}
+
+function mqMixHtml(items) {
+    var segs = items.filter(function(it) { return it.n > 0; });
+    if (!segs.length) return '<div class="mq-mix is-empty" aria-hidden="true"></div>';
+    return '<div class="mq-mix" role="img" aria-label="Rəyin nəticəsi">' + segs.map(function(it) {
+        var on = mqFilterOn(it.filter);
+        return '<button type="button"' + (on ? ' class="is-on"' : '')
+            + ' style="flex:' + it.n + ' 1 0;background:' + it.color + '"'
+            + ' title="' + esc(it.label) + ': ' + it.n + '"'
+            + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+            + ' onclick="' + mqHit(it.filter) + '"></button>';
+    }).join('') + '</div>';
+}
+
+function mqLegendHtml(items, total, cls, compact) {
+    return '<ul class="' + (cls || 'mq-legend') + '">' + items.map(function(it) {
+        var on = mqFilterOn(it.filter);
+        return '<li><button type="button" class="mq-leg' + (on ? ' is-on' : '') + '"'
+            + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+            + ' onclick="' + mqHit(it.filter) + '">'
+            + '<i style="background:' + it.color + '"></i>'
+            + '<span>' + esc(it.label) + '</span>'
+            + (compact ? '' : '<b>' + it.n + '</b><em>' + pct(it.n, total) + '%</em>')
+            + '</button></li>';
+    }).join('') + '</ul>';
+}
+
+function mqKpi(label, value, sub, filter, tone) {
+    var on = mqFilterOn(filter);
+    return '<button type="button" class="mq-kpi' + (tone ? ' ' + tone : '') + (on ? ' is-on' : '') + '"'
+        + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+        + ' onclick="' + mqHit(filter) + '">'
+        + '<span>' + esc(label) + '</span>'
+        + '<strong>' + esc(String(value)) + '</strong>'
+        + '<em>' + esc(sub) + '</em>'
+        + '</button>';
+}
+
+function mqKindHtml(st) {
+    var order = (MEQSED_NOVU_KINDS || []).slice();
+    if ((st.byKind && st.byKind.other) || 0) order.push('other');
+    var rows = order.map(function(kind, idx) {
+        var split = (st.byKindResult && st.byKindResult[kind]) || {};
+        var n = split.total || (st.byKind && st.byKind[kind]) || 0;
+        return { kind: kind, n: n, idx: idx };
+    }).filter(function(r) { return r.n > 0; });
+    rows.sort(function(a, b) { return (b.n - a.n) || (a.idx - b.idx); });
+    if (!rows.length) return '<p class="mq-empty">Müraciət növü yoxdur.</p>';
+    var max = rows[0].n || 1;
+    return '<div class="mq-kinds">' + rows.map(function(r) {
+        var on = mqFilterOn(r.kind);
+        var w = Math.max(1, Math.round((r.n / max) * 100));
+        return '<button type="button" class="mq-kind' + (on ? ' is-on' : '') + '"'
+            + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+            + ' onclick="' + mqHit(r.kind) + '">'
+            + '<span>' + esc((MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[r.kind]) || r.kind) + '</span>'
+            + '<div class="mq-kind-track" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
+            + '<b>' + r.n + '</b>'
+            + '</button>';
+    }).join('') + '</div>';
+}
+
+function mqOrgBlock(st) {
+    var rows = (st.topQurums || []).filter(function(r) { return r && r.n > 0; }).slice(0, 5);
+    if (!rows.length) return { note: '', html: '<p class="mq-empty">Qurum müraciəti yoxdur.</p>' };
+    var max = rows[0].n || 1;
+    var sum = rows.reduce(function(s, r) { return s + (r.n || 0); }, 0);
+    var html = '<div class="mq-orgs">' + rows.map(function(r) {
+        var w = Math.max(1, Math.round((r.n / max) * 100));
+        var raw = String(r.name || '');
+        var name = raw
+            .replace(/^Azərbaycan Respublikasının\s+/i, '')
+            .replace(/^Azərbaycan Respublikası\s+/i, '')
+            .trim() || raw;
+        return '<button type="button" class="mq-org" title="' + esc(raw) + '"'
+            + ' onclick="nk303Call(\'hubSearch\',\'' + qarg(raw) + '\')">'
+            + '<span>' + esc(name) + '</span>'
+            + '<div class="mq-org-track" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
+            + '<b>' + r.n + '</b>'
+            + '</button>';
+    }).join('') + '</div>';
+    return { note: sum + ' müraciət üzrə ilk ' + rows.length + ' qurum', html: html };
+}
+
+function mqFlowSub(view) {
+    var period = (view && view.period) || '';
+    if (period && period !== 'Bütün illər') return 'Rəy statusuna görə müraciətlərin sayı, ' + period;
+    return 'Rəy statusuna görə müraciətlərin sayı';
+}
+
+function meqsedDashHtml(view) {
+    var st = (view && view.stats) || {};
+    var total = st.total || 0;
+    var items = mqOpinionItems(st);
+    var posPct = pct(st.pos || 0, total);
+    var hasMonth = (st.byMonth || []).some(function(m) { return m && m.total > 0; });
+    var flowItems = items.filter(function(it) { return it.key !== 'baxilir' || it.n > 0; });
+    var orgs = mqOrgBlock(st);
+    return '<div class="mq-dash">'
+        + '<section class="mq-hero">'
+        + '<div class="mq-hero-top">'
+        + '<b class="mq-hero-pct' + (total ? '' : ' is-empty') + '">' + (total ? posPct + '%' : '—') + '</b>'
+        + '<p>' + esc(mqHeroSentence(st)) + '</p>'
+        + '</div>'
+        + mqMixHtml(items)
+        + mqLegendHtml(items, total)
+        + '</section>'
+        + '<div class="mq-kpis">'
+        + mqKpi('Ümumi müraciət', total, (st.icrada != null ? st.icrada : (st.baxilir || 0)) + ' icradadır', 'all', '')
+        + mqKpi('Müraciət edən qurum', st.qurum || 0, 'unikal qurum', 'orgs', '')
+        + mqKpi('Müsbət rəy', st.pos || 0, 'nəticə', 'pos', 'is-pos')
+        + mqKpi('Mənfi rəy', st.neg || 0, 'nəticə', 'neg', 'is-neg')
+        + '</div>'
+        + '<div class="mq-grid">'
+        + '<section class="mq-card">'
+        + '<h3>Müraciət növü üzrə nəticə</h3>'
+        + '<p class="mq-sub">Ümumi ' + total + ' müraciət</p>'
+        + mqKindHtml(st)
+        + '</section>'
+        + '<section class="mq-card">'
+        + '<h3>Aylıq axın</h3>'
+        + '<p class="mq-sub">' + esc(mqFlowSub(view)) + '</p>'
+        + (hasMonth
+            ? '<div class="mq-month"><canvas id="meqsedMonthChart" aria-label="Aylıq müraciət axını"></canvas></div>'
+                + mqLegendHtml(flowItems, total, 'mq-legend mq-legend--flow', true)
+            : '<p class="mq-empty">Aylıq məlumat yoxdur.</p>')
+        + '</section>'
+        + '</div>'
+        + '<section class="mq-card">'
+        + '<h3>Ən çox müraciət edən qurumlar</h3>'
+        + (orgs.note ? '<p class="mq-sub">' + esc(orgs.note) + '</p>' : '<p class="mq-sub">İlk 5 qurum</p>')
+        + orgs.html
+        + '</section>'
+        + '</div>';
+}
+
 function hubBodyHtml(view) {
+    if (view.section === 'meqsed') {
+        return meqsedDashHtml(view)
+            + '<section class="nk303-card" id="nk303HubList">'
+            + hubTableHtml(view)
+            + '</section>';
+    }
     var st = view.stats || {};
     var vis = hubVisCounts(st.byStatus);
     var total = st.qurum || 0;
@@ -4851,6 +5053,108 @@ function drawHubCharts(view) {
             }
         });
     }
+    drawMeqsedFlowChart(st);
+}
+
+function drawMeqsedFlowChart(st) {
+    if (typeof Chart === 'undefined' || !st) return;
+    var canvas = document.getElementById('meqsedMonthChart');
+    if (!canvas) return;
+    var months = st.byMonth || [];
+    var series = mqOpinionItems(st);
+    var totalsPlugin = {
+        id: 'mqFlowTotals',
+        afterDatasetsDraw: function(chart) {
+            var c = chart.ctx;
+            var sets = chart.data.datasets || [];
+            c.save();
+            c.font = '700 11px Inter, system-ui, sans-serif';
+            c.fillStyle = '#334155';
+            c.textAlign = 'center';
+            c.textBaseline = 'bottom';
+            (chart.data.labels || []).forEach(function(_, i) {
+                var sum = 0;
+                var top = null;
+                var x = null;
+                sets.forEach(function(ds, di) {
+                    var v = Number(ds.data[i]) || 0;
+                    if (!v) return;
+                    sum += v;
+                    var meta = chart.getDatasetMeta(di);
+                    var bar = meta && meta.data ? meta.data[i] : null;
+                    if (!bar) return;
+                    x = bar.x;
+                    if (top == null || bar.y < top) top = bar.y;
+                });
+                if (sum && x != null && top != null) c.fillText(String(sum), x, top - 3);
+            });
+            c.restore();
+        }
+    };
+    makeHubChart('meqsedMonthChart', {
+        type: 'bar',
+        data: {
+            labels: MQ_MONTHS,
+            datasets: series.map(function(it) {
+                return {
+                    label: it.label,
+                    data: months.map(function(m) { return (m && m[it.key]) || 0; }),
+                    backgroundColor: it.color,
+                    borderWidth: 0,
+                    borderRadius: 2,
+                    barPercentage: 0.72,
+                    categoryPercentage: 0.78,
+                    maxBarThickness: 36,
+                    _filter: it.filter
+                };
+            })
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: 18, right: 4, left: 0, bottom: 0 } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    callbacks: {
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + (ctx.raw || 0);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    grid: { display: false },
+                    ticks: { color: '#94a3b8', font: { size: 11, weight: '600' } },
+                    border: { display: false }
+                },
+                y: {
+                    stacked: true,
+                    beginAtZero: true,
+                    grace: '18%',
+                    ticks: { precision: 0, color: '#94a3b8', font: { size: 11 } },
+                    grid: { color: 'rgba(148, 163, 184, 0.22)' },
+                    border: { display: false }
+                }
+            },
+            onClick: function(evt, els) {
+                if (!els || !els.length) return;
+                var ds = this.data.datasets[els[0].datasetIndex];
+                if (ds && ds._filter) nk303Call('hubFilter', ds._filter);
+            },
+            onHover: function(evt, els) {
+                var target = (evt && evt.native && evt.native.target)
+                    || (evt && evt.chart && evt.chart.canvas);
+                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+            }
+        },
+        plugins: [totalsPlugin]
+    });
 }
 
 function renderHub(opts) {
@@ -4896,7 +5200,6 @@ function render() {
         if (ui.hub) {
             var view = currentHubView();
             drawHubCharts(view);
-            if (view.section === 'meqsed') drawMeqsedOverviewCharts(view.stats);
         } else {
             drawCharts(model);
         }
