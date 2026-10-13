@@ -31,11 +31,6 @@ Missing packages install on first start. Then open:
 
 http://127.0.0.1:5000
 
-**Başqa kompüter / həmkar:** GitHub-da yalnız kod var — hesab və Jira tokeni (`data/`) git-ə düşmür.
-
-1. **Ən asan:** paneli bir kompüterdə `run.bat` ilə işə salın; digərləri eyni Wi‑Fi/ofis şəbəkəsində brauzerdə `http://O_KOMPUTERIN_IP:5000` açsın.
-2. **Lokal quraşdırma:** işlək kompüterdə `pack-for-pc.bat` işlədin → Desktop-da `riid-data-pack` yaranır → USB ilə digər PC-yə aparın → `OXU.txt` addımları.
-
 Sign in with an existing account. On the ops panel, paste your Jira token once if asked. Do not put tokens or passwords in Git.
 
 ### Production server
