@@ -28,6 +28,7 @@ from jira_client import (
     fetch_issue_comments_batch,
     fetch_issue_attachments,
     download_jira_attachment,
+    verify_jira_pat,
 )
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
@@ -351,6 +352,7 @@ def auth_status():
     return jsonify({
         'authenticated': is_logged_in(),
         'needsSetup': not has_users(),
+        'hasSharedToken': bool(get_shared_jira_pat()),
         'homePanel': (session.get('home_panel') or 'ops') if is_logged_in() else None
     })
 
@@ -398,9 +400,15 @@ def auth_login():
     if panel != 'rehber':
         panel = 'ops'
     if incoming:
+        ok, pat_err = verify_jira_pat(JIRA_BASE_URL, incoming)
+        if not ok:
+            return jsonify({
+                'error': pat_err or 'Jira tokeni işləmir. Yeni token yaradıb yenidən yazın.',
+                'needsToken': True
+            }), 400
         save_user_jira_pat(user.get('id'), incoming)
-        # Admin tokeni ümumi olur — digər əməkdaşlar PAT yazmadan işləyir.
-        if user.get('role') in ('superadmin', 'admin'):
+        # Admin tokeni həmişə ümumi olur; digər kompüterdə ilk uğurlu token də ümumi olur.
+        if user.get('role') in ('superadmin', 'admin') or not get_shared_jira_pat():
             set_shared_jira_pat(incoming)
     if panel != 'rehber' and not effective_jira_pat(user):
         return jsonify({

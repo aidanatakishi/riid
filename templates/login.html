@@ -193,6 +193,7 @@
     }
     bindPasswordToggles();
     var selectedPanel = 'ops';
+    var hasSharedToken = false;
     var loginHintEl = document.querySelector('#loginCard .auth-hint');
     var loginHintDefault = loginHintEl ? loginHintEl.textContent : '';
     var brandSubEl = document.querySelector('.auth-sub');
@@ -203,12 +204,24 @@
     function goHome() { window.location.href = panelHome(selectedPanel); }
     function applyPanelCopy() {
         var rehber = selectedPanel === 'rehber';
-        document.getElementById('jiraPatField').classList.toggle('hidden', rehber);
+        var patField = document.getElementById('jiraPatField');
+        var patInput = document.getElementById('jiraPat');
+        patField.classList.toggle('hidden', rehber);
         document.querySelector('.auth-shell').classList.toggle('is-rehber', rehber);
+        // Bu kompüterdə ümumi token yoxdursa ops panel üçün PAT məcburidir.
+        var needPat = !rehber && !hasSharedToken;
+        if (patInput) {
+            patInput.required = needPat;
+            patInput.placeholder = needPat
+                ? 'Məcburidir — Jira Personal Access Token'
+                : 'Yalnız ilk girişdə tələb olunur';
+        }
         if (loginHintEl) {
             loginHintEl.textContent = rehber
                 ? 'İstifadəçi adı və parol ilə daxil olun.'
-                : loginHintDefault;
+                : (needPat
+                    ? 'İstifadəçi adı, parol və Jira tokeni (PAT) yazın. Token bir dəfə yadda qalır.'
+                    : loginHintDefault);
         }
         if (brandSubEl) {
             brandSubEl.textContent = rehber
@@ -275,6 +288,10 @@
     fetch('/api/auth/status', { credentials: 'same-origin' })
         .then(function(r) { return r.json(); })
         .then(function(data) {
+            if (data && typeof data.hasSharedToken === 'boolean') {
+                hasSharedToken = !!data.hasSharedToken;
+                applyPanelCopy();
+            }
             if (data && data.authenticated) {
                 alreadyAuth = true;
                 if (!chooseMode) window.location.href = panelHome(data.homePanel);
@@ -284,6 +301,12 @@
     document.getElementById('loginForm').addEventListener('submit', function(ev) {
         ev.preventDefault();
         var btn = document.getElementById('loginBtn');
+        var patVal = document.getElementById('jiraPat').value.trim();
+        if (selectedPanel !== 'rehber' && !hasSharedToken && !patVal) {
+            showError('authError', 'Jira tokeninizi yazın. Bu kompüterdə hələ ümumi token yoxdur.');
+            document.getElementById('jiraPat').focus();
+            return;
+        }
         btn.disabled = true;
         showError('authError', '');
         showOk('authOk', '');

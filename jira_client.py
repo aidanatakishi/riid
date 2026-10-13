@@ -86,6 +86,11 @@ def http_error_payload(res):
             return {'error': msg or f'Jira HTTP {res.status_code} qaytardı.'}
     except Exception:
         pass
+    if res.status_code in (401, 403):
+        return {
+            "error": "Jira tokeni səhvdir, müddəti bitib və ya icazə yoxdur. "
+                     "jira.idda.az-da yeni Personal Access Token yaradıb girişdə yazın."
+        }
     if res.status_code == 503:
         return {
             "error": "Jira müvəqqəti əlçatan deyil (503). Brauzerdə jira.idda.az açın — "
@@ -97,6 +102,32 @@ def http_error_payload(res):
     if not body:
         return {"error": f"Jira HTTP {res.status_code} qaytardı."}
     return {"error": f"HTTP {res.status_code}: {body[:300]}"}
+
+
+def verify_jira_pat(base_url, pat):
+    """Quick PAT check via /myself. Returns (ok, error_message)."""
+    base = (base_url or '').rstrip('/')
+    token = str(pat or '').strip()
+    if not base or not token:
+        return False, 'Jira tokeni lazımdır'
+    session = make_session()
+    try:
+        res = session_request(
+            session, 'GET', f'{base}/rest/api/2/myself',
+            headers=auth_headers(token),
+            verify=False,
+            timeout=min(REQUEST_TIMEOUT, 20),
+        )
+    except requests.exceptions.Timeout:
+        return False, 'Jira cavab vermir (timeout). Ofis şəbəkəsi və ya VPN yoxlayın.'
+    except requests.exceptions.ConnectionError:
+        return False, 'Jira-ya qoşulmaq mümkün olmadı. Ofis şəbəkəsi və ya VPN yoxlayın.'
+    except Exception as exc:
+        return False, 'Jira yoxlaması alınmadı: %s' % exc
+    if res.status_code == 200:
+        return True, ''
+    err = http_error_payload(res)
+    return False, (err or {}).get('error') or ('Jira HTTP %s' % res.status_code)
 
 
 def fetch_jira_data(base_url, pat, jql, fields, expand=None):
