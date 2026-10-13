@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks } from './model.js?v=idda15';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getEsdSentLetterInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, getTaskCompletedDay, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks, isMeqsedMetodikiLabelTask, hasDiagLabel, hasSelfLabel } from './model.js?v=idda23';
 
 
 let _docxLibPromise = null;
@@ -1182,10 +1182,35 @@ export async function exportTasksToWord(title) {
         return getRawPhaseEntries(t, start, end).length > 0;
     }
 
+    /** Resolve olunmayıb — seçilmiş ayda mərhələ olmasa belə son mərhələ ilə daşınır. */
+    function taskIsUnresolvedOpen(t) {
+        if (!t || !t.fields || !t.fields.status) return false;
+        if (isPausedTask(t)) return false;
+        var g = getStatusGroup(t.fields.status.name);
+        if (g === 'done' || g === 'rejected' || g === 'paused') return false;
+        if (t.fields.resolutiondate) return false;
+        return true;
+    }
+
+    function taskHasPhaseBeforePeriod(t, periodStart) {
+        if (!t || !periodStart) return false;
+        var dated = getDatedPhaseEntries(t) || [];
+        for (var i = 0; i < dated.length; i++) {
+            var d = dated[i] && dated[i].date;
+            if (!d) continue;
+            var day = startOfDay(d);
+            var startDay = startOfDay(periodStart);
+            if (day && startDay && day.getTime() < startDay.getTime()) return true;
+        }
+        return false;
+    }
+
     function taskMonthDatesInPeriod(t, start, end) {
         if (!t || !t.fields || isPausedTask(t)) return false;
         // Seçilmiş ayda mərhələ varsa, resolve olmasa belə aya daxildir.
         if (taskHasPhaseInPeriod(t, start, end)) return true;
+        // Resolve olunmayıb və ayda yeni mərhələ yoxdursa — əvvəlki son mərhələ ilə daxil et.
+        if (taskIsUnresolvedOpen(t) && taskHasPhaseBeforePeriod(t, start)) return true;
         var startD = getTaskStartDate(t);
         var dueD = getReportBitmeDate(t);
         if (!startD || !isDateInReportPeriod(startD, start, end)) return false;
@@ -1362,7 +1387,8 @@ export async function exportTasksToWord(title) {
         collected.forEach(function(e) {
             expandPhaseEntry(e).forEach(function(p) { expanded.push(p); });
         });
-        var inPeriod = uniqueMonthlyPhaseEntries(expanded).filter(function(entry) {
+        var unique = uniqueMonthlyPhaseEntries(expanded);
+        var inPeriod = unique.filter(function(entry) {
             return entry && entry.date && isDateInReportPeriod(entry.date, info.start, info.end);
         });
         inPeriod.sort(function(a, b) {
@@ -1371,7 +1397,23 @@ export async function exportTasksToWord(title) {
             if (da !== db) return da - db;
             return phaseFieldIndex(a) - phaseFieldIndex(b);
         });
-        return inPeriod;
+        if (inPeriod.length) return inPeriod;
+        // Resolve olunmayıb, ayda mərhələ yoxdur → əvvəlki ən son mərhələ (öncəki ay hesabatı kimi).
+        if (!taskIsUnresolvedOpen(t)) return [];
+        var previous = unique.filter(function(entry) {
+            if (!entry || !entry.date) return false;
+            var day = startOfDay(entry.date);
+            var startDay = startOfDay(info.start);
+            return !!(day && startDay && day.getTime() < startDay.getTime());
+        });
+        previous.sort(function(a, b) {
+            var da = a.date ? a.date.getTime() : 0;
+            var db = b.date ? b.date.getTime() : 0;
+            if (da !== db) return da - db;
+            return phaseFieldIndex(a) - phaseFieldIndex(b);
+        });
+        if (!previous.length) return [];
+        return [previous[previous.length - 1]];
     }
 
     function isSkippedMonthlyTask(t) {
@@ -1888,6 +1930,249 @@ export async function exportTasksToWord(title) {
         return items;
     }
 
+    function isDiagReportPrepSubtask(t) {
+        var s = normalizeStr(taskSummary(t));
+        if (!s || s.indexOf('hesabat') === -1) return false;
+        return s.indexOf('hazırla') !== -1 || s.indexOf('hazirla') !== -1;
+    }
+
+    function diagChildIssues(parent) {
+        return collectChildIssues(parent).filter(function(child) {
+            return child && !isSkippedMonthlyTask(child);
+        });
+    }
+
+    function issueHasPhaseInPeriod(t, info) {
+        return !!(t && info && issueMonthPhaseEntries(t, info).length);
+    }
+
+    function diagSubtaskBitmeDate(t) {
+        return getReportBitmeDate(t) || getTaskCompletedDay(t) || null;
+    }
+
+    function diagSubtaskInPeriod(child, info) {
+        if (!child || !info) return false;
+        if (isDiagReportPrepSubtask(child)) return issueHasPhaseInPeriod(child, info);
+        var bitme = diagSubtaskBitmeDate(child);
+        return !!(bitme && isDateInReportPeriod(bitme, info.start, info.end));
+    }
+
+    function diagParentHasPeriodActivity(parent, info) {
+        return diagChildIssues(parent).some(function(child) {
+            return diagSubtaskInPeriod(child, info);
+        });
+    }
+
+    /** Jira alt-tapşırıq adından qurum/abbrev/diaqnostika prefiksini təmizlə. */
+    function cleanDiagActivityTitle(raw, org) {
+        var name = cleanReportProse(raw);
+        if (!name) return '';
+        name = stripAbbrevPrefix(name, org || '');
+        name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}(?:-da|-də|-nda|-ndə)?\s+diaqnostika\s*[-–:]\s*/i, '');
+        name = name.replace(/^diaqnostika\s*[-–:]\s*/i, '');
+        name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}(?:-da|-də|-nda|-ndə)\s+/i, '');
+        name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}\s+(?=[A-ZÇƏĞIİÖŞÜƏ])/i, '');
+        name = cleanReportProse(name);
+        name = name.replace(/\bgörüşü\s*$/i, 'görüş');
+        return name;
+    }
+
+    function formatDiagBitmeNameLine(child, org) {
+        var activity = cleanDiagActivityTitle(taskSummary(child), org);
+        if (!activity) return '';
+        var bitme = diagSubtaskBitmeDate(child);
+        var core = activity;
+        if (!/(ilmiş|ılmış|ülmüş|ulmuş|miş|mış|müş|muş|dir|dır|dur|dür)$/i.test(stripEndPunct(core))) {
+            core = stripEndPunct(core) + ' keçirilmişdir';
+        }
+        var body;
+        if (bitme) {
+            var ds = pad2(bitme.getDate()) + '.' + pad2(bitme.getMonth() + 1) + '.' + bitme.getFullYear();
+            body = ds + ' tarixində qurumda ' + core;
+        } else {
+            body = 'Qurumda ' + lowercaseFirst(core);
+        }
+        return finishOfficialSentence(body);
+    }
+
+    function formatDiagPrepPhaseLines(child, info) {
+        return (issueMonthPhaseEntries(child, info) || []).map(function(entry) {
+            return finishOfficialSentence(formatEntryLine(entry));
+        }).filter(Boolean);
+    }
+
+    function diagOrgBodyFromSubtasks(parent, info) {
+        var org = registryOrgName(resolvePhaseQurum(parent));
+        var parts = [];
+        var kids = diagChildIssues(parent).slice().sort(function(a, b) {
+            var da = diagSubtaskBitmeDate(a);
+            var db = diagSubtaskBitmeDate(b);
+            var ta = da ? da.getTime() : 0;
+            var tb = db ? db.getTime() : 0;
+            if (ta !== tb) return ta - tb;
+            return taskSummary(a).localeCompare(taskSummary(b), 'az');
+        });
+        kids.forEach(function(child) {
+            if (!diagSubtaskInPeriod(child, info)) return;
+            if (isDiagReportPrepSubtask(child)) {
+                formatDiagPrepPhaseLines(child, info).forEach(function(line) {
+                    if (line) parts.push(line);
+                });
+            } else {
+                var line = formatDiagBitmeNameLine(child, org);
+                if (line) parts.push(line);
+            }
+        });
+        return joinCompleteSentences(parts);
+    }
+
+    function splitDiagChildren(parent) {
+        var kids = diagChildIssues(parent);
+        var reportPrep = [];
+        var others = [];
+        kids.forEach(function(child) {
+            if (isDiagReportPrepSubtask(child)) reportPrep.push(child);
+            else others.push(child);
+        });
+        return { kids: kids, reportPrep: reportPrep, others: others };
+    }
+
+    function isIssueDone(t) {
+        if (!t || !t.fields || !t.fields.status) return false;
+        return getStatusGroup(t.fields.status.name) === 'done';
+    }
+
+    function completedBeforePeriod(t, info) {
+        if (!isIssueDone(t) || !info) return false;
+        var day = getTaskCompletedDay(t);
+        if (!day) return true;
+        return day.getTime() < info.start.getTime();
+    }
+
+    /** Yerində baxışlar keçən ay bitib, bu ay fəaliyyət yoxdur, hesabat hələ hazırlanır. */
+    function isDiagIdlePendingReport(parent, info) {
+        if (!parent || !info) return false;
+        var parts = splitDiagChildren(parent);
+        if (!parts.others.length || !parts.reportPrep.length) return false;
+        if (!parts.reportPrep.some(function(c) { return !isIssueDone(c); })) return false;
+        if (!parts.others.every(function(c) { return isIssueDone(c); })) return false;
+        if (!parts.others.every(function(c) { return completedBeforePeriod(c, info); })) return false;
+        if (diagParentHasPeriodActivity(parent, info)) return false;
+        return true;
+    }
+
+    /** «Hesabatın hazırlanması» seçilmiş ayda Done → ESD ilə göndərilən final. */
+    function isDiagFinalInPeriod(parent, info) {
+        if (!parent || !info) return false;
+        var parts = splitDiagChildren(parent);
+        if (parts.reportPrep.some(function(c) {
+            return isIssueDone(c) && wasCompletedInReportPeriod(c, info.start, info.end);
+        })) return true;
+        if (!parts.reportPrep.some(isIssueDone)) return false;
+        var letter = getEsdSentLetterInfo(parent);
+        if (!letter || !letter.date) return false;
+        var letterDay = parsePhaseDate(letter.date);
+        return !!(letterDay && isDateInReportPeriod(letterDay, info.start, info.end));
+    }
+
+    function diagIdleLine(org) {
+        var loc = org ? toLocativeAz(org) : '';
+        var head = loc
+            ? (loc + ' aparılan diaqnostika prosesi çərçivəsində yerində baxışlar tamamlanmış, sorğulanmış məlumatlar təhlil edilmişdir.')
+            : 'Aparılan diaqnostika prosesi çərçivəsində yerində baxışlar tamamlanmış, sorğulanmış məlumatlar təhlil edilmişdir.';
+        return head + ' Yerində baxış və təqdim edilmiş məlumatlar əsasında hesabat hazırlanma mərhələsindədir.';
+    }
+
+    function diagFinalLine(org, parent) {
+        var loc = org ? toLocativeAz(org) : '';
+        var letter = getEsdSentLetterInfo(parent) || {};
+        var number = String(letter.number || '').trim();
+        var date = String(letter.date || '').trim();
+        var head = loc
+            ? (loc + ' aparılan diaqnostika prosesi çərçivəsində Qurumdan daxil olan sənədlər təhlil edilmiş, qiymətləndirmələr aparılmışdır.')
+            : 'Aparılan diaqnostika prosesi çərçivəsində Qurumdan daxil olan sənədlər təhlil edilmiş, qiymətləndirmələr aparılmışdır.';
+        var tail = ' Diaqnostika nəticələrini əks etdirən ümumi hesabat';
+        if (date && number) {
+            tail += ' ' + date + ' tarixli, ' + number + ' nömrəli məktubla quruma təqdim edilmişdir';
+        } else if (number) {
+            tail += ' quruma təqdim edilməsi üçün sistemə əlavə edilmişdir (' + number + ')';
+        } else if (date) {
+            tail += ' ' + date + ' tarixində quruma təqdim edilmişdir';
+        } else if (letter.raw) {
+            tail += ' quruma təqdim edilmişdir (' + String(letter.raw).trim() + ')';
+        } else {
+            tail += ' quruma təqdim edilməsi üçün sistemə əlavə edilmişdir';
+        }
+        return (head + tail).replace(/\s+/g, ' ').trim();
+    }
+
+    /** Yalnız label=diaqnostika olan əsas tapşırıqlar (Self deyil). */
+    function collectDiagLabeledParents() {
+        var out = [];
+        var seen = {};
+        (state.allTasks || []).forEach(function(t) {
+            if (!t || !t.key || seen[t.key] || isPausedTask(t)) return;
+            if (isSubtaskType(t)) return;
+            if (!hasDiagLabel(t)) return;
+            if (hasSelfLabel(t)) return;
+            if (!matchesReportSideFilters(t)) return;
+            seen[t.key] = true;
+            out.push(t);
+        });
+        return out;
+    }
+
+    function isDiagLabeledReportParent(t) {
+        if (!t || isPausedTask(t) || hasSelfLabel(t)) return false;
+        return hasDiagLabel(t);
+    }
+
+    function collectDiagSpecialParents(info) {
+        var out = [];
+        collectDiagLabeledParents().forEach(function(t) {
+            if (!isDiagIdlePendingReport(t, info) && !isDiagFinalInPeriod(t, info)) return;
+            out.push(t);
+        });
+        return out;
+    }
+
+    function resolveDiagParentTask(t) {
+        if (!t) return null;
+        if (isSubtaskType(t)) return getParentIssue(t) || t;
+        return t;
+    }
+
+    function buildDiagWorkItems(info) {
+        var items = [];
+        var seen = {};
+        var parents = [];
+        function addParent(t) {
+            if (!t || !t.key || seen[t.key] || !isDiagLabeledReportParent(t)) return;
+            seen[t.key] = true;
+            parents.push(t);
+        }
+        collectDiagLabeledParents().forEach(addParent);
+        collectDiagSpecialParents(info).forEach(addParent);
+
+        parents.forEach(function(parent) {
+            var org = registryOrgName(resolvePhaseQurum(parent));
+            if (isDiagFinalInPeriod(parent, info)) {
+                items.push(diagFinalLine(org, parent));
+                return;
+            }
+            if (isDiagIdlePendingReport(parent, info)) {
+                items.push(diagIdleLine(org));
+                return;
+            }
+            var body = diagOrgBodyFromSubtasks(parent, info);
+            if (!body) return;
+            // Qurum adı ayrı başlıq; fəaliyyət cümlələri «qurumda … keçirilmişdir» formatında.
+            if (org) items.push(org + ':');
+            items.push(body);
+        });
+        return items;
+    }
+
     function taskProseBullets(units) {
         var items = [];
         (units || []).forEach(function(row) {
@@ -1947,6 +2232,7 @@ export async function exportTasksToWord(title) {
     }
 
     function isMetodikiTask(t) {
+        if (isMeqsedMetodikiLabelTask(t)) return true;
         var s = normalizeStr(taskSummary(t));
         return s.indexOf('metodiki') !== -1 || s.indexOf('metodoloji') !== -1 || s.indexOf('şablon') !== -1 || s.indexOf('sablon') !== -1;
     }
@@ -1984,17 +2270,39 @@ export async function exportTasksToWord(title) {
             || s.indexOf('sistem') !== -1;
     }
 
+    function phaseTextBlob(t) {
+        if (!t || !t.fields) return '';
+        var parts = [];
+        PHASE_FIELDS.forEach(function(pf) {
+            var text = getPhaseFieldText(t, pf.text);
+            if (text) parts.push(text);
+        });
+        return normalizeStr(parts.join(' '));
+    }
+
+    function hasReyestrRegistrationPhase(t) {
+        var blob = phaseTextBlob(t);
+        if (!blob) return false;
+        // Mərhələdə qeydiyyatın tamamlandığını göstərən ifadələr
+        if (blob.indexOf('sistem qeydiyyata alınmışdır') !== -1) return true;
+        if (blob.indexOf('sistem qeydiyyata alinmisdir') !== -1) return true;
+        if (blob.indexOf('qeydiyyata alınmışdır') !== -1) return true;
+        if (blob.indexOf('qeydiyyata alinmisdir') !== -1) return true;
+        if (blob.indexOf('təsdiq edilmişdir') !== -1) return true;
+        if (blob.indexOf('tesdiq edilmisdir') !== -1) return true;
+        return false;
+    }
+
     function wasRegisteredInMonth(t, info) {
         if (!t || !info || isPausedTask(t) || isReyestrSupportTask(t)) return false;
         var statusName = t.fields && t.fields.status ? t.fields.status.name : '';
-        var g = getStatusGroup(statusName);
-        if (g === 'rejected' || g === 'paused') return false;
+        if (getStatusGroup(statusName) !== 'done') return false;
+        if (!hasReyestrRegistrationPhase(t)) return false;
         var dueD = getReportBitmeDate(t);
         var resolved = fieldDay(t, 'resolutiondate');
         var dueIn = !!(dueD && isDateInReportPeriod(dueD, info.start, info.end));
         var resIn = !!(resolved && isDateInReportPeriod(resolved, info.start, info.end));
-        if (g === 'done' && (dueIn || resIn)) return true;
-        return false;
+        return !!(dueIn || resIn);
     }
 
     function cleanSystemName(raw) {
@@ -2103,14 +2411,118 @@ export async function exportTasksToWord(title) {
 
     var TAHLIL_INTRO = 'Aşağıdakı müraciətlər isə Elektron Sənəd Dövriyyəsi sistemi vasitəsilə rəsmi daxil olmuşdur və təhlil mərhələsindədir:';
     var METODIKI_INTRO = 'Eyni zamanda, aşağıdakı qurumlara məqsədəuyğunluq rəyinin verilməsi ilə bağlı işçi qaydada görüşlər və məlumat mübadilələri keçirilmiş və müvafiq metodiki dəstək göstərilmişdir:';
-    var OZUNU_STATUS = 'Cari il ərzində Reyestr vasitəsilə ilkin diaqnostika (özünüqiymətləndirmə) aparılması nəzərdə tutulan 44 dövlət qurumuna müvafiq sorğu anketləri Reyestr üzərindən göndərilmişdir. Sorğularla bağlı statuslar aşağıdakı kimidir:';
-    var OZUNU_STATUS_ITEMS = [
-        '3 qurum tərəfindən sorğuların cavablandırılması və təsdiqedici sənədlərin əlavə edilməsi prosesi üçün ayrılmış vaxt yekunlaşmış lakin qurumlar tərəfindən müvafiq məlumatlar sistemə əlavə edilməmişdir',
-        '27 qurum tərəfindən tamamlanmış sorğular yoxlanılma mərhələsindədir',
-        '14 qurum tərəfindən tamamlanmış sorğuların yoxlanılma prosesi başa çatmışdır'
-    ];
+    var OZUNU_TOTAL = 44;
+    var OZUNU_STATUS = 'Cari il ərzində Reyestr vasitəsilə ilkin diaqnostika (özünüqiymətləndirmə) aparılması nəzərdə tutulan '
+        + OZUNU_TOTAL
+        + ' dövlət qurumuna müvafiq sorğu anketləri Reyestr üzərindən göndərilmişdir. Sorğularla bağlı statuslar aşağıdakı kimidir:';
+
+    function selfTaskLastPhaseText(t) {
+        var last = lastPhaseEntry(t);
+        if (last && last.text) return String(last.text).trim();
+        var best = null;
+        collectChildIssues(t).forEach(function(child) {
+            if (!child) return;
+            var e = lastPhaseEntry(child);
+            if (!e || !e.text) return;
+            if (!best) {
+                best = e;
+                return;
+            }
+            var bt = best.date ? best.date.getTime() : 0;
+            var nt = e.date ? e.date.getTime() : 0;
+            if (nt > bt || (nt === bt && phaseFieldIndex(e) > phaseFieldIndex(best))) best = e;
+        });
+        return best && best.text ? String(best.text).trim() : '';
+    }
+
+    function classifyOzunuPhase(text) {
+        var n = normalizeStr(text || '');
+        if (!n) return '';
+        // y: tamamlanmış yoxlama / təqdimat hazırdır
+        var hasChecked = n.indexOf('məlumatlar yoxlanılmış') !== -1 || n.indexOf('melumatlar yoxlanilmis') !== -1
+            || n.indexOf('məlumatlar yoxlanilib') !== -1;
+        var hasLevel = n.indexOf('ilkin səviyyə') !== -1 || n.indexOf('ilkin seviyyə') !== -1
+            || n.indexOf('ilkin seviyy') !== -1;
+        var hasPresentation = n.indexOf('təqdimat hazırlanmış') !== -1 || n.indexOf('teqdimat hazirlanmis') !== -1;
+        var hasFinalWait = n.indexOf('yekun təsdiq') !== -1 || n.indexOf('yekun tesdiq') !== -1;
+        if ((hasChecked && (hasLevel || hasPresentation) && hasFinalWait)
+            || (hasPresentation && hasFinalWait && hasLevel)) {
+            return 'y';
+        }
+        // x: yoxlanılma mərhələsində
+        if (n.indexOf('yoxlanılma mərhələsində') !== -1
+            || n.indexOf('yoxlanilma merhelesinde') !== -1
+            || n.indexOf('yoxlanılma prosesində') !== -1) {
+            return 'x';
+        }
+        return '';
+    }
+
+    function buildOzunuStatusItems() {
+        var x = 0;
+        var y = 0;
+        var seen = {};
+        (state.allTasks || []).forEach(function(t) {
+            if (!t || !t.key || isPausedTask(t)) return;
+            if (isSubtaskType(t)) return;
+            if (!hasSelfLabel(t)) return;
+            var org = registryOrgName(getQurumName(t) || resolvePhaseQurum(t) || '');
+            var key = qurumMatchKey(org) || t.key;
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            var kind = classifyOzunuPhase(selfTaskLastPhaseText(t));
+            if (kind === 'x') x += 1;
+            else if (kind === 'y') y += 1;
+        });
+        var z = Math.max(0, OZUNU_TOTAL - (x + y));
+        return [
+            z + ' qurum tərəfindən sorğuların cavablandırılması və təsdiqedici sənədlərin əlavə edilməsi prosesi üçün ayrılmış vaxt yekunlaşmış lakin qurumlar tərəfindən müvafiq məlumatlar sistemə əlavə edilməmişdir',
+            x + ' qurum tərəfindən tamamlanmış sorğular yoxlanılma mərhələsindədir',
+            y + ' qurum tərəfindən tamamlanmış sorğuların yoxlanılma prosesi başa çatmışdır'
+        ];
+    }
     var MEQSED_REYESTR_PROCESS = 'Bununla yanaşı, Məqsədəuyğunluq rəyi ilə bağlı proseslərin Vahid Reyestr vasitəsilə təşkili və təkmilləşdirilməsi məqsədilə aidiyyəti struktur bölmələrin iştirakı ilə görüşlər keçirilmiş, istifadəçi interfeysi ilə bağlı tələblər və növbəti addımlar müzakirə edilmişdir. Bölmə üzrə müəyyən edilmiş xəta və boşluqlar (bugs) aradan qaldırılmış və növbəti mərhələdə istifadəyə verilməsi nəzərdə tutulmuşdur.';
-    var REYESTR_TOTAL_FALLBACK = 96;
+    // Avqust 2026 sonuna qədər məlum kumulativ say. Sonrakı aylar hesabatın
+    // «qeydiyyata alınmış sistemlər» siyahısından əlavə olunub toplanır.
+    var REYESTR_BASELINE = { year: 2026, month: 7, total: 92 };
+
+    function buildReyestrCumulativeRangeInfo(info) {
+        if (!info || !info.end) return null;
+        var baseEnd = new Date(REYESTR_BASELINE.year, REYESTR_BASELINE.month + 1, 0);
+        baseEnd.setHours(0, 0, 0, 0);
+        if (info.end <= baseEnd) return null;
+        var start = new Date(baseEnd.getTime());
+        start.setDate(start.getDate() + 1);
+        start.setHours(0, 0, 0, 0);
+        var months = listCoveredMonths(start, info.end);
+        if (!months.length) return null;
+        return {
+            year: months[0].year,
+            endYear: months[months.length - 1].year,
+            month: months[0].month,
+            start: start,
+            end: info.end,
+            months: months,
+            monthCount: months.length
+        };
+    }
+
+    function computeReyestrCumulativeTotal(dirTasks, info) {
+        var item = info && info.months && info.months.length ? info.months[info.months.length - 1] : null;
+        var year = item && item.year ? item.year : (info && info.endYear) || (info && info.year);
+        var month = item && item.month != null ? item.month : (info && info.month);
+        if (year == null || month == null) return REYESTR_BASELINE.total;
+        if (year < REYESTR_BASELINE.year || (year === REYESTR_BASELINE.year && month < REYESTR_BASELINE.month)) {
+            return REYESTR_BASELINE.total;
+        }
+        if (year === REYESTR_BASELINE.year && month === REYESTR_BASELINE.month) {
+            return REYESTR_BASELINE.total;
+        }
+        var cumInfo = buildReyestrCumulativeRangeInfo(info);
+        if (!cumInfo) return REYESTR_BASELINE.total;
+        var added = collectRegisteredSystems(dirTasks || [], cumInfo).length;
+        return REYESTR_BASELINE.total + added;
+    }
     var TEDBIR_BULLETS = [
         '“Məqsədəuyğunluq” bölməsi üzrə müəyyən edilmiş xəta və boşluqlar (“bugs”) aradan qaldırılmış və bölmənin Vizalanma mexaniziminə dair ümumi prosesi yenidən dəyərləndirilərək proqramlaşdırma komandasına təqdim edilmişdir. Müvafiq fəaliyyət yekunlaşdıqddan sonra mümkün qısa zaman ərzində modul istismara buraxılacaqdır',
         'Reyestrin ictimaiyyətə açıq bölməsi (https://digitalregister.idda.az/) istifadəyə verilmiş və 122 dövlət qurumunun 1115 elektron xidməti barədə məlumatlara əlçatanlıq təmin edilmişdir. Bölmənin təkmilləşdirilməsi üzrə texniki komanda ilə birgə işlər davam etdirilir. Növbəti mərhələdə informasiya ehtiyat və sistemlərinə dair hisə ictimaiyyətə açıqlanacaqdır'
@@ -2159,15 +2571,32 @@ export async function exportTasksToWord(title) {
         return sistem;
     }
 
+    function inferLetterKindFromNumber(number) {
+        var n = String(number || '').trim();
+        if (/^3-46\b/.test(n)) return 'incoming';
+        if (/^3-27\b/.test(n)) return 'outgoing';
+        return '';
+    }
+
     function extractLetterMeta(group) {
         var number = '';
         var date = '';
         var project = '';
+        var kind = '';
         (group.tasks || []).forEach(function(t) {
-            if (!t || (number && date)) return;
+            if (!t) return;
             var info = getMeqsedInfo(t);
-            if (!number && info && info.cavabMektubNomresi) number = String(info.cavabMektubNomresi).trim();
-            if (!date && info && info.cavabMektubTarixi) date = String(info.cavabMektubTarixi).trim();
+            if (!info) return;
+            if (!kind && info.letterKind) kind = info.letterKind;
+            if (info.letterKind === 'outgoing' || info.cavabMektubNomresi || info.cavabMektubTarixi) {
+                if (!number && info.cavabMektubNomresi) number = String(info.cavabMektubNomresi).trim();
+                if (!date && info.cavabMektubTarixi) date = String(info.cavabMektubTarixi).trim();
+                if (!kind) kind = 'outgoing';
+            } else if (info.letterKind === 'incoming' || info.daxilMektubNomresi || info.daxilMektubTarixi) {
+                if (!number && info.daxilMektubNomresi) number = String(info.daxilMektubNomresi).trim();
+                if (!date && info.daxilMektubTarixi) date = String(info.daxilMektubTarixi).trim();
+                if (!kind) kind = 'incoming';
+            }
         });
 
         var blob = (group.lines || []).join(' ');
@@ -2185,6 +2614,8 @@ export async function exportTasksToWord(title) {
             });
             var info = getMeqsedInfo(t);
             if (info) {
+                if (info.daxilMektubNomresi) blob += ' ' + info.daxilMektubNomresi;
+                if (info.daxilMektubTarixi) blob += ' ' + info.daxilMektubTarixi;
                 if (info.cavabMektubNomresi) blob += ' ' + info.cavabMektubNomresi;
                 if (info.cavabMektubTarixi) blob += ' ' + info.cavabMektubTarixi;
             }
@@ -2221,7 +2652,8 @@ export async function exportTasksToWord(title) {
                 date = ('0' + last.date.getDate()).slice(-2) + '.' + ('0' + (last.date.getMonth() + 1)).slice(-2) + '.' + last.date.getFullYear();
             }
         }
-        return { date: date, number: number, project: project };
+        if (!kind) kind = inferLetterKindFromNumber(number) || (number || date ? 'outgoing' : '');
+        return { date: date, number: number, project: project, kind: kind };
     }
 
     function meqsedOrg(group) {
@@ -2248,10 +2680,31 @@ export async function exportTasksToWord(title) {
         return names;
     }
 
+    function meqsedLetterDateMarked(dateStr) {
+        var d = String(dateStr || '').trim();
+        if (!d) return '';
+        if (/-c[ıiuü]\s+il\b/i.test(d)) return d;
+        var m = d.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+        if (m) {
+            var dd = ('0' + parseInt(m[1], 10)).slice(-2);
+            var mm = ('0' + parseInt(m[2], 10)).slice(-2);
+            return dd + '.' + mm + '.' + azYearMark(parseInt(m[3], 10)) + ' il';
+        }
+        return d;
+    }
+
     function meqsedLetterTail(group) {
         var meta = extractLetterMeta(group);
+        var dateMarked = meqsedLetterDateMarked(meta.date);
+        if (meta.kind === 'incoming') {
+            var inTail = 'məqsədəuyğunluq rəyi ilə bağlı';
+            if (dateMarked) inTail += ' ' + dateMarked + ' tarixində';
+            if (meta.number) inTail += (dateMarked ? ',' : '') + ' ' + meta.number + ' nömrəli';
+            inTail += ' məktub daxil olmuşdur';
+            return inTail.replace(/\s+/g, ' ').trim();
+        }
         var tail = 'məqsədəuyğunluq rəyi';
-        if (meta.date) tail += ' ' + meta.date + ' tarixli';
+        if (dateMarked) tail += ' ' + dateMarked + ' tarixli';
         if (meta.number) tail += ', ' + meta.number + ' nömrəli';
         tail += ' məktubla quruma təqdim edilmişdir';
         return tail;
@@ -2485,7 +2938,8 @@ export async function exportTasksToWord(title) {
             var month = item && item.month != null ? item.month : 0;
             var monthName = AZ_MONTHS_LOWER[month] || '';
             var lastDay = new Date(year, month + 1, 0).getDate();
-            return azYearMark(year) + ' ilin ' + lastDay + ' ' + monthName + ' tarixinədək ümumilikdə Reyestrdə ' + REYESTR_TOTAL_FALLBACK + ' sistem qeydiyyata alınmışdır.';
+            var total = computeReyestrCumulativeTotal(reyestrTasks, info);
+            return azYearMark(year) + ' ilin ' + lastDay + ' ' + monthName + ' tarixinədək ümumilikdə Reyestrdə ' + total + ' sistem qeydiyyata alınmışdır.';
         }
         if (systems.length || kind === 'month') {
             if (systems.length) pushSection('reyestr', monthlyIntroForCanon('reyestr', periodPhrase), systems);
@@ -2553,11 +3007,12 @@ export async function exportTasksToWord(title) {
                 return officialItemText(g, byQurumOnly ? 'qurum' : 'item');
             });
         }
-        var diagUnits = unitsByCanon.diag || [];
-        var diagWork = orgProseBullets(diagUnits);
+        // Bölmə yalnız Jira «diaqnostika» label-i ilə.
+        // Adi alt tapşırıq: «tarixində qurumda … keçirilmişdir»; «Hesabatın hazırlanması»: ayın mərhələləri.
+        var diagWork = buildDiagWorkItems(info);
         var diagItems = diagWork.slice();
         diagItems.push(OZUNU_STATUS);
-        OZUNU_STATUS_ITEMS.forEach(function(line) { diagItems.push(line); });
+        buildOzunuStatusItems().forEach(function(line) { diagItems.push(line); });
         if (kind === 'month' || diagWork.length) pushSection('diag', diagWork.length ? monthlyIntroForCanon('diag', periodPhrase) : '', diagItems);
         var isqItems = orgProseBullets(unitsByCanon.isq);
         if (isqItems.length) pushSection('isq', '', isqItems);
@@ -2758,29 +3213,36 @@ export async function exportTasksToWord(title) {
                     if (/:$/.test(text) && /aşağıdakı|statuslar|yoxlamalar aparılmışdır|iş planı|davam edən diaqnostika|sorğu anketləri/i.test(text)) return true;
                     return false;
                 }
+                function isMetodikiOrgLine(text, fromIdx) {
+                    if (isOrgBulletItem(text)) return true;
+                    if (!inMetodikiOrgs || fromIdx == null) return false;
+                    if (isXidmetItem(text) || isMetodikiIntroLine(text) || isTahlilIntroLine(text)) return false;
+                    if (String(text).length >= 200) return false;
+                    if (/məqsədəuyğunluq rəyi|məktubla quruma|sistemə əlavə|məktub daxil olmuşdur/i.test(text)) return false;
+                    return true;
+                }
                 items.forEach(function(item, idx) {
                     var isService = isXidmetItem(item);
-                    var isOrgBullet = isOrgBulletItem(item);
+                    var isOrgItem = isOrgBulletItem(item);
                     if (isService) item = item.replace(/^\[\[xidmet\]\]\s*/, '');
-                    if (isOrgBullet) item = item.replace(/^\[\[org\]\]\s*/, '');
+                    if (isOrgItem) item = item.replace(/^\[\[org\]\]\s*/, '');
 
-                    if (isOrgBullet || (inMetodikiOrgs && !isMetodikiIntroLine(item) && !isTahlilIntroLine(item) && !isService && item.length < 200 && !/məqsədəuyğunluq rəyi|məktubla quruma|sistemə əlavə/i.test(item))) {
+                    // Məqsədəuyğunluq: 3 blok — əsas / təhlil / metodiki; hər blokda 1-dən nömrə.
+                    // Giriş sətirləri nömrəsiz; metodiki qurumlar da nömrələnir (bullet yox).
+                    if (isOrgItem || isMetodikiOrgLine(item, idx)) {
                         if (!inMetodikiOrgs) {
-                            bulletInstance += 1;
+                            listInstance += 1;
                             inMetodikiOrgs = true;
+                            currentKind = 'number';
                         }
                         var orgRest = 0;
                         for (var oj = idx; oj < items.length; oj++) {
-                            var nxt = items[oj];
-                            var nxtOrg = isOrgBulletItem(nxt)
-                                || (oj > idx && !isXidmetItem(nxt) && !isMetodikiIntroLine(nxt) && !isTahlilIntroLine(nxt)
-                                    && String(nxt).length < 200 && !/məqsədəuyğunluq rəyi|məktubla quruma|sistemə əlavə/i.test(nxt));
-                            if (!nxtOrg && oj > idx) break;
-                            if (oj === idx || isOrgBulletItem(nxt) || nxtOrg) orgRest += 1;
+                            if (!isMetodikiOrgLine(items[oj], oj) && oj > idx) break;
+                            if (oj === idx || isMetodikiOrgLine(items[oj], oj)) orgRest += 1;
                             else break;
                         }
                         var orgLine = /[.!?]$/.test(item) ? item : (stripEndPunct(item) + (orgRest === 1 ? '.' : ';'));
-                        monthChildren.push(listParagraph(orgLine, MONTH_FONT, 'bullet', bulletInstance));
+                        monthChildren.push(listParagraph(orgLine, MONTH_FONT, 'number', listInstance));
                         return;
                     }
                     if (inMetodikiOrgs) {
@@ -2807,12 +3269,12 @@ export async function exportTasksToWord(title) {
                         currentKind = listKind === 'none' ? 'none' : 'number';
                     }
 
-                    // Metodiki giriş: 11. ... ; sonra qurumlar bullet
+                    // Metodiki giriş: nömrəsiz mətn, sonra qurumlar yenidən 1-dən
                     if (isMetodikiIntroLine(item)) {
-                        monthChildren.push(listParagraph(stripEndPunct(item) + ';', MONTH_FONT, 'number', listInstance));
-                        bulletInstance += 1;
+                        monthChildren.push(bodyParagraph(stripEndPunct(item) + ':', MONTH_FONT));
+                        listInstance += 1;
                         inMetodikiOrgs = true;
-                        currentKind = 'metodiki';
+                        currentKind = 'number';
                         return;
                     }
                     // Təhlil girişi: nömrəsiz mətn, sonra açıq müraciətlər yenidən 1-dən
@@ -3477,10 +3939,13 @@ export async function exportTasksToWord(title) {
                 break;
             }
             downloaded.push(one);
+            if (polishMeta && polishMeta.polishError) {
+                console.warn('Aylıq hesabat LLM polish:', polishMeta.polishError);
+            }
             if (polishMeta && polishMeta.polishSource === 'llm') {
-                showToast('Aylıq hesabat LLM ilə rəsmi üsluba salındi (' + (polishMeta.sectionCount || 0) + ' bölmə)', 'success');
+                showToast('Aylıq hesabat LLM ilə rəsmi üsluba salındı (' + (polishMeta.sectionCount || 0) + ' bölmə)', 'success');
             } else {
-                showToast('Aylıq hesabat təmizlənib yükləndi' + (polishMeta && polishMeta.polishError ? ' (LLM: ' + polishMeta.polishError + ')' : ''), 'success');
+                showToast('Aylıq hesabat təmizlənib yükləndi', 'success');
             }
             if (mi < covered.length - 1) await delayMs(600);
         }

@@ -125,6 +125,7 @@ def polish_monthly_report(period, draft, sample_style=None, api_key=None):
         '- Məqsədəuyğunluq rəyi ilə bağlı Reyestr prosesi mətni bölmənin sonunda qalsın.\n'
         '- Məqsədəuyğunluq: əvvəl məktubla göndərilmiş rəylər və sistemə əlavə edilmiş rəylər eyni nömrəli siyahıda. Məktub bəndində tarix «02.09.2026-cı il tarixli» və nömrə «nömrəli» olsun. Sonra bir təhlil cümləsi, sonra metodiki dəstək, sonda Reyestr prosesi abzası.\n'
         '- Diaqnostika, qiymətləndirmə və inteqrasiyada hər qurum bir bənddir, mətn bütöv yazılır. Diaqnostikanın sonunda 44 qurum cümləsi və üç status bəndi qalır.\n'
+        '- Diaqnostikada yalnız seçilmiş ayın alt tapşırıq mərhələləri qalsın. «yerində baxışlar tamamlanmış… hesabat hazırlanma mərhələsindədir» və ESD məktub nömrəsi/tarixi olan yekun bəndləri silmə və mənasını dəyişmə.\n'
         '- Digər istiqamətlərdə hər tapşırıq ayrıca abzasdır, əvvəlində qurum adı.\n'
         '- Hesabatın sonunda iki İş Planı başlığını və bəndlərini silmə.\n'
         '- Reyestr siyahısından sonra ümumi say cümləsini və Tədbirlər Planı bəndlərini silmə.\n'

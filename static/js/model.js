@@ -1999,7 +1999,13 @@ var ASSESS_NEARBY_IDS = ['customfield_17315', 'customfield_17318', 'customfield_
 var ASSESS_RESERVED_IDS = {
     customfield_17316: true,
     customfield_17317: true,
-    customfield_17319: true
+    customfield_17319: true,
+    customfield_17634: true,
+    customfield_17635: true,
+    customfield_17636: true,
+    customfield_17637: true,
+    customfield_17638: true,
+    customfield_17639: true
 };
 
 export var DIAG_SCORE_FIELD = 'customfield_17315';
@@ -2049,10 +2055,43 @@ function issueLabelTexts(t) {
     return out;
 }
 
-function hasSelfLabel(t) {
+export function hasSelfLabel(t) {
     var labs = issueLabelTexts(t);
     for (var i = 0; i < labs.length; i++) {
         if (normalizeStr(labs[i]) === 'self') return true;
+    }
+    return false;
+}
+
+/** Öz və ya yuxarı parent-də Self etiketi — aylıq diaqnostika bölməsinə düşməsin. */
+export function taskOrAncestorHasSelfLabel(t) {
+    var cur = t;
+    var depth = 0;
+    while (cur && depth < 10) {
+        if (hasSelfLabel(cur)) return true;
+        cur = getParentIssue(cur);
+        depth++;
+    }
+    return false;
+}
+
+/** Jira label dəqiq «diaqnostika» (Self / digər etiketlər yox). */
+export function hasDiagLabel(t) {
+    var labs = issueLabelTexts(t);
+    for (var i = 0; i < labs.length; i++) {
+        if (foldAz(labs[i]) === 'diaqnostika') return true;
+    }
+    return false;
+}
+
+/** Əsas (parent) tapşırıqda diaqnostika etiketi — alt tapşırıqlar parent üzərindən. */
+export function taskOrAncestorHasDiagLabel(t) {
+    var cur = t;
+    var depth = 0;
+    while (cur && depth < 10) {
+        if (hasDiagLabel(cur)) return true;
+        cur = getParentIssue(cur);
+        depth++;
     }
     return false;
 }
@@ -2074,6 +2113,19 @@ function hasMeqsedLabel(t) {
         if (matchesMaqsadHay(f)) return true;
     }
     return false;
+}
+
+function hasIqtLabel(t) {
+    var labs = issueLabelTexts(t);
+    for (var i = 0; i < labs.length; i++) {
+        if (foldAz(labs[i]) === 'iqt') return true;
+    }
+    return false;
+}
+
+/** İQT + məqsədəuyğunluq etiketi — hesabatda metodiki dəstək siyahısı. */
+export function isMeqsedMetodikiLabelTask(t) {
+    return !!(t && hasIqtLabel(t) && hasMeqsedLabel(t));
 }
 
 function isReyestrQeydiyyatLabel(raw) {
@@ -2232,21 +2284,38 @@ function isMeqsedSistemAdiFieldName(folded) {
     return folded.indexOf('ad') !== -1 || folded.indexOf('name') !== -1;
 }
 
-/** «Cavab məktubunun nömrəsi» */
+/** «Cavab məktubunun nömrəsi» — yalnız cavab (çıxan) məktub. */
 function isMeqsedCavabMektubNomreFieldName(folded) {
     if (!folded) return false;
+    if (folded.indexOf('daxil') !== -1) return false;
+    if (folded.indexOf('cavab') === -1) return false;
     if (folded.indexOf('nomr') === -1 && folded.indexOf('number') === -1) return false;
-    return folded.indexOf('cavab') !== -1
-        || folded.indexOf('mektub') !== -1
-        || folded.indexOf('letter') !== -1;
+    return folded.indexOf('mektub') !== -1 || folded.indexOf('letter') !== -1;
 }
 
-/** «Cavab məktubun tarixi (İl, Ay)» */
+/** «Cavab məktubun tarixi (İl, Ay)» — yalnız cavab (çıxan) məktub. */
 function isMeqsedCavabMektubTarixFieldName(folded) {
     if (!folded) return false;
+    if (folded.indexOf('daxil') !== -1) return false;
+    if (folded.indexOf('cavab') === -1) return false;
     if (folded.indexOf('tarix') === -1 && folded.indexOf('date') === -1) return false;
-    return folded.indexOf('cavab') !== -1
-        || (folded.indexOf('mektub') !== -1 && folded.indexOf('nomr') === -1);
+    return folded.indexOf('mektub') !== -1 || folded.indexOf('letter') !== -1;
+}
+
+/** «Daxil olan məktubun nömrəsi» */
+function isMeqsedDaxilMektubNomreFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('daxil') === -1) return false;
+    if (folded.indexOf('mektub') === -1 && folded.indexOf('letter') === -1) return false;
+    return folded.indexOf('nomr') !== -1 || folded.indexOf('number') !== -1;
+}
+
+/** «Daxil olan məktubun tarixi» (customfield_13611) */
+function isMeqsedDaxilMektubTarixFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('daxil') === -1) return false;
+    if (folded.indexOf('mektub') === -1 && folded.indexOf('letter') === -1) return false;
+    return folded.indexOf('tarix') !== -1 || folded.indexOf('date') !== -1;
 }
 
 function isMeqsedDisplayFieldName(folded) {
@@ -2256,7 +2325,9 @@ function isMeqsedDisplayFieldName(folded) {
         || isMeqsedXidmetMelumatFieldName(folded)
         || isMeqsedSistemAdiFieldName(folded)
         || isMeqsedCavabMektubNomreFieldName(folded)
-        || isMeqsedCavabMektubTarixFieldName(folded);
+        || isMeqsedCavabMektubTarixFieldName(folded)
+        || isMeqsedDaxilMektubNomreFieldName(folded)
+        || isMeqsedDaxilMektubTarixFieldName(folded);
 }
 
 function formatMeqsedLetterDate(val) {
@@ -2281,6 +2352,87 @@ function formatMeqsedLetterNumber(val) {
     return String(text).replace(/\s+/g, ' ').trim();
 }
 
+/** «ESD ilə göndərilən» — diaqnostika yekun məktubunun nömrə/tarixi. */
+function isEsdGonderilenFieldName(folded) {
+    if (!folded) return false;
+    if (folded.indexOf('esd') === -1) return false;
+    if (folded.indexOf('status') !== -1) return false;
+    return folded.indexOf('gonder') !== -1;
+}
+
+function isEsdGonderilenNomreFieldName(folded) {
+    if (!folded || folded.indexOf('esd') === -1) return false;
+    if (folded.indexOf('status') !== -1) return false;
+    if (folded.indexOf('nomr') === -1 && folded.indexOf('number') === -1) return false;
+    return folded.indexOf('gonder') !== -1 || folded.indexOf('mektub') !== -1;
+}
+
+function isEsdGonderilenTarixFieldName(folded) {
+    if (!folded || folded.indexOf('esd') === -1) return false;
+    if (folded.indexOf('status') !== -1) return false;
+    if (folded.indexOf('tarix') === -1 && folded.indexOf('date') === -1) return false;
+    return folded.indexOf('gonder') !== -1 || folded.indexOf('mektub') !== -1;
+}
+
+function parseEsdLetterBlob(raw) {
+    var text = formatMeqsedLetterNumber(raw);
+    if (!text) return { number: '', date: '', raw: '' };
+    var number = '';
+    var date = '';
+    var numMatch = text.match(/\b(L-\d+\/\d+)\b/i)
+        || text.match(/\b(\d{1,2}-\d+\/\d+-\d+\/\d{4})\b/)
+        || text.match(/\b(\d{1,2}(?:-\d+)+(?:\/\d+)+\/\d{4})\b/)
+        || text.match(/\b(\d{1,2}(?:[-\/]\d+){2,}\/\d{4})\b/);
+    if (numMatch) number = numMatch[1];
+    var dateMatch = text.match(/\b(\d{2}\.\d{2}\.\d{4})\b/)
+        || text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+    if (dateMatch) {
+        date = formatMeqsedLetterDate(dateMatch[1]) || dateMatch[1];
+    }
+    if (!number && !date) number = text;
+    return { number: number, date: date, raw: text };
+}
+
+export function collectEsdSentLetterFieldIds() {
+    var ids = [];
+    var seen = {};
+    function add(id) {
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        ids.push(id);
+    }
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (ASSESS_RESERVED_IDS[key]) continue;
+        var folded = foldAz(names[key]);
+        if (isEsdGonderilenFieldName(folded)
+            || isEsdGonderilenNomreFieldName(folded)
+            || isEsdGonderilenTarixFieldName(folded)) {
+            add(key);
+        }
+    }
+    return ids;
+}
+
+/** Əsas TASK-dakı «ESD ilə göndərilən» sahəsindən məktub nömrəsi/tarixi. */
+export function getEsdSentLetterInfo(t) {
+    if (memoHas('esdSentLetter', t)) return memoGet('esdSentLetter', t);
+    var number = formatMeqsedLetterNumber(readFirstMatchingNamedField(t, isEsdGonderilenNomreFieldName));
+    var date = formatMeqsedLetterDate(readFirstMatchingNamedField(t, isEsdGonderilenTarixFieldName));
+    var combinedRaw = readFirstMatchingNamedField(t, isEsdGonderilenFieldName);
+    var parsed = parseEsdLetterBlob(combinedRaw);
+    if (!number && parsed.number) number = parsed.number;
+    if (!date && parsed.date) date = parsed.date;
+    var raw = parsed.raw || [number, date].filter(Boolean).join(' ');
+    return memoSet('esdSentLetter', t, {
+        number: number || '',
+        date: date || '',
+        raw: raw || ''
+    });
+}
+
 export function collectMeqsedDisplayFieldIds() {
     var ids = [];
     var seen = {};
@@ -2290,6 +2442,7 @@ export function collectMeqsedDisplayFieldIds() {
         ids.push(id);
     }
     add('customfield_17435');
+    add('customfield_13611'); // Daxil olan məktubun tarixi
     var names = state.jiraFieldNames || {};
     var key;
     for (key in names) {
@@ -2464,6 +2617,19 @@ export function getMeqsedInfo(t) {
     }
     var letterNoRaw = readFirstMatchingNamedField(t, isMeqsedCavabMektubNomreFieldName);
     var letterDateRaw = readFirstMatchingNamedField(t, isMeqsedCavabMektubTarixFieldName);
+    var daxilNoRaw = readFirstMatchingNamedField(t, isMeqsedDaxilMektubNomreFieldName);
+    var daxilDateRaw = readIssueField(t, 'customfield_13611');
+    if (isEmptyJiraValue(daxilDateRaw)) {
+        daxilDateRaw = readFirstMatchingNamedField(t, isMeqsedDaxilMektubTarixFieldName);
+    }
+    var cavabNo = formatMeqsedLetterNumber(letterNoRaw);
+    var cavabDate = formatMeqsedLetterDate(letterDateRaw);
+    var daxilNo = formatMeqsedLetterNumber(daxilNoRaw);
+    var daxilDate = formatMeqsedLetterDate(daxilDateRaw);
+    // Cavab (çıxan) varsa rəy təqdim olunub; yalnız daxil olan məktub → «daxil olmuşdur».
+    var letterKind = '';
+    if (cavabNo || cavabDate) letterKind = 'outgoing';
+    else if (daxilNo || daxilDate) letterKind = 'incoming';
     var novuText = formatJiraOptionText(novu);
     var neticeText = formatJiraOptionText(netice);
     return memoSet('meqsed', t, {
@@ -2474,8 +2640,11 @@ export function getMeqsedInfo(t) {
         xidmetSayi: formatMeqsedSayi(xidmetSayi),
         xidmetMelumat: formatJiraOptionText(xidmetMelumat),
         sistemAdi: formatJiraOptionText(sistemRaw),
-        cavabMektubNomresi: formatMeqsedLetterNumber(letterNoRaw),
-        cavabMektubTarixi: formatMeqsedLetterDate(letterDateRaw)
+        cavabMektubNomresi: cavabNo,
+        cavabMektubTarixi: cavabDate,
+        daxilMektubNomresi: daxilNo,
+        daxilMektubTarixi: daxilDate,
+        letterKind: letterKind
     });
 }
 
@@ -2789,7 +2958,12 @@ function adfToMarkedText(node) {
         return adfToMarkedText(node.content).replace(/\s+/g, ' ').trim() + '\t';
     }
     if (node.type === 'tableRow') {
-        return adfToMarkedText(node.content).replace(/\t+$/, '') + '\n';
+        var rowText = adfToMarkedText(node.content).replace(/\t+$/, '');
+        var cells = rowText.split('\t').map(function(c) { return String(c || '').trim(); }).filter(Boolean);
+        /* 2 sütunlu label/value cədvəl → "Label: value" (EXQ meyarları üçün) */
+        if (cells.length === 2) return cells[0] + ': ' + cells[1] + '\n';
+        if (cells.length > 2) return cells[0] + ': ' + cells.slice(1).join(' ') + '\n';
+        return rowText + '\n';
     }
     if (node.type === 'paragraph' || node.type === 'listItem' || node.type === 'blockquote') {
         return adfNodeText(node) + '\n';
@@ -2801,9 +2975,19 @@ function adfToMarkedText(node) {
 function canonicalNeticeLabel(raw) {
     var f = foldAz(raw);
     if (!f) return String(raw || '').trim();
+    /* EXQ rəqəmsallaşma meyarlarını diaqnostika başlıqlarına çevirmə */
+    if (matchExqDigitStageKey(raw) || isExqDigitSvcLabel(raw)) {
+        return String(raw || '').replace(/^§\s*/, '').replace(/:\s*$/, '').trim();
+    }
     if (f.indexOf('strategiya') !== -1) return DIAG_NETICE_HEADINGS[0];
     if (f.indexOf('texniki') !== -1 || f.indexOf('infrastruktur') !== -1 || f.indexOf('texnoloj') !== -1) return DIAG_NETICE_HEADINGS[1];
-    if (f.indexOf('xidmet') !== -1 && f.indexOf('say') === -1) return DIAG_NETICE_HEADINGS[2];
+    if (f.indexOf('xidmet') !== -1 && f.indexOf('say') === -1 && f.indexOf('uzre netice') !== -1) {
+        return DIAG_NETICE_HEADINGS[2];
+    }
+    if (f.indexOf('xidmet') !== -1 && f.indexOf('say') === -1
+        && (f === 'xidmetler' || f.indexOf('xidmetler uzre') !== -1)) {
+        return DIAG_NETICE_HEADINGS[2];
+    }
     if (f.indexOf('emeliyyat') !== -1) return DIAG_NETICE_HEADINGS[3];
     if (f.indexOf('diaqnostika') === -1 && f.indexOf('model') !== -1 && f.indexOf('netice') !== -1) {
         return DIAG_NETICE_HEADINGS[3];
@@ -3906,8 +4090,12 @@ function selfScoreSlot(t, id) {
     return { score: score, text: text };
 }
 
-export function getExqServiceCount(t) {
-    var named = findJiraFieldsByNeedles(['xidmət sayı', 'xidmet sayi', 'xidmət say', 'neçə xidmət', 'nece xidmet']);
+function getExqServiceCountFromFields(t) {
+    var named = findJiraFieldsByNeedles([
+        'qiymətləndirilən xidmət sayı', 'qiymetlendirilen xidmet sayi',
+        'qiymətləndirilmiş xidmət', 'qiymetlendirilmis xidmet',
+        'xidmət sayı', 'xidmet sayi', 'xidmət say', 'neçə xidmət', 'nece xidmet'
+    ]);
     var i;
     for (i = 0; i < named.length; i++) {
         if (ASSESS_RESERVED_IDS[named[i].id]) continue;
@@ -3921,12 +4109,480 @@ export function getExqServiceCount(t) {
         var fn = foldAz(names[key]);
         var hasX = fn.indexOf('xidmet') !== -1;
         var hasC = fn.indexOf('say') !== -1 || fn.indexOf('count') !== -1 || fn.indexOf('eded') !== -1 || fn.indexOf('number') !== -1;
-        if (hasX && hasC) {
+        var hasQ = fn.indexOf('qiymetlendir') !== -1;
+        if ((hasX && hasC) || (hasQ && hasX)) {
             var cv = coerceScoreNumber(readIssueField(t, key));
             if (cv != null) return cv;
         }
     }
     return null;
+}
+
+export function getExqServiceCount(t) {
+    var fromField = getExqServiceCountFromFields(t);
+    if (fromField != null) return fromField;
+    var fromNetice = readExqDigitMetricFromTask(t, 'svc');
+    if (fromNetice != null && fromNetice.n != null) return fromNetice.n;
+    return null;
+}
+
+/**
+ * Jira EXQ qiymətləndirmə meyarları — dəyərlər customfield_17634…17639-dan gəlir.
+ * Radar üçün ilk 5 faiz meyarı; ödəniş N/A ola bilər.
+ * 17638: əlçatanlıq (17637 ilə 17639 arasındakı sahə).
+ */
+export var EXQ_DIGIT_STAGES = [
+    {
+        key: 'muraciet',
+        name: 'Müraciət mərhələsi',
+        short: 'Müraciət mərhələsi',
+        target: 100,
+        radar: true,
+        fieldId: 'customfield_17634',
+        needles: ['muraciet merhelesi', 'muraciet merhele', 'muraciet']
+    },
+    {
+        key: 'emal',
+        name: 'Emal mərhələsi',
+        short: 'Emal mərhələsi',
+        target: 100,
+        radar: true,
+        fieldId: 'customfield_17635',
+        needles: ['emal merhelesi', 'emal merhele']
+    },
+    {
+        key: 'netice',
+        name: 'Nəticə təqdim edilmə mərhələsi',
+        short: 'Nəticə təqdim edilmə',
+        target: 100,
+        radar: true,
+        fieldId: 'customfield_17636',
+        needles: ['netice teqdim edilme merhelesi', 'netice teqdim edilme', 'netice teqdim']
+    },
+    {
+        key: 'melumat',
+        name: 'Xidmət haqqında məlumat əldəetmə',
+        short: 'Məlumat əldəetmə',
+        target: 80,
+        radar: true,
+        fieldId: 'customfield_17637',
+        needles: ['xidmet haqqinda melumat eldeetme', 'haqqinda melumat eldeetme', 'xidmet haqqinda melumat', 'melumat eldeetme']
+    },
+    {
+        key: 'elcatan',
+        name: 'Xidmətin bütün istifadəçi qrupları üçün əlçatanlığı',
+        short: 'Əlçatanlıq',
+        target: 90,
+        radar: true,
+        fieldId: 'customfield_17638',
+        needles: [
+            'xidmetin butun istifadeci qruplari ucun elcatanligi',
+            'xidmetin butun istifadeci',
+            'butun istifadeci qruplari ucun elcatan',
+            'butun istifadeci qruplari',
+            'elcatanligi'
+        ]
+    },
+    {
+        key: 'odenis',
+        name: 'Ödəniş imkanları',
+        short: 'Ödəniş imkanları',
+        target: 100,
+        radar: false,
+        fieldId: 'customfield_17639',
+        needles: ['odenis imkanlari', 'odenis imkan', 'odenis']
+    }
+];
+
+var EXQ_DIGIT_STAGE_FIELD_IDS = EXQ_DIGIT_STAGES
+    .map(function(d) { return d.fieldId; })
+    .filter(Boolean);
+
+var EXQ_DIGIT_SVC_NEEDLES = [
+    'qiymetlendirilen xidmet sayi', 'qiymetlendirilmis xidmet sayi',
+    'qiymetlendirilen xidmet', 'qiymetlendirilmis xidmet', 'xidmet sayi'
+];
+
+function isExqDigitNaValue(val) {
+    if (val == null) return false;
+    var f = foldAz(String(val));
+    if (!f) return false;
+    return f === 'n a' || f === 'na' || f === 'n/a' || f === 'yox' || f === 'yoxdur'
+        || f.indexOf('uygun deyil') !== -1 || f.indexOf('tetbiq olunmur') !== -1
+        || f.indexOf('shamil edilmir') !== -1;
+}
+
+function matchExqDigitStageKey(label) {
+    var f = foldAz(label);
+    if (!f) return '';
+    if (f.indexOf('qiymetlendir') !== -1 && f.indexOf('xidmet') !== -1) return 'svc';
+    /* Daha uzun / spesifik iynə əvvəl */
+    var best = '';
+    var bestLen = 0;
+    var i;
+    for (i = 0; i < EXQ_DIGIT_STAGES.length; i++) {
+        var def = EXQ_DIGIT_STAGES[i];
+        var j;
+        for (j = 0; j < def.needles.length; j++) {
+            var needle = def.needles[j];
+            if (f.indexOf(needle) === -1) continue;
+            if (needle.length > bestLen) {
+                best = def.key;
+                bestLen = needle.length;
+            }
+        }
+    }
+    return best;
+}
+
+function isExqDigitSvcLabel(label) {
+    var f = foldAz(label);
+    if (!f) return false;
+    var i;
+    for (i = 0; i < EXQ_DIGIT_SVC_NEEDLES.length; i++) {
+        if (f.indexOf(EXQ_DIGIT_SVC_NEEDLES[i]) !== -1) return true;
+    }
+    return f.indexOf('qiymetlendir') !== -1 && f.indexOf('xidmet') !== -1;
+}
+
+/** EXQ nəticə mətnindən «Label + dəyər» cütlərini çıxar (:, tab, boşluq, % sonunda). */
+function splitExqDigitPlainLines(text) {
+    var s = stripMarkupToText(text);
+    if (!s) return [];
+    var out = [];
+    var seen = {};
+    function pushPair(label, value) {
+        label = String(label || '').replace(/^§\s*/, '').replace(/[.:：]\s*$/, '').trim();
+        value = String(value || '').trim();
+        if (!label || label.length < 3 || !value) return;
+        var k = foldAz(label) + '|' + foldAz(value);
+        if (seen[k]) return;
+        seen[k] = true;
+        out.push({ label: label, value: value });
+    }
+    var lines = s.replace(/\r/g, '').split(/\n/);
+    var i;
+    for (i = 0; i < lines.length; i++) {
+        var line = String(lines[i] || '').trim();
+        if (!line) continue;
+        /* Tab ilə ayrılmış cədvəl sətri */
+        if (line.indexOf('\t') !== -1) {
+            var cells = line.split('\t').map(function(c) { return String(c || '').trim(); }).filter(Boolean);
+            if (cells.length >= 2) {
+                pushPair(cells[0], cells.slice(1).join(' '));
+                continue;
+            }
+        }
+        var m = line.match(/^(.{3,160}?)\s*[:：]\s*(.+)$/);
+        if (m) {
+            pushPair(m[1], m[2]);
+            continue;
+        }
+        /* «Müraciət mərhələsi 75%» / «… N/A» / «… 4.5» */
+        m = line.match(/^(.{3,160}?)\s+(\d+(?:[.,]\d+)?\s*%?|n\s*\/\s*a|n\/a|na|yox|uyğun\s+deyil|uygun\s+deyil)\s*$/i);
+        if (m) {
+            pushPair(m[1], m[2]);
+            continue;
+        }
+        m = line.match(/^(.{3,160}?)\s{2,}(.+)$/);
+        if (m) pushPair(m[1], m[2]);
+    }
+    return out;
+}
+
+/**
+ * Sətir-sətir mərhələ iynələrini tapıb yanında/sonunda faiz və ya N/A oxu.
+ * foldAz % və sətir sonunu sildiyi üçün axtarış folded, dəyər çıxarışı orijinal sətirdədir.
+ */
+function scanExqDigitNeedlesInText(text, takeFn) {
+    if (!text || typeof takeFn !== 'function') return;
+    var s = stripMarkupToText(text);
+    if (!s) return;
+    var valRe = /(\d+(?:[.,]\d+)?\s*%?|n\s*\/\s*a|n\/a|na|yox|uyğun\s+deyil|uygun\s+deyil)\s*$/i;
+    var lines = s.replace(/\r/g, '').split(/\n/);
+    var li;
+    for (li = 0; li < lines.length; li++) {
+        var line = String(lines[li] || '').trim();
+        if (!line || line.length < 4) continue;
+        var folded = foldAz(line);
+        if (!folded) continue;
+        var i;
+        for (i = 0; i < EXQ_DIGIT_STAGES.length; i++) {
+            var def = EXQ_DIGIT_STAGES[i];
+            var bestLen = 0;
+            var j;
+            for (j = 0; j < def.needles.length; j++) {
+                var needle = def.needles[j];
+                if (folded.indexOf(needle) === -1) continue;
+                if (needle.length > bestLen) bestLen = needle.length;
+            }
+            if (!bestLen) continue;
+            var vm = line.match(valRe);
+            if (vm) takeFn(def.name || def.short || def.key, vm[1]);
+        }
+        for (i = 0; i < EXQ_DIGIT_SVC_NEEDLES.length; i++) {
+            if (folded.indexOf(EXQ_DIGIT_SVC_NEEDLES[i]) === -1) continue;
+            var svm = line.match(/(\d+(?:[.,]\d+)?)\s*$/);
+            if (svm) {
+                takeFn('Qiymətləndirilən xidmətlərin sayı', svm[1]);
+                break;
+            }
+        }
+    }
+}
+
+function readExqDigitMetricFromTask(t, wantKey) {
+    if (!t) return null;
+    var map = getExqDigitStageMap(t);
+    if (wantKey === 'svc') {
+        var svc = map && map._svc;
+        return svc != null ? { n: svc } : null;
+    }
+    if (!map || !Object.prototype.hasOwnProperty.call(map, wantKey)) return null;
+    var v = map[wantKey];
+    if (v === 'na') return { na: true };
+    if (v == null) return null;
+    return { n: v };
+}
+
+/** Task üzrə EXQ mərhələ dəyərləri: { muraciet: 75, odenis: 'na', … }. */
+export function getExqDigitStageMap(t) {
+    var bags = {};
+    EXQ_DIGIT_STAGES.forEach(function(d) { bags[d.key] = { vals: [], na: 0 }; });
+    var svcBag = [];
+    collectExqDigitFromTask(t, bags, svcBag);
+    var out = {};
+    EXQ_DIGIT_STAGES.forEach(function(d) {
+        var bag = bags[d.key];
+        if (bag.vals.length) {
+            var s = 0;
+            bag.vals.forEach(function(n) { s += n; });
+            out[d.key] = Math.round((s / bag.vals.length) * 10) / 10;
+        } else if (bag.na > 0) {
+            out[d.key] = 'na';
+        } else {
+            out[d.key] = null;
+        }
+    });
+    if (svcBag.length) {
+        var sum = 0;
+        svcBag.forEach(function(n) { sum += n; });
+        out._svc = sum;
+    }
+    return out;
+}
+
+function collectExqDigitFromTask(t, bags, svcBag) {
+    var local = {};
+    EXQ_DIGIT_STAGES.forEach(function(d) { local[d.key] = { n: null, na: false }; });
+    var localSvc = null;
+
+    function takeKey(key, rawVal) {
+        if (!key || key === 'svc' || !local[key]) return;
+        if (local[key].n != null || local[key].na) return;
+        if (isEmptyJiraValue(rawVal)) return;
+        if (isExqDigitNaValue(rawVal)) {
+            local[key].na = true;
+            return;
+        }
+        var plain = typeof rawVal === 'string' || typeof rawVal === 'number'
+            ? rawVal
+            : jiraValuePlainText(rawVal);
+        if (isExqDigitNaValue(plain)) {
+            local[key].na = true;
+            return;
+        }
+        var n = coerceScoreNumber(rawVal);
+        if (n == null && plain != null && plain !== rawVal) n = coerceScoreNumber(plain);
+        if (n != null) local[key].n = n;
+    }
+
+    function take(label, rawVal) {
+        if (isExqDigitSvcLabel(label)) {
+            var sn = coerceScoreNumber(rawVal);
+            if (sn != null && localSvc == null) localSvc = sn;
+            return;
+        }
+        takeKey(matchExqDigitStageKey(label), rawVal);
+    }
+
+    /* 1) Əsas mənbə: customfield_17634…17639 */
+    EXQ_DIGIT_STAGES.forEach(function(d) {
+        if (!d.fieldId) return;
+        takeKey(d.key, readIssueField(t, d.fieldId));
+    });
+
+    function ingestPlain(plain) {
+        if (!plain) return;
+        splitExqDigitPlainLines(plain).forEach(function(p) { take(p.label, p.value); });
+        scanExqDigitNeedlesInText(plain, take);
+    }
+
+    /* 2) Boş qalanlar üçün ehtiyat: nəticə mətni / ad uyğunluğu */
+    var fieldIds = ['customfield_17317', 'customfield_17315', 'customfield_17318', 'customfield_17320'];
+    var fi;
+    for (fi = 0; fi < fieldIds.length; fi++) {
+        var raw = readIssueField(t, fieldIds[fi]);
+        if (isEmptyJiraValue(raw)) continue;
+        ingestPlain(jiraValuePlainText(raw));
+        var blocks = parseAssessmentNetice(raw);
+        var bi;
+        for (bi = 0; bi < blocks.length; bi++) {
+            take(blocks[bi].label, blocks[bi].value);
+        }
+    }
+
+    var names = state.jiraFieldNames || {};
+    var fid;
+    for (fid in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, fid)) continue;
+        if (ASSESS_RESERVED_IDS[fid]) continue;
+        if (EXQ_DIGIT_STAGE_FIELD_IDS.indexOf(fid) !== -1) continue;
+        var fname = names[fid];
+        if (!matchExqDigitStageKey(fname) && !isExqDigitSvcLabel(fname)) continue;
+        var fval = readIssueField(t, fid);
+        if (isEmptyJiraValue(fval)) continue;
+        take(fname, fval);
+        ingestPlain(jiraValuePlainText(fval));
+    }
+
+    EXQ_DIGIT_STAGES.forEach(function(d) {
+        var row = local[d.key];
+        if (row.n != null) bags[d.key].vals.push(row.n);
+        else if (row.na) bags[d.key].na += 1;
+    });
+    if (localSvc != null) svcBag.push(localSvc);
+}
+
+function sumExqFieldByNeedles(rows, needles) {
+    var fields = findJiraFieldsByNeedles(needles);
+    if (!fields.length) return null;
+    var sum = 0;
+    var hit = false;
+    (rows || []).forEach(function(r) {
+        var t = r && r.task;
+        if (!t) return;
+        var i;
+        for (i = 0; i < fields.length; i++) {
+            if (ASSESS_RESERVED_IDS[fields[i].id]) continue;
+            var n = coerceScoreNumber(readIssueField(t, fields[i].id));
+            if (n == null) continue;
+            sum += n;
+            hit = true;
+            break;
+        }
+    });
+    return hit ? sum : null;
+}
+
+function collectExqDigitizationBags(rows) {
+    var bags = {};
+    EXQ_DIGIT_STAGES.forEach(function(d) { bags[d.key] = { vals: [], na: 0 }; });
+    var svcBag = [];
+    (rows || []).forEach(function(r) {
+        var t = r && r.task;
+        if (!t) return;
+        var before = svcBag.length;
+        collectExqDigitFromTask(t, bags, svcBag);
+        if (svcBag.length === before) {
+            var c = getExqServiceCountFromFields(t);
+            if (c != null) svcBag.push(c);
+        }
+    });
+    return { bags: bags, svcBag: svcBag };
+}
+
+/**
+ * EXQ Jira task-larından «Xidmətlərin rəqəmsallaşma vəziyyəti» data modeli.
+ * Meyarlar və xidmət sayı birbaşa task sahə / nəticə mətnindən gəlir.
+ */
+export function buildExqServiceDigitization(rows, stats) {
+    stats = stats || {};
+    var current = stats.weightedAvg != null ? stats.weightedAvg : stats.avg;
+    if (current == null || !isFinite(Number(current))) current = null;
+    else current = Math.round(Number(current) * 10) / 10;
+    var star = exqStarFromPercent(current);
+    var target = 95;
+    var collected = collectExqDigitizationBags(rows);
+    var bags = collected.bags;
+    var svcFromTasks = collected.svcBag;
+    var assessedFromNetice = 0;
+    if (svcFromTasks.length) {
+        svcFromTasks.forEach(function(n) { assessedFromNetice += n; });
+    }
+    var assessed = assessedFromNetice || stats.svcSum || 0;
+    var digitizedField = sumExqFieldByNeedles(rows, [
+        'reqemsallasmis xidmet', 'rəqəmsallaşmış xidmət', 'digitized service', 'reqemsal xidmet sayi'
+    ]);
+    var notDigitizedField = sumExqFieldByNeedles(rows, [
+        'reqemsal teqdim edilmeyen', 'rəqəmsal təqdim edilməyən', 'not digitized', 'reqemsallasmamis'
+    ]);
+    var interactiveField = sumExqFieldByNeedles(rows, ['interaktiv', 'interactive']);
+    var proactiveField = sumExqFieldByNeedles(rows, ['proaktiv', 'proactive']);
+    var digitized = digitizedField != null ? digitizedField : assessed;
+    var notDigitized = notDigitizedField != null ? notDigitizedField : 0;
+    var interactive = interactiveField != null ? interactiveField : 0;
+    var proactive = proactiveField != null ? proactiveField : 0;
+
+    var stages = EXQ_DIGIT_STAGES.map(function(def) {
+        var bag = bags[def.key] || { vals: [], na: 0 };
+        var value = null;
+        var isNa = false;
+        if (bag.vals.length) {
+            var sum = 0;
+            bag.vals.forEach(function(n) { sum += n; });
+            value = Math.round((sum / bag.vals.length) * 10) / 10;
+        } else if (bag.na > 0) {
+            isNa = true;
+        }
+        return {
+            key: def.key,
+            name: def.name,
+            short: def.short,
+            value: value,
+            target: def.target,
+            na: isNa,
+            radar: !!def.radar,
+            filter: 'exq_stage_' + def.key
+        };
+    });
+
+    var byQurum = stats.byQurum || [];
+    var orgsWithSvc = stats.qurumWithSvc != null
+        ? stats.qurumWithSvc
+        : byQurum.filter(function(q) { return (q.svc || 0) > 0; }).length;
+    var orgsWithResult = byQurum.filter(function(q) {
+        return q && (q.hasResult || (q.score != null && isFinite(Number(q.score))));
+    }).length;
+    var orgsTotal = stats.qurum != null ? stats.qurum : byQurum.length;
+
+    return {
+        stages: stages,
+        overall: {
+            current: current,
+            target: target,
+            star: star,
+            filter: 'has_result'
+        },
+        services: {
+            digitized: digitized,
+            notDigitized: notDigitized,
+            assessed: assessed,
+            interactive: interactive,
+            proactive: proactive,
+            orgsWithSvc: orgsWithSvc,
+            orgsWithResult: orgsWithResult,
+            orgsTotal: orgsTotal,
+            filters: {
+                digitized: 'svc_sum',
+                notDigitized: 'no_result',
+                assessed: 'svc_sum',
+                orgs: 'svc_sum',
+                result: 'has_result',
+                type: 'has_result'
+            }
+        }
+    };
 }
 
 function isExqServiceCountFieldName(folded) {

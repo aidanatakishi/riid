@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, boardListUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskDueDate, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isResolvedInDateRange, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda15';
-import { renderAssigneeChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda46';
+import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda47';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda16';
-import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda24';
+import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda33';
 import { renderAssessmentSections } from './assessments.js?v=idda49';
 
 var userChoseSprint = false;
@@ -637,6 +637,9 @@ export function applyFilters() {
     state.assigneeChartTasks = datedTasks.filter(function(t) {
         return matchesDashContextFilters(t, { assignee: true, priority: true });
     });
+    state.priorityChartTasks = datedTasks.filter(function(t) {
+        return matchesDashContextFilters(t, { priority: true });
+    });
 
     if (state.currentDirectionFilter) {
         var b = document.getElementById('directionFilterBadge');
@@ -925,6 +928,7 @@ function scheduleFilterPaint() {
         renderEsdStatusBreakdown(state.statusChartTasks || state.filteredTasks);
         renderReviewPartyBreakdown(state.statusChartTasks || state.filteredTasks);
         renderAssigneeChart(state.assigneeChartTasks || state.filteredTasks);
+        renderPriorityChart(state.priorityChartTasks || state.filteredTasks);
         renderEpicChart(state.epicChartTasks);
         var runLazy = function() {
             renderVisibleLazySections();
