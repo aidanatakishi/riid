@@ -552,7 +552,8 @@ function serializeHubRow(section, r, i) {
         row.novu = info && info.novu ? info.novu : '—';
         row.netice = info && info.netice ? info.netice : '—';
         row.opinion = (info && info.opinionKind) || '';
-        row.novuKind = units.kind || 'other';
+        row.novuKind = meqsedNormalizeKind(units.kind);
+
         row.isNew = !!units.isNew;
         row.isExist = !!units.isExist;
         row.isSystem = !!units.isSystem;
@@ -1666,8 +1667,16 @@ function parseXidmetUnits(info) {
     return 0;
 }
 
+function meqsedNormalizeKind(kind) {
+    var k = String(kind || '').trim();
+    if (!k) return 'other';
+    if (k === 'other') return 'other';
+    if ((MEQSED_NOVU_KINDS || []).indexOf(k) >= 0) return k;
+    return 'other';
+}
+
 function meqsedRowUnits(info) {
-    var kind = (info && info.novuKind) || '';
+    var kind = meqsedNormalizeKind(info && info.novuKind);
     var isService = kind === 'new_service' || kind === 'exist_service';
     var isSystem = kind === 'new_system' || kind === 'exist_system';
     var xidmet = 0;
@@ -1812,8 +1821,7 @@ function collectMeqsedListStats(rows) {
             }
             qcount[qk].n += 1;
         }
-        var kind = units.kind || 'other';
-        if (!Object.prototype.hasOwnProperty.call(stats.byKind, kind)) kind = 'other';
+        var kind = meqsedNormalizeKind(units.kind);
         stats.byKind[kind] += 1;
         bumpResultSplit(stats.byKindResult[kind], result || 'none');
         var when = getTaskStartDate(r && r.task) || getTaskCreatedDate(r && r.task);
@@ -2147,7 +2155,7 @@ function meqsedRowMatchesDashFilter(r, filter) {
     var info = getMeqsedInfo(r && r.task);
     var units = meqsedRowUnits(info);
     var opinion = (info && info.opinionKind) || '';
-    var kind = units.kind || 'other';
+    var kind = meqsedNormalizeKind(units.kind);
     if (filter === 'pos') return opinion === 'pos';
     if (filter === 'neg') return opinion === 'neg';
     if (filter === 'partial') return opinion === 'partial';

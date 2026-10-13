@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda58';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda59';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -14,6 +14,7 @@ import {
     PHASE_FIELDS,
     MEQSED_NOVU_KINDS,
     MEQSED_NOVU_LABELS,
+    classifyMeqsedNovu,
     EXQ_STAR_BANDS,
     EXQ_LAW_URL,
     exqStarFromPercent,
@@ -4144,25 +4145,56 @@ function collapseExqHubRows(list, keepUnevaluated) {
     return evaluated.length ? evaluated : out;
 }
 
+function hubMeqsedKindOf(r) {
+    var k = String((r && r.novuKind) || '').trim();
+    if (k && k !== 'other') return k;
+    var novu = r && r.novu;
+    if (novu && novu !== '—') {
+        var classified = classifyMeqsedNovu(novu);
+        if (classified) return classified;
+    }
+    return k || 'other';
+}
+
+function hubMeqsedNovuMatchesKind(r, kind) {
+    if (hubMeqsedKindOf(r) === kind) return true;
+    var label = (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[kind]) || '';
+    var novu = String((r && r.novu) || '');
+    if (!label || !novu || novu === '—') return false;
+    var hay = fold(novu);
+    var needle = fold(label);
+    if (needle && hay.indexOf(needle) !== -1) return true;
+    // Qısa açar sözlərlə də tut (məs. "bulud", "rsd")
+    if (kind === 'cloud' && (hay.indexOf('bulud') !== -1 || hay.indexOf('hukumet') !== -1)) return true;
+    if (kind === 'rsd' && hay.indexOf('rsd') !== -1) return true;
+    if (kind === 'fiziki' && (hay.indexOf('fiziki') !== -1 || hay.indexOf('reqemsal') !== -1)) return true;
+    if (kind === 'exist_service' && hay.indexOf('xidmet') !== -1 && hay.indexOf('movcud') !== -1) return true;
+    if (kind === 'new_service' && hay.indexOf('xidmet') !== -1 && hay.indexOf('movcud') === -1) return true;
+    if (kind === 'exist_system' && hay.indexOf('sistem') !== -1 && hay.indexOf('movcud') !== -1) return true;
+    if (kind === 'new_system' && hay.indexOf('sistem') !== -1 && hay.indexOf('movcud') === -1) return true;
+    return false;
+}
+
 function hubRowMatchesMeqsedFilter(r, filter) {
     if (!filter || filter === 'all' || filter === 'orgs') return true;
     var opinion = (r && r.opinion) || '';
-    var kind = (r && r.novuKind) || 'other';
     var resultKey = (r && r.resultKey) || '';
-    if (filter === 'pos' || filter === 'neg' || filter === 'partial' || filter === 'revision') return opinion === filter;
+    if (filter === 'pos' || filter === 'neg' || filter === 'partial' || filter === 'revision') {
+        return opinion === filter || resultKey === filter;
+    }
     if (filter === 'baxilir') {
         var g = (r && r.statusGroup) || '';
-        return g === 'progress' || g === 'esd';
+        return g === 'progress' || g === 'esd' || resultKey === 'baxilir';
     }
     if (filter === 'new_system' || filter === 'exist_system' || filter === 'new_service'
         || filter === 'exist_service' || filter === 'fiziki' || filter === 'rsd'
         || filter === 'cloud' || filter === 'other') {
-        return kind === filter;
+        return hubMeqsedNovuMatchesKind(r, filter);
     }
-    if (filter === 'yeni') return !!(r && r.isNew);
-    if (filter === 'movcud') return !!(r && r.isExist);
-    if (filter === 'sistem') return !!(r && r.isSystem);
-    if (filter === 'xidmet') return !!(r && r.isService);
+    if (filter === 'yeni') return !!(r && r.isNew) || hubMeqsedKindOf(r) === 'new_system' || hubMeqsedKindOf(r) === 'new_service';
+    if (filter === 'movcud') return !!(r && r.isExist) || hubMeqsedKindOf(r) === 'exist_system' || hubMeqsedKindOf(r) === 'exist_service';
+    if (filter === 'sistem') return !!(r && r.isSystem) || hubMeqsedKindOf(r) === 'new_system' || hubMeqsedKindOf(r) === 'exist_system';
+    if (filter === 'xidmet') return !!(r && r.isService) || hubMeqsedKindOf(r) === 'new_service' || hubMeqsedKindOf(r) === 'exist_service';
     return true;
 }
 
@@ -4372,7 +4404,11 @@ function hubTableHtml(view) {
                         + '</th>';
                 }).join('')
                 + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager
-            : '<p class="nk303-empty">' + esc(NA) + '</p>');
+            : '<p class="nk303-empty">' + esc(
+                (ui.hubFilter && ui.hubFilter !== 'all') || ui.hubSearch
+                    ? 'Bu filtrə uyğun müraciət yoxdur'
+                    : NA
+            ) + '</p>');
 }
 
 function meqsedKindShareHtml(st) {
@@ -4565,7 +4601,7 @@ function mqOrgBlock(st) {
             .replace(/^Azərbaycan Respublikası\s+/i, '')
             .trim() || raw;
         return '<button type="button" class="mq-org" title="' + esc(raw) + '"'
-            + ' onclick="nk303Call(\'hubSearch\',\'' + qarg(raw) + '\')">'
+            + ' onclick="nk303Call(\'hubOrg\',\'' + qarg(raw) + '\')">'
             + '<span>' + esc(name) + '</span>'
             + '<div class="mq-org-track" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
             + '<b>' + r.n + '</b>'
@@ -5868,12 +5904,18 @@ export function nk303Call(action, payload) {
         ui.hubSearch = darg(payload || '');
         ui.hubPage = 1;
         renderHub();
-        var hubInp = document.querySelector('#nk303HubRoot input[type="search"]');
+        var hubInp = document.querySelector('.nk303-hub-page input[type="search"]');
         if (hubInp) {
             hubInp.focus();
             var hlen = hubInp.value.length;
             try { hubInp.setSelectionRange(hlen, hlen); } catch (e3) {}
         }
+        return;
+    } else if (action === 'hubOrg') {
+        ui.hubFilter = '';
+        ui.hubSearch = darg(payload || '');
+        ui.hubPage = 1;
+        renderHub({ scrollToList: true });
         return;
     } else if (action === 'hubYear') {
         applyHubYear(payload);
@@ -5887,6 +5929,8 @@ export function nk303Call(action, payload) {
         var nextFilter = String(payload == null ? '' : payload).trim();
         if (nextFilter === 'all' || nextFilter === '') ui.hubFilter = '';
         else ui.hubFilter = ui.hubFilter === nextFilter ? '' : nextFilter;
+        // Növ/rəy filtrində köhnə qurum axtarışı nəticəni boşaldırdı — sıfırla
+        ui.hubSearch = '';
         ui.hubPage = 1;
         renderHub({ scrollToList: true });
         return;
