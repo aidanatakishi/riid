@@ -270,12 +270,42 @@ def _port_in_use(port):
         sock.close()
 
 
+def _lan_urls(port):
+    urls = ['http://127.0.0.1:%s' % port]
+    try:
+        import socket
+        hostname = socket.gethostname()
+        for info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = info[4][0]
+            if ip and not ip.startswith('127.'):
+                urls.append('http://%s:%s' % (ip, port))
+    except Exception:
+        pass
+    # unique preserve order
+    seen = set()
+    out = []
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     if _port_in_use(port):
         print('Port %s artıq məşğuldur. Köhnə app.py prosesini bağlayın, sonra yenidən başladın.' % port)
         print('  PowerShell: Get-NetTCPConnection -LocalPort %s | Select OwningProcess' % port)
         raise SystemExit(1)
+    from users import get_shared_jira_pat
+    if get_shared_jira_pat():
+        print('Jira tokeni: OK (data/secrets.json və ya .env)')
+    else:
+        print('Jira tokeni: YOXDUR — girişdə admin PAT yazın və ya pack-for-pc.bat ilə data köçürün.')
+    print('Açın:')
+    for url in _lan_urls(port):
+        print('  ' + url)
+    print('Başqa cihaz: bu kompüterdə run saxlayın, digəri brauzerdə şəbəkə ünvanını açsın.')
     if is_production():
         try:
             from waitress import serve
