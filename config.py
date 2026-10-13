@@ -3,8 +3,25 @@ import os
 # Jira URL/layihə. Token hər istifadəçinin öz hesabındadır (girişdə bir dəfə).
 
 
-def _load_dotenv():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+# Bu açarlar hər söhbət sorğusunda .env-dən yenidən oxunur.
+# Prosesdə köhnə dəyər qalsa belə, fayldakı açar üstün tutulur.
+_LLM_ENV_KEYS = (
+    'OPENAI_API_KEY',
+    'OPENAI_MODEL',
+    'OPENAI_BASE_URL',
+    'CHAT_LLM_PROVIDER',
+    'GEMINI_API_KEY',
+    'GEMINI_MODEL',
+    'GEMINI_CHAT_MODEL',
+)
+
+
+def _dotenv_path():
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
+
+
+def _load_dotenv(override_llm=False):
+    path = _dotenv_path()
     if not os.path.isfile(path):
         return
     with open(path, encoding='utf-8') as handle:
@@ -15,8 +32,20 @@ def _load_dotenv():
             key, value = line.split('=', 1)
             key = key.strip()
             value = value.strip().strip('"').strip("'")
-            if key and key not in os.environ:
+            if not key:
+                continue
+            if override_llm and key in _LLM_ENV_KEYS and value:
                 os.environ[key] = value
+            elif key not in os.environ:
+                os.environ[key] = value
+
+
+def reload_llm_env():
+    """Re-read chatbot keys from .env so a replaced key works without a restart."""
+    global OPENAI_API_KEY, GEMINI_API_KEY
+    _load_dotenv(override_llm=True)
+    OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY') or ''
+    GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or ''
 
 
 def env_flag(name, default=False):
@@ -73,9 +102,11 @@ SEARCH_FIELDS = (
     "customfield_15615,customfield_15616,customfield_15617,customfield_15618,"
     "customfield_15619,customfield_15620,components,assignee,reporter,updated,"
     "created,resolutiondate,priority,labels,customfield_10101,customfield_10107,customfield_10008,"
-    "customfield_10015,customfield_10016,customfield_12703,customfield_13608,customfield_12424,"
+    "customfield_10015,customfield_10016,customfield_12703,customfield_13608,customfield_13611,customfield_12424,"
     "customfield_17315,customfield_17316,customfield_17317,customfield_17318,"
     "customfield_17319,customfield_17320,customfield_17435,"
+    "customfield_17634,customfield_17635,customfield_17636,customfield_17637,"
+    "customfield_17638,customfield_17639,"
     "issuetype,subtasks,parent,issuelinks"
 )
 
@@ -83,9 +114,11 @@ HIERARCHY_FIELDS = (
     "summary,status,duedate,description,customfield_10807,customfield_10808,components,"
     "assignee,reporter,updated,created,priority,labels,customfield_10101,"
     "customfield_10107,customfield_10008,customfield_10015,customfield_10016,"
-    "customfield_12703,customfield_13608,customfield_12424,"
+    "customfield_12703,customfield_13608,customfield_13611,customfield_12424,"
     "customfield_17315,customfield_17316,customfield_17317,customfield_17318,"
     "customfield_17319,customfield_17320,customfield_17435,"
+    "customfield_17634,customfield_17635,customfield_17636,customfield_17637,"
+    "customfield_17638,customfield_17639,"
     "issuetype,subtasks,parent,issuelinks"
 )
 
