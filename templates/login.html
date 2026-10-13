@@ -193,7 +193,8 @@
     }
     bindPasswordToggles();
     var selectedPanel = 'ops';
-    var hasSharedToken = false;
+    // Status gələnə qədər məcburi etmə — köhnə serverdə hasSharedToken olmaya bilər.
+    var hasSharedToken = true;
     var loginHintEl = document.querySelector('#loginCard .auth-hint');
     var loginHintDefault = loginHintEl ? loginHintEl.textContent : '';
     var brandSubEl = document.querySelector('.auth-sub');

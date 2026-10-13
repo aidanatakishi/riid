@@ -348,11 +348,15 @@ def save_user_jira_pat(user_id, token):
 
 
 def effective_jira_pat(user=None):
-    """Personal PAT → shared secrets.json → .env JIRA_PAT."""
-    own = user_jira_pat(user)
-    if own:
-        return own
-    return get_shared_jira_pat()
+    """Ümumi org token üstün — şəxsi PAT yalnız ümumi yoxdusa istifadə olunur.
+
+    Əks halda login-də səhv/köhnə şəxsi token yazılsa, işlək shared tokeni
+    örtür və panel boş (0) qalır.
+    """
+    shared = get_shared_jira_pat()
+    if shared:
+        return shared
+    return user_jira_pat(user)
 
 
 def has_users():
