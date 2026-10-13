@@ -11,6 +11,8 @@ from config import is_production
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_PATH = os.path.join(BASE_DIR, 'data', 'users.json')
+USERS_BACKUP_PATH = os.path.join(BASE_DIR, 'data', 'users.json.bak')
+ACCOUNTS_STATE_PATH = os.path.join(BASE_DIR, 'data', 'accounts.state.json')
 SECRETS_PATH = os.path.join(BASE_DIR, 'data', 'secrets.json')
 
 WEAK_PASSWORDS = frozenset(('admin123', 'user123', 'password', '123456', 'admin', 'user'))
@@ -63,6 +65,90 @@ def _sanitize_store(store):
     return clean
 
 
+def _user_count(store):
+    if not isinstance(store, dict):
+        return 0
+    users = store.get('users')
+    if not isinstance(users, list):
+        return 0
+    return sum(1 for user in users if isinstance(user, dict))
+
+
+def _load_accounts_state():
+    data = _read_json(ACCOUNTS_STATE_PATH, lambda: None)
+    if not isinstance(data, dict):
+        return None
+    try:
+        count = int(data.get('user_count') or 0)
+    except (TypeError, ValueError):
+        count = 0
+    if count <= 0:
+        return None
+    return {
+        'user_count': count,
+        'updated_at': str(data.get('updated_at') or ''),
+    }
+
+
+def _save_accounts_state(user_count):
+    count = int(user_count or 0)
+    if count <= 0:
+        return
+    _write_json(
+        ACCOUNTS_STATE_PATH,
+        {'user_count': count, 'updated_at': _now()},
+    )
+
+
+def _backup_users_file():
+    if not os.path.isfile(USERS_PATH):
+        return
+    current = _read_json(USERS_PATH, _empty_store)
+    if _user_count(current) <= 0:
+        return
+    _write_json(USERS_BACKUP_PATH, _sanitize_store(current))
+
+
+def _maybe_restore_users_from_backup():
+    state = _load_accounts_state()
+    if not state:
+        return False
+    data = _read_json(USERS_PATH, _empty_store)
+    current_count = _user_count(data)
+    expected = int(state.get('user_count') or 0)
+    if current_count >= expected:
+        return False
+    backup = _read_json(USERS_BACKUP_PATH, _empty_store)
+    backup_count = _user_count(backup)
+    if backup_count < expected:
+        return False
+    _write_json(USERS_PATH, _sanitize_store(backup))
+    return True
+
+
+def ensure_users_store_integrity():
+    """Keep local accounts if users.json was replaced (git pull, copy, deploy)."""
+    with _lock:
+        store = _read_json(USERS_PATH, _empty_store)
+        count = _user_count(store)
+        if count > 0:
+            backup = _read_json(USERS_BACKUP_PATH, _empty_store)
+            if _user_count(backup) < count:
+                _write_json(USERS_BACKUP_PATH, _sanitize_store(store))
+            state = _load_accounts_state()
+            if not state or int(state.get('user_count') or 0) < count:
+                _save_accounts_state(count)
+        restored = _maybe_restore_users_from_backup()
+        return restored
+
+
+def accounts_initialized():
+    state = _load_accounts_state()
+    if state and int(state.get('user_count') or 0) > 0:
+        return True
+    return _user_count(_read_json(USERS_PATH, _empty_store)) > 0
+
+
 def load_store():
     data = _read_json(USERS_PATH, _empty_store)
     if not isinstance(data.get('users'), list):
@@ -71,7 +157,16 @@ def load_store():
 
 
 def save_store(store):
-    _write_json(USERS_PATH, _sanitize_store(store))
+    clean = _sanitize_store(store)
+    count = _user_count(clean)
+    state = _load_accounts_state()
+    if state and count <= 0:
+        raise RuntimeError('Hesablar artıq yaradılıb — bütün istifadəçiləri silmək olmaz.')
+    if count > 0:
+        _backup_users_file()
+    _write_json(USERS_PATH, clean)
+    if count > 0:
+        _save_accounts_state(count)
 
 
 def load_secrets():
@@ -693,7 +788,7 @@ def bootstrap_users(
     user_password='',
 ):
     migrate_secrets()
-    if has_users():
+    if accounts_initialized() or has_users():
         return
     project = normalize_project_key(home_project) or 'DGD'
     admin_name = normalize_username(admin_username) or 'admin'

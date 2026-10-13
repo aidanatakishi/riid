@@ -52,3 +52,5 @@ gunicorn --preload --bind 0.0.0.0:5000 --workers 2 --timeout 180 app:app
 Open `http://SERVER_IP:5000`. Check `http://127.0.0.1:5000/api/health` — it should return `{"ok": true}`.
 
 The server must reach Jira on the network. Keep `data/` and `uploads/` backed up.
+
+**Hesablar:** istifadəçi siyahısı `data/users.json`-dadır və git-ə daxil edilmir. Paneldə və ya `.env` ilə bir dəfə admin yaradılandan sonra kod yeniləməsi və ya `git pull` həmin hesabları silməməlidir; ehtiyat nüsxə `data/users.json.bak`, say `data/accounts.state.json`-dadır. `data/`-nı müntəzəm backup edin.

@@ -64,6 +64,7 @@ from config import (
     DEPT_USERNAME,
     DEPT_PASSWORD,
     DEPT_DISPLAY_NAME,
+    JIRA_BASE_URL,
     JIRA_PROJECT_KEY,
     USER_PASSWORD,
     USER_USERNAME,
@@ -74,7 +75,7 @@ from config import (
     is_production,
 )
 from routes import api, can_see_diagnostics, is_app_admin
-from users import bootstrap_users, ensure_superadmin, sync_display_names
+from users import bootstrap_users, ensure_superadmin, ensure_users_store_integrity, sync_display_names
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 app = Flask(
@@ -121,6 +122,7 @@ if TRUST_PROXY:
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 app.register_blueprint(api)
 
+ensure_users_store_integrity()
 bootstrap_users(
     ADMIN_USERNAME,
     ADMIN_PASSWORD,
@@ -226,7 +228,10 @@ def serve_login():
         if session.get('home_panel') == 'rehber':
             return redirect('/rehber')
         return redirect('/')
-    return render_template('login.html')
+    base = (JIRA_BASE_URL or 'https://jira.idda.az').rstrip('/')
+    pat_tab = 'com.atlassian.pats.pats-plugin:jira-user-personal-access-tokens'
+    jira_pat_url = base + '/secure/ViewProfile.jspa?selectedTab=' + pat_tab
+    return render_template('login.html', jira_base_url=base, jira_pat_url=jira_pat_url)
 
 
 @app.route('/rehber')
