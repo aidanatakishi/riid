@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from config import is_production
+from config import JIRA_PAT, is_production
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 USERS_PATH = os.path.join(BASE_DIR, 'data', 'users.json')
@@ -275,6 +275,11 @@ def migrate_secrets():
         if shared and not str(secrets.get('jira_pat') or '').strip():
             secrets['jira_pat'] = shared
             secrets_changed = True
+        # Digər kompüterdə secrets.json olmasa .env-dəki JIRA_PAT ümumi token olur.
+        env_pat = str(JIRA_PAT or '').strip()
+        if env_pat and not str(secrets.get('jira_pat') or '').strip():
+            secrets['jira_pat'] = env_pat
+            secrets_changed = True
         if 'jira_pat' in store:
             store.pop('jira_pat', None)
             store_changed = True
@@ -304,7 +309,10 @@ def list_users():
 
 
 def get_shared_jira_pat():
-    return str(load_secrets().get('jira_pat') or '').strip()
+    shared = str(load_secrets().get('jira_pat') or '').strip()
+    if shared:
+        return shared
+    return str(JIRA_PAT or '').strip()
 
 
 def set_shared_jira_pat(token):
@@ -340,7 +348,7 @@ def save_user_jira_pat(user_id, token):
 
 
 def effective_jira_pat(user=None):
-    """Personal PAT first; fall back to shared org token from secrets.json."""
+    """Personal PAT → shared secrets.json → .env JIRA_PAT."""
     own = user_jira_pat(user)
     if own:
         return own

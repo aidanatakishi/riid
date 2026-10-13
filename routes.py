@@ -399,8 +399,8 @@ def auth_login():
         panel = 'ops'
     if incoming:
         save_user_jira_pat(user.get('id'), incoming)
-        # Superadmin tokeni ümumi olur — digər əməkdaşlar PAT yazmadan işləyir.
-        if user.get('role') == 'superadmin':
+        # Admin tokeni ümumi olur — digər əməkdaşlar PAT yazmadan işləyir.
+        if user.get('role') in ('superadmin', 'admin'):
             set_shared_jira_pat(incoming)
     if panel != 'rehber' and not effective_jira_pat(user):
         return jsonify({
