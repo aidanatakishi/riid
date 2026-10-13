@@ -1981,16 +1981,21 @@ export async function exportTasksToWord(title) {
         var activity = cleanDiagActivityTitle(taskSummary(child), org);
         if (!activity) return '';
         var bitme = diagSubtaskBitmeDate(child);
-        var core = activity;
-        if (!/(ilmiş|ılmış|ülmüş|ulmuş|miş|mış|müş|muş|dir|dır|dur|dür)$/i.test(stripEndPunct(core))) {
-            core = stripEndPunct(core) + ' keçirilmişdir';
+        var core = stripEndPunct(verbalizeActionTitle(activity) || activity);
+        if (/(keçirilməsi|aparılması|hazırlanması|təhlil edilməsi|qiymətləndirilməsi|göndərilməsi|verilməsi|başlanılması|yoxlanılması|razılaşdırılması|müzakirə edilməsi|icra edilməsi|formalaşdırılması|əlavə edilməsi)$/i.test(core)) {
+            core = stripEndPunct(verbalizeActionTitle(core));
+        }
+        if (!/(ilmiş|ılmış|ülmüş|ulmuş|miş|mış|müş|muş|dir|dır|dur|dür)$/i.test(core)) {
+            core += ' keçirilmişdir';
+        } else {
+            core = addFiniteCopula(core);
         }
         var body;
         if (bitme) {
             var ds = pad2(bitme.getDate()) + '.' + pad2(bitme.getMonth() + 1) + '.' + bitme.getFullYear();
-            body = ds + ' tarixində qurumda ' + core;
+            body = ds + ' tarixində ' + core;
         } else {
-            body = 'Qurumda ' + lowercaseFirst(core);
+            body = core;
         }
         return finishOfficialSentence(body);
     }
@@ -2166,8 +2171,14 @@ export async function exportTasksToWord(title) {
             }
             var body = diagOrgBodyFromSubtasks(parent, info);
             if (!body) return;
-            // Qurum adı ayrı başlıq; fəaliyyət cümlələri «qurumda … keçirilmişdir» formatında.
-            if (org) items.push(org + ':');
+            // Bold başlıq yox: qurum locative ilə eyni cümlədə («Nazirliyində 11.09.2026 tarixində …»).
+            if (org) {
+                var loc = toLocativeAz(org);
+                var head = normalizeStr(body);
+                if (head.indexOf(normalizeStr(org)) !== 0 && head.indexOf(normalizeStr(loc)) !== 0) {
+                    body = loc + ' ' + lowercaseFirst(body);
+                }
+            }
             items.push(body);
         });
         return items;
