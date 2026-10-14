@@ -1,9 +1,9 @@
 import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda14';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda46';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda47';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda16';
-import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda3';
+import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda4';
 
 var chartRebuildRaf = {};
 var chartRebuildFn = {};
@@ -458,6 +458,122 @@ function drawStatusChart(tasks) {
         plugins: [centerTextPlugin]
     });
     scheduleChartFill(state.statusChart);
+}
+
+export function renderPriorityChart(tasks) {
+    debounceChartRebuild('priorityChart', function() { drawPriorityChart(tasks); });
+}
+
+function openPriorityGroup(pri) {
+    if (!pri) return;
+    if (state.currentPriorityFilter === pri && !state.currentAssigneeFilter) applyAssigneePriority(null, null);
+    else applyAssigneePriority(null, pri);
+}
+
+function renderPriorityLegend(names, data, colors, total) {
+    var el = document.getElementById('priorityChartLegend');
+    if (!el) return;
+    var active = state.currentPriorityFilter || '';
+    el.innerHTML = names.map(function(name, i) {
+        var n = data[i] || 0;
+        var pct = total ? Math.round((n / total) * 100) : 0;
+        var isOn = active === name;
+        return '<button type="button" class="icra-legend-row' + (isOn ? ' is-active' : '') + '" data-priority="' + escapeEsdChip(name) + '"'
+            + ' title="' + escapeEsdChip(name) + ' prioritetli tapşırıqlar">'
+            + '<span class="icra-legend-dot" style="background:' + colors[i] + '"></span>'
+            + '<span class="icra-legend-name">' + escapeEsdChip(name) + '</span>'
+            + '<span class="icra-legend-meta"><b>' + n + '</b><em>' + pct + '%</em></span>'
+            + '</button>';
+    }).join('');
+    Array.prototype.forEach.call(el.querySelectorAll('.icra-legend-row'), function(btn) {
+        btn.addEventListener('click', function(ev) {
+            if (ev && ev.stopPropagation) ev.stopPropagation();
+            openPriorityGroup(btn.getAttribute('data-priority'));
+        });
+    });
+}
+
+function drawPriorityChart(tasks) {
+    var canvas = document.getElementById('priorityChart');
+    var emptyEl = document.getElementById('priorityChartEmpty');
+    var legendEl = document.getElementById('priorityChartLegend');
+    var bodyEl = canvas && canvas.closest ? canvas.closest('.priority-dash-body') : null;
+    if (!canvas) return;
+    var units = countableWorkUnits(tasks);
+    var counts = {};
+    units.forEach(function(t) {
+        var pri = getTaskPriorityName(t);
+        counts[pri] = (counts[pri] || 0) + 1;
+    });
+    var names = Object.keys(counts).sort(comparePriorityNames);
+    var data = names.map(function(n) { return counts[n]; });
+    var colors = names.map(function(n) { return getPriorityColor(n); });
+    var total = data.reduce(function(a, b) { return a + b; }, 0);
+    var ctx = canvas.getContext('2d');
+    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    state.priorityChart = null;
+    if (!names.length || !total) {
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        if (bodyEl) bodyEl.classList.add('hidden');
+        if (legendEl) legendEl.innerHTML = '';
+        return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+    if (bodyEl) bodyEl.classList.remove('hidden');
+    renderPriorityLegend(names, data, colors, total);
+    var centerTextPlugin = {
+        id: 'priorityCenterText',
+        afterDraw: function(chart) {
+            var area = chart.chartArea;
+            var c = chart.ctx;
+            c.save();
+            c.font = '700 22px Inter';
+            c.fillStyle = '#1e293b';
+            c.textAlign = 'center';
+            c.textBaseline = 'middle';
+            c.fillText(String(total), area.left + area.width / 2, area.top + area.height / 2 - 8);
+            c.font = '500 12px Inter';
+            c.fillStyle = '#64748b';
+            c.fillText('tapşırıq', area.left + area.width / 2, area.top + area.height / 2 + 10);
+            c.restore();
+        }
+    };
+    state.priorityChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: { labels: names, datasets: [{ data: data, backgroundColor: colors, borderWidth: 3, borderColor: '#ffffff', hoverOffset: 4 }] },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '72%',
+            layout: { padding: 2 },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    padding: 10,
+                    cornerRadius: 8,
+                    titleFont: { family: 'Inter', size: 12, weight: 'bold' },
+                    bodyFont: { family: 'Inter', size: 11 },
+                    callbacks: {
+                        label: function(ctx2) {
+                            var n = ctx2.parsed || 0;
+                            var pct = total ? Math.round((n / total) * 100) : 0;
+                            return ' ' + n + ' tapşırıq (' + pct + '%)';
+                        }
+                    }
+                }
+            },
+            onHover: function(e, el) { e.native.target.style.cursor = el[0] ? 'pointer' : 'default'; },
+            onClick: function(e, c) {
+                if (!c.length) return;
+                var native = e && e.native;
+                if (native && native.stopPropagation) native.stopPropagation();
+                openPriorityGroup(names[c[0].index]);
+            }
+        },
+        plugins: [centerTextPlugin]
+    });
+    scheduleChartFill(state.priorityChart);
 }
 
 export function renderAssigneeChart(tasks) {
@@ -919,6 +1035,7 @@ function scheduleChartFill(chart) {
 function rememberChart(id, chart) {
     if (id === 'statusChart') state.statusChart = chart;
     else if (id === 'assigneeChart') state.assigneeChart = chart;
+    else if (id === 'priorityChart') state.priorityChart = chart;
     else if (id === 'epicChart') state.epicChart = chart;
     else if (id === 'labelChart') state.labelChart = chart;
     else if (id === 'qurumChart') state.qurumChart = chart;
@@ -1186,6 +1303,7 @@ export function resizeDashboardCharts() {
         if (state.filteredTasks && state.filteredTasks.length) {
             renderStatusChart(state.statusChartTasks || state.filteredTasks);
             renderAssigneeChart(state.assigneeChartTasks || state.filteredTasks);
+            renderPriorityChart(state.priorityChartTasks || state.filteredTasks);
         }
         if (state.epicChartTasks) renderEpicChart(state.epicChartTasks);
         if (state.qurumChartTasks) renderQurumChart(state.qurumChartTasks);
@@ -1193,7 +1311,7 @@ export function resizeDashboardCharts() {
         if (labelEl && !labelEl.classList.contains('hidden')) renderLabelChart();
         return;
     }
-    ['statusChart', 'assigneeChart', 'epicChart', 'labelChart', 'qurumChart'].forEach(function(id) {
+    ['statusChart', 'assigneeChart', 'priorityChart', 'epicChart', 'labelChart', 'qurumChart'].forEach(function(id) {
         var ch = typeof Chart !== 'undefined' ? Chart.getChart(id) : null;
         if (!ch) return;
         var horizontal = ch.options && ch.options.indexAxis === 'y';
