@@ -727,6 +727,32 @@ def get_client_config():
     })
 
 
+@api.route('/api/service-digitization', methods=['GET', 'OPTIONS'])
+@login_required
+def api_service_digitization():
+    """Xidmətlərin rəqəmsallaşma vəziyyəti — mərhələ / KPI məlumatı."""
+    if request.method == 'OPTIONS':
+        return options_ok()
+    return jsonify({
+        'stages': [
+            {'name': 'Müraciət mərhələsi', 'value': 75, 'target': 100},
+            {'name': 'Emal mərhələsi', 'value': 93, 'target': 100},
+            {'name': 'Nəticə təqdim edilmə mərhələsi', 'value': 79, 'target': 100},
+            {'name': 'Xidmət haqqında məlumat əldəetmə', 'value': 41, 'target': 80},
+            {'name': 'Xidmətin bütün istifadəçi qrupları üçün əlçatanlığı', 'value': 52, 'target': 90},
+            {'name': 'Ödəniş imkanları', 'value': None, 'target': 100, 'na': True},
+        ],
+        'overall': {'current': 68.4, 'target': 95},
+        'services': {
+            'digitized': 139,
+            'notDigitized': 11,
+            'assessed': 42,
+            'interactive': 32,
+            'proactive': 10,
+        },
+    }), 200
+
+
 @api.route('/api/chat', methods=['POST', 'OPTIONS'])
 @login_required
 def api_chat():

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AI Done bot — ported verbatim from ai-done-bot.html
  * SVG ids prefixed with donebot-. Demo UI removed.
  */

@@ -1,4 +1,4 @@
-(function () {
+﻿(function () {
     var editingId = '';
     var homeProjectKey = 'DGD';
     var peopleCache = {};

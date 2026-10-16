@@ -1,4 +1,4 @@
-export const state = {
+﻿export const state = {
     allTasks: [],
     filteredTasks: [],
     allDirections: [],

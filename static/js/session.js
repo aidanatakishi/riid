@@ -11,6 +11,11 @@ export function apiFetch(url, opts) {
     return fetch(url, opts).then(function(res) {
         if (res.status === 401) {
             var path = String(url || '');
+            // Jira proxy 401 = PAT səhv/bitib — app sessiyası canlıdır.
+            // Loginə atmaq səhifəni sönüb-yandırır (sonsuz reload).
+            if (path.indexOf('/api/jira') !== -1) {
+                return res;
+            }
             if (
                 path.indexOf('/api/auth/login') === -1
                 && path.indexOf('/api/auth/status') === -1

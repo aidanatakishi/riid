@@ -1,4 +1,4 @@
-export var STATUS = {
+﻿export var STATUS = {
     done: '#059669',
     progress: '#7c3aed',
     review: '#6366f1',

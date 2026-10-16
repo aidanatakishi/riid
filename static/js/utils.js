@@ -1,4 +1,4 @@
-import { state } from './state.js';
+﻿import { state } from './state.js';
 import { getStatusGroup } from './model.js?v=idda10';
 
 export function showToast(message, type) {

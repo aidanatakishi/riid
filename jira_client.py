@@ -72,6 +72,24 @@ def session_request(session, method, url, **kwargs):
         return session.request(method, url, **kwargs)
 
 
+def _clarify_jira_msg(msg, status=0):
+    text = str(msg or '').strip()
+    low = text.lower()
+    # Auth olmadan / icazəsiz Jira tez-tez «project does not exist» yazır.
+    if "does not exist for the field 'project'" in low or 'does not exist for the field "project"' in low:
+        return (
+            "Jira layihəni görmür (məs. DGD). Ən çox səbəb: token səhvdir/bitib, "
+            "və ya hesabın bu layihəyə Browse icazəsi yoxdur. "
+            "Tənzimləmələrdə yeni PAT yazın; KEY jira.idda.az URL-indəki ilə eyni olsun."
+        )
+    if status in (401, 403) or 'unauthorized' in low or 'authentication' in low:
+        return (
+            "Jira tokeni səhvdir, müddəti bitib və ya icazə yoxdur. "
+            "jira.idda.az-da yeni Personal Access Token yaradıb Tənzimləmələrdə yazın."
+        )
+    return text
+
+
 def http_error_payload(res):
     try:
         error_data = res.json()
@@ -83,7 +101,8 @@ def http_error_payload(res):
                     msg = ' '.join(str(item) for item in msgs if item)
                 else:
                     msg = str(msgs or '')
-            return {'error': msg or f'Jira HTTP {res.status_code} qaytardı.'}
+            clarified = _clarify_jira_msg(msg or '', res.status_code)
+            return {'error': clarified or f'Jira HTTP {res.status_code} qaytardı.'}
     except Exception:
         pass
     if res.status_code in (401, 403):

@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { apiFetch } from './session.js?v=idda14';
+import { apiFetch } from './session.js?v=idda15';
 import {
     collectActivityDirectionFieldIds,
     collectSelfDisplayFieldIds
@@ -21,6 +21,8 @@ var SEARCH_FIELDS = [
     'customfield_17311', 'customfield_17312', 'customfield_17313', 'customfield_17314',
     'customfield_17315', 'customfield_17316', 'customfield_17317', 'customfield_17318',
     'customfield_17319', 'customfield_17320', 'customfield_17435',
+    'customfield_17634', 'customfield_17635', 'customfield_17636', 'customfield_17637',
+    'customfield_17638', 'customfield_17639',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ];
 

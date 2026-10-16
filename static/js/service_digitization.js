@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Xidmətlərin rəqəmsallaşma vəziyyəti — EXQ hub.
  * Data Jira EXQ sətirlərindən (buildExqServiceDigitization) gəlir.
  */

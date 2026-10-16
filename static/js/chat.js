@@ -1,4 +1,4 @@
-import { state } from './state.js';
+﻿import { state } from './state.js';
 import { normalizeStr } from './utils.js?v=idda7';
 import {
     isTaskType,
@@ -2213,9 +2213,10 @@ async function reply(question) {
     var html = local.html;
     var used = local.text || '';
     var localKind = (local.facts && local.facts.kind) || '';
-    // Salam/kömək/hesabat lokal qalsın; open şablonunu LLM-ə draft kimi vermə
-    var skipLlm = /^(report|greet|thanks|identity|help|about|empty)$/.test(localKind);
-    var sendDraft = !/^(open|)$/.test(localKind);
+    // Hesabat UI və boş panel lokal qalsın; qalanı (salam/kömək daxil) real AI-ə getsin
+    // open şablonunu LLM-ə draft kimi vermə — cavabı şablonlaşdırır
+    var skipLlm = /^(report|empty)$/.test(localKind);
+    var sendDraft = !/^(open|greet|thanks|identity|help|about|)$/.test(localKind);
     try {
         if (!chatLlm) {
             try {

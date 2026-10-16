@@ -1,4 +1,4 @@
-import { state } from './state.js';
+﻿import { state } from './state.js';
 import { normalizeStr } from './utils.js?v=idda7';
 
 function getIssueTypeName(t) {

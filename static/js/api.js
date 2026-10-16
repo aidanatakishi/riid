@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { apiFetch, rememberCurrentProject } from './session.js?v=idda14';
+import { apiFetch, rememberCurrentProject } from './session.js?v=idda15';
 import { normalizeStr, showToast, hideSettings } from './utils.js?v=idda7';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda18';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda47';
@@ -124,7 +124,17 @@ function formatJiraFail(res, data) {
     var msg = '';
     if (data && data.errorMessages && data.errorMessages[0]) msg = data.errorMessages[0];
     else if (data && data.error) msg = data.error;
-    if (msg) return msg;
+    if (msg) {
+        var low = String(msg).toLowerCase();
+        if (low.indexOf("does not exist for the field 'project'") !== -1
+            || low.indexOf('does not exist for the field "project"') !== -1) {
+            return 'Jira layihəni görmür (DGD). Token səhv/bitib ola bilər, və ya bu layihəyə icazəniz yoxdur. Tənzimləmələrdə yeni PAT yazın; KEY-i jira.idda.az URL-indən yoxlayın.';
+        }
+        return msg;
+    }
+    if (res && res.status === 401) {
+        return 'Jira tokeni səhvdir və ya bitib. Tənzimləmələrdə yeni Personal Access Token yazın.';
+    }
     if (res && res.status === 503) {
         return 'Jira müvəqqəti əlçatan deyil (503). Brauzerdə jira.idda.az açın və bir az sonra yenidən yoxlayın.';
     }

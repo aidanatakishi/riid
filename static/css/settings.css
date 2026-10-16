@@ -228,3 +228,7 @@ body.settings-page {
     .set-link.is-exit { margin-top: 0; }
     .set-grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 520px) {
+    .set-shell { padding: 0.85rem 0.7rem 1.5rem; }
+    .set-link { flex: 1 1 auto; min-width: 0; }
+}
