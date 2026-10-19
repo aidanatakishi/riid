@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda63';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda64';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -4915,6 +4915,82 @@ function mqKindHtml(st) {
         + '</div>' + legend;
 }
 
+var MQ_KIND_COLORS = {
+    new_system: '#2f6fed',
+    exist_system: '#1a9b64',
+    new_service: '#e39b3a',
+    exist_service: '#e25d6c',
+    fiziki: '#0e7490',
+    rsd: '#7b68d6',
+    cloud: '#64748b',
+    other: '#94a3b8'
+};
+
+function mqKindColor(kind) {
+    return MQ_KIND_COLORS[kind] || '#94a3b8';
+}
+
+function mqKindSeries(st, kind) {
+    var months = (st && st.byKindMonth) || [];
+    var out = [];
+    var i;
+    for (i = 0; i < 12; i++) {
+        var bucket = months[i] || {};
+        out.push(Number(bucket[kind]) || 0);
+    }
+    return out;
+}
+
+function mqDynSub(view) {
+    var period = (view && view.period) || '';
+    if (period && period !== 'Bütün illər') return 'Hər ay müraciət növünə görə say, ' + period;
+    return 'Hər ay müraciət növünə görə say';
+}
+
+function mqKindDynSeries(st) {
+    return mqKindRows(st).map(function(r) {
+        return {
+            kind: r.kind,
+            n: r.n,
+            label: (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[r.kind]) || r.kind,
+            color: mqKindColor(r.kind),
+            data: mqKindSeries(st, r.kind)
+        };
+    });
+}
+
+var MQ_KIND_SHORT = {
+    new_system: 'Yeni sistem',
+    new_service: 'Yeni xidmət',
+    exist_system: 'Mövcud sistem',
+    exist_service: 'Mövcud xidmət',
+    fiziki: 'Fiziki → rəqəmsal',
+    rsd: 'RSD',
+    cloud: 'Hökumət buludu',
+    other: 'Digər'
+};
+
+function mqKindDynamicsHtml(st) {
+    var series = mqKindDynSeries(st);
+    if (!series.length) return '<p class="mq-empty">Müraciət növü yoxdur.</p>';
+    var kindOn = (MEQSED_NOVU_KINDS || []).concat(['other']).indexOf(ui.hubFilter) >= 0;
+    var legend = '<ul class="mq-dyn-legend" aria-label="Müraciət növləri">' + series.map(function(s) {
+        var on = mqFilterOn(s.kind);
+        var dim = kindOn && !on;
+        var short = MQ_KIND_SHORT[s.kind] || s.label;
+        return '<li><button type="button" class="mq-dyn-leg' + (on ? ' is-on' : '') + (dim ? ' is-dim' : '') + '"'
+            + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
+            + ' title="' + esc(s.label) + '"'
+            + ' onclick="' + mqHit(s.kind) + '">'
+            + '<i style="background:' + s.color + '"></i>'
+            + '<span>' + esc(short) + '</span>'
+            + '<b>' + s.n + '</b>'
+            + '</button></li>';
+    }).join('') + '</ul>';
+    return '<div class="mq-dyn-chart" id="mqKindDynChart" role="img" aria-label="Müraciət növü üzrə aylıq dinamika"></div>'
+        + legend;
+}
+
 function mqOrgBlock(st) {
     var rows = (st.topQurums || []).filter(function(r) { return r && r.n > 0; }).slice(0, 5);
     if (!rows.length) return { note: '', html: '<p class="mq-empty">Qurum müraciəti yoxdur.</p>' };
@@ -4972,6 +5048,13 @@ function meqsedDashHtml(view) {
         + '<p class="mq-sub">Ümumi ' + total + ' müraciət · növə klikləyib filtrləyin</p>'
         + mqKindHtml(st)
         + '</section>'
+        + '<section class="mq-card mq-card--dyn">'
+        + '<h3>Müraciət növü üzrə dinamika</h3>'
+        + '<p class="mq-sub">' + esc(mqDynSub(view)) + '</p>'
+        + mqKindDynamicsHtml(st)
+        + '</section>'
+        + '</div>'
+        + '<div class="mq-grid">'
         + '<section class="mq-card">'
         + '<h3>Aylıq axın</h3>'
         + '<p class="mq-sub">' + esc(mqFlowSub(view)) + '</p>'
@@ -4980,12 +5063,12 @@ function meqsedDashHtml(view) {
                 + mqLegendHtml(flowItems, total, 'mq-legend mq-legend--flow', true)
             : '<p class="mq-empty">Aylıq məlumat yoxdur.</p>')
         + '</section>'
-        + '</div>'
         + '<section class="mq-card">'
         + '<h3>Ən çox müraciət edən qurumlar</h3>'
         + (orgs.note ? '<p class="mq-sub">' + esc(orgs.note) + '</p>' : '<p class="mq-sub">İlk 5 qurum</p>')
         + orgs.html
         + '</section>'
+        + '</div>'
         + '</div>';
 }
 
@@ -5417,6 +5500,7 @@ function drawHubCharts(view) {
         });
     }
     drawMeqsedKindChart(st);
+    drawMeqsedKindDynChart(st);
     drawMeqsedFlowChart(st);
 }
 
@@ -5523,6 +5607,192 @@ function drawMeqsedKindChart(st) {
             }
         }
     });
+}
+
+function mqDynTangents(ys) {
+    var n = ys.length;
+    var m = [];
+    var t = new Array(n);
+    var i;
+    for (i = 0; i < n - 1; i++) m[i] = ys[i + 1] - ys[i];
+    t[0] = m[0];
+    t[n - 1] = m[n - 2];
+    for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
+    for (i = 0; i < n - 1; i++) {
+        if (Math.abs(m[i]) < 1e-9) { t[i] = 0; t[i + 1] = 0; continue; }
+        var a = t[i] / m[i];
+        var b = t[i + 1] / m[i];
+        var h = a * a + b * b;
+        if (h > 9) {
+            var tau = 3 / Math.sqrt(h);
+            t[i] = tau * a * m[i];
+            t[i + 1] = tau * b * m[i];
+        }
+    }
+    return t;
+}
+
+function mqDynSamples(values, steps) {
+    var n = values.length;
+    var tg = mqDynTangents(values);
+    var out = [];
+    var i;
+    var s;
+    for (i = 0; i < n - 1; i++) {
+        var y0 = values[i];
+        var y1 = values[i + 1];
+        var c1 = y0 + tg[i] / 3;
+        var c2 = y1 - tg[i + 1] / 3;
+        var count = i === n - 2 ? steps + 1 : steps;
+        for (s = 0; s < count; s++) {
+            var t = s / steps;
+            var u = 1 - t;
+            var y = u * u * u * y0 + 3 * u * u * t * c1 + 3 * u * t * t * c2 + t * t * t * y1;
+            out.push(y < 0 ? 0 : y);
+        }
+    }
+    return out;
+}
+
+function mqDynNiceMax(v) {
+    var n = Math.max(1, v);
+    if (n <= 4) return Math.ceil(n);
+    var step = n <= 20 ? 5 : 10;
+    return Math.ceil(n / step) * step;
+}
+
+function drawMeqsedKindDynChart(st) {
+    var host = document.getElementById('mqKindDynChart');
+    if (!host || !st) return;
+    var series = mqKindDynSeries(st);
+    if (!series.length) return;
+    var w = host.clientWidth || 0;
+    var h = host.clientHeight || 0;
+    if (w < 40 || h < 40) {
+        requestAnimationFrame(function() { drawMeqsedKindDynChart(st); });
+        return;
+    }
+    var steps = 8;
+    var samples = series.map(function(s) { return mqDynSamples(s.data, steps); });
+    var len = samples[0].length;
+    var peak = 1;
+    var p;
+    series.forEach(function(s) {
+        s.data.forEach(function(v) { if (v > peak) peak = v; });
+    });
+    var ymax = mqDynNiceMax(peak);
+    var padL = 28;
+    var padR = 10;
+    var padT = 14;
+    var padB = 22;
+    var plotW = Math.max(10, w - padL - padR);
+    var plotH = Math.max(10, h - padT - padB);
+    function xAt(i) { return padL + (i / (len - 1)) * plotW; }
+    function yAt(v) { return padT + plotH - (v / ymax) * plotH; }
+    var kindOn = (MEQSED_NOVU_KINDS || []).concat(['other']).indexOf(ui.hubFilter) >= 0;
+    var grads = '';
+    var fills = '';
+    var strokes = '';
+    var dots = '';
+    var baseY = yAt(0).toFixed(2);
+    series.forEach(function(s, idx) {
+        var dim = kindOn && !mqFilterOn(s.kind);
+        var gid = 'mqDynFill' + idx;
+        grads += '<linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">'
+            + '<stop offset="0%" stop-color="' + s.color + '" stop-opacity="' + (dim ? '0.04' : '0.20') + '"/>'
+            + '<stop offset="72%" stop-color="' + s.color + '" stop-opacity="' + (dim ? '0.02' : '0.05') + '"/>'
+            + '<stop offset="100%" stop-color="' + s.color + '" stop-opacity="0"/>'
+            + '</linearGradient>';
+        var samp = samples[idx];
+        var d = 'M ' + xAt(0).toFixed(2) + ' ' + yAt(samp[0]).toFixed(2);
+        for (p = 1; p < len; p++) d += ' L ' + xAt(p).toFixed(2) + ' ' + yAt(samp[p]).toFixed(2);
+        fills += '<path d="' + d + ' L ' + xAt(len - 1).toFixed(2) + ' ' + baseY + ' L ' + xAt(0).toFixed(2) + ' ' + baseY + ' Z" fill="url(#' + gid + ')"></path>';
+        strokes += '<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-opacity="' + (dim ? '0.22' : '1') + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>';
+        s.data.forEach(function(v, mi) {
+            if (!v) return;
+            dots += '<circle cx="' + (padL + (mi / 11) * plotW).toFixed(2) + '" cy="' + yAt(v).toFixed(2) + '" r="3.1" fill="#fff" stroke="' + s.color + '" stroke-opacity="' + (dim ? '0.28' : '1') + '" stroke-width="1.8"/>';
+        });
+    });
+    var grid = '';
+    var ticks = ymax <= 5 ? ymax : Math.round(ymax / (ymax <= 20 ? 5 : 10));
+    var step = ymax / (ticks || 1);
+    var g;
+    for (g = 0; g <= ticks; g++) {
+        var val = Math.round(step * g);
+        var gy = yAt(val);
+        grid += '<line x1="' + padL + '" y1="' + gy.toFixed(2) + '" x2="' + (w - padR) + '" y2="' + gy.toFixed(2) + '" stroke="#e8edf3" stroke-width="1"/>';
+        grid += '<text x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(2) + '" text-anchor="end" fill="#94a3b8" font-size="10" font-family="Inter, Segoe UI, sans-serif">' + val + '</text>';
+    }
+    var labels = '';
+    MQ_MONTHS.forEach(function(name, i) {
+        var x = padL + (i / 11) * plotW;
+        labels += '<text x="' + x.toFixed(2) + '" y="' + (h - 6) + '" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600" font-family="Inter, Segoe UI, sans-serif">' + name + '</text>';
+    });
+    host.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="100%" aria-hidden="true">'
+        + '<defs>' + grads + '</defs>'
+        + grid
+        + '<rect class="mq-dyn-hl" x="0" y="' + padT + '" width="0" height="' + plotH + '" fill="rgba(15,23,42,0.035)"></rect>'
+        + fills + strokes + dots + labels
+        + '</svg><div class="mq-dyn-tip" hidden></div>';
+    var svg = host.querySelector('svg');
+    var tip = host.querySelector('.mq-dyn-tip');
+    var hl = host.querySelector('.mq-dyn-hl');
+    function monthAt(clientX) {
+        var box = svg.getBoundingClientRect();
+        if (!box.width) return -1;
+        var x = ((clientX - box.left) / box.width) * w;
+        var t = (x - padL) / plotW;
+        if (t < -0.04 || t > 1.04) return -1;
+        return Math.max(0, Math.min(11, Math.round(t * 11)));
+    }
+    function kindAt(clientX, clientY) {
+        var month = monthAt(clientX);
+        if (month < 0) return '';
+        var box = svg.getBoundingClientRect();
+        var y = ((clientY - box.top) / box.height) * h;
+        var best = '';
+        var bestDist = 16;
+        series.forEach(function(s) {
+            var v = s.data[month] || 0;
+            if (!v) return;
+            var dist = Math.abs(y - yAt(v));
+            if (dist < bestDist) { bestDist = dist; best = s.kind; }
+        });
+        return best;
+    }
+    host.onmousemove = function(ev) {
+        var month = monthAt(ev.clientX);
+        if (month < 0) { tip.hidden = true; hl.setAttribute('width', '0'); host.style.cursor = 'default'; return; }
+        var box = host.getBoundingClientRect();
+        var colW = plotW / 11;
+        var svgBox = svg.getBoundingClientRect();
+        var x = padL + (month / 11) * plotW;
+        hl.setAttribute('x', (x - colW / 2).toFixed(2));
+        hl.setAttribute('width', colW.toFixed(2));
+        var lines = series.map(function(s) {
+            var v = s.data[month] || 0;
+            if (!v) return '';
+            return '<span><i style="background:' + s.color + '"></i>' + esc(MQ_KIND_SHORT[s.kind] || s.label) + ' <b>' + v + '</b></span>';
+        }).filter(Boolean);
+        tip.innerHTML = '<strong>' + MQ_MONTHS[month] + '</strong>' + (lines.length ? lines.join('') : '<span>0</span>');
+        tip.hidden = false;
+        var left = ((x / w) * svgBox.width) + (svgBox.left - box.left);
+        var tipW = tip.offsetWidth || 80;
+        left = Math.max(tipW / 2 + 4, Math.min(box.width - tipW / 2 - 4, left));
+        tip.style.left = left + 'px';
+        tip.style.top = '8px';
+        var over = kindAt(ev.clientX, ev.clientY);
+        host.style.cursor = over ? 'pointer' : 'default';
+    };
+    host.onmouseleave = function() {
+        tip.hidden = true;
+        hl.setAttribute('width', '0');
+        host.style.cursor = 'default';
+    };
+    host.onclick = function(ev) {
+        var kind = kindAt(ev.clientX, ev.clientY);
+        if (kind) nk303Call('hubFilter', kind);
+    };
 }
 
 function drawMeqsedFlowChart(st) {

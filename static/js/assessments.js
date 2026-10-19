@@ -1839,6 +1839,7 @@ function collectMeqsedListStats(rows) {
         resubmitN: 0,
         resubmitDenom: 0,
         byMonth: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(emptyResultSplit),
+        byKindMonth: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(function() { return {}; }),
         byKindResult: emptyMeqsedKindSplits(),
         topQurums: [],
         qurumAll: 0
@@ -1873,7 +1874,10 @@ function collectMeqsedListStats(rows) {
         bumpResultSplit(stats.byKindResult[kind], result || 'none');
         var when = getTaskStartDate(r && r.task) || getTaskCreatedDate(r && r.task);
         if (when && isFinite(when.getTime())) {
-            bumpResultSplit(stats.byMonth[when.getMonth()], result || 'none');
+            var monthIdx = when.getMonth();
+            bumpResultSplit(stats.byMonth[monthIdx], result || 'none');
+            var monthKinds = stats.byKindMonth[monthIdx];
+            monthKinds[kind] = (monthKinds[kind] || 0) + 1;
         }
         if (units.isNew) stats.yeni += 1;
         if (units.isExist) stats.movcud += 1;
