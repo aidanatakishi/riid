@@ -4849,113 +4849,127 @@ body.settings-open { overflow: hidden; }
     box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
 }
 
-/* Unified week + sprint control cluster */
+/* Həftə və sprint — bir seqmentli seçici */
 .app-sprint-bar {
-    --sb-h: 2.5rem;
-    --sb-r: 12px;
+    --sb-h: 2.25rem;
+    --sb-r: 10px;
     --sb-fs: 0.8125rem;
-    --sb-fw: 650;
-    --sb-gap: 0.4rem;
-    --sb-bd: #e8e0f4;
-    --sb-ink: #4c1d95;
-    --sb-muted: #64748b;
-    --sb-fill: #ffffff;
-    --sb-soft: #f7f4fd;
-    --sb-primary: #7c3aed;
-    --sb-primary-hover: #6d28d9;
-    --sb-shadow: 0 1px 2px rgba(49, 16, 99, 0.05);
+    --sb-fw: 600;
     display: inline-flex;
     flex-wrap: nowrap;
-    align-items: center;
-    gap: var(--sb-gap);
+    align-items: stretch;
+    gap: 0;
     min-width: 0;
     max-width: 100%;
+    background: #fff;
+    border: 1px solid #e6e8ee;
+    border-radius: var(--sb-r);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .app-toolbar .app-sprint-bar .app-btn,
 .app-sprint-bar .app-btn {
     flex: 0 0 auto;
     height: var(--sb-h);
     min-height: var(--sb-h);
-    padding: 0 1.05rem;
-    border-radius: var(--sb-r);
+    padding: 0 0.95rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #3f3f46;
     font-size: var(--sb-fs);
     font-weight: var(--sb-fw);
     letter-spacing: -0.01em;
     line-height: 1;
     white-space: nowrap;
-    box-shadow: var(--sb-shadow);
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+    box-shadow: none;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.app-sprint-bar .app-btn:first-child {
+    border-radius: 9px 0 0 9px;
+}
+.app-sprint-bar .app-btn + .app-btn {
+    box-shadow: inset 1px 0 0 #ececf1;
 }
 .app-toolbar .app-sprint-bar .app-btn--primary,
 .app-sprint-bar .app-btn--primary {
-    border: 1px solid transparent;
-    background: var(--sb-primary);
+    background: #5b21b6;
     color: #fff;
-    box-shadow: 0 6px 16px -8px rgba(124, 58, 237, 0.55);
+    box-shadow: none;
+}
+.app-sprint-bar .app-btn + .app-btn.app-btn--primary {
+    box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.16);
 }
 .app-toolbar .app-sprint-bar .app-btn--primary:hover,
 .app-sprint-bar .app-btn--primary:hover {
-    background: var(--sb-primary-hover);
+    background: #4c1d95;
     color: #fff;
-    box-shadow: 0 8px 18px -8px rgba(109, 40, 217, 0.55);
+    box-shadow: none;
 }
 .app-toolbar .app-sprint-bar .app-btn--ghost,
 .app-sprint-bar .app-btn--ghost {
-    border: 1px solid var(--sb-bd);
-    background: var(--sb-fill);
-    color: var(--sb-ink);
+    border: 0;
+    background: transparent;
+    color: #3f3f46;
+    box-shadow: none;
+}
+.app-sprint-bar .app-btn + .app-btn.app-btn--ghost {
+    box-shadow: inset 1px 0 0 #ececf1;
 }
 .app-toolbar .app-sprint-bar .app-btn--ghost:hover,
 .app-sprint-bar .app-btn--ghost:hover {
-    background: var(--sb-soft);
-    border-color: #d8cef0;
-    color: #3b0764;
+    background: #f6f5f8;
+    border-color: transparent;
+    color: #18181b;
 }
 .app-field--sprint {
     position: relative;
     flex: 1 1 auto;
+    align-self: stretch;
     min-width: 11rem;
-    max-width: 17.5rem;
+    max-width: 16.5rem;
     width: auto;
+    box-shadow: inset 1px 0 0 #ececf1;
 }
 .sprint-picker { position: relative; width: 100%; min-width: 0; }
 .app-toolbar .sprint-picker-btn,
 .sprint-picker-btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.4rem;
     width: 100%;
+    height: 100%;
     min-width: 0;
-    height: var(--sb-h, 2.5rem);
-    min-height: var(--sb-h, 2.5rem);
-    padding: 0 0.75rem 0 0.8rem;
-    border: 1px solid var(--sb-bd, #e8e0f4);
-    border-radius: var(--sb-r, 12px);
-    background: var(--sb-fill, #fff);
-    color: var(--sb-ink, #4c1d95);
+    min-height: var(--sb-h, 2.25rem);
+    padding: 0 0.7rem 0 0.85rem;
+    border: 0;
+    border-radius: 0 9px 9px 0;
+    background: transparent;
+    color: #3f3f46;
     font-family: inherit;
     font-size: var(--sb-fs, 0.8125rem);
-    font-weight: var(--sb-fw, 650);
+    font-weight: 600;
     letter-spacing: -0.01em;
     line-height: 1;
     text-align: left;
     cursor: pointer;
-    box-shadow: var(--sb-shadow, 0 1px 2px rgba(49, 16, 99, 0.05));
-    transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+    box-shadow: none;
+    transition: background 0.15s ease, color 0.15s ease;
 }
 .sprint-picker-btn:hover {
-    background: var(--sb-soft, #f7f4fd);
-    border-color: #d8cef0;
-    color: #3b0764;
+    background: #f6f5f8;
+    color: #18181b;
 }
-.sprint-picker-btn.is-open,
-.sprint-picker-btn.is-active {
-    border-color: #c4b5fd;
-    background: #f3eefe;
-    color: #4c1d95;
-    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+.sprint-picker-btn.is-open {
+    background: #f6f5f8;
+    color: #18181b;
+    box-shadow: none;
 }
-.sprint-picker-btn:active { transform: scale(0.98); }
+.app-sprint-bar:not(:has(.app-btn--primary)) .sprint-picker-btn.is-active {
+    background: #f4f0ff;
+    color: #5b21b6;
+}
+.app-sprint-bar .app-btn:active,
+.sprint-picker-btn:active { transform: none; }
 .sprint-picker-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
@@ -4980,6 +4994,7 @@ body.settings-open { overflow: hidden; }
     color: #6d28d9;
 }
 .sprint-picker-ico svg { width: 1rem; height: 1rem; }
+.app-field .sprint-picker-text,
 .sprint-picker-text {
     flex: 1 1 auto;
     min-width: 0;
@@ -4987,6 +5002,10 @@ body.settings-open { overflow: hidden; }
     text-overflow: ellipsis;
     white-space: nowrap;
     color: inherit;
+    text-transform: none;
+    letter-spacing: -0.01em;
+    font-size: inherit;
+    font-weight: 600;
 }
 .sprint-picker-chevron {
     width: 0.9rem;
@@ -5125,25 +5144,25 @@ body.settings-open { overflow: hidden; }
 }
 @media (max-width: 639px) {
     .app-sprint-bar {
-        --sb-h: var(--touch-min, 2.75rem);
-        --sb-r: 12px;
-        --sb-fs: 0.78rem;
+        --sb-h: 2.5rem;
+        --sb-r: 10px;
+        --sb-fs: 0.75rem;
         display: flex;
         flex-wrap: nowrap;
-        align-items: center;
-        gap: 0.35rem;
+        align-items: stretch;
+        gap: 0;
         width: 100%;
         min-width: 0;
         overflow: visible;
     }
     .app-sprint-bar .app-btn {
         flex: 0 1 auto;
-        max-width: 42%;
+        max-width: none;
         min-width: 0;
         height: var(--sb-h);
         min-height: var(--sb-h);
-        padding-left: 0.6rem;
-        padding-right: 0.6rem;
+        padding-left: 0.65rem;
+        padding-right: 0.65rem;
         font-size: var(--sb-fs);
     }
     .app-field--sprint {

@@ -2135,7 +2135,22 @@ button.nk303-kpi {
 .nk303-card--index { margin-bottom: 0.8rem; }
 .nk303-card--index h3 { margin-bottom: 0.35rem; }
 .nk303-card--index .nk303-hint { margin: 0 0 1rem; }
-.nk303-chart--index { height: 12.5rem; width: 100%; }
+.nk303-chart--index { height: 12.5rem; width: 100%; cursor: default; }
+.nk303-chart--index canvas { cursor: default; }
+.nk303-trend-years {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 0.85rem;
+    margin: 0 0 0.55rem;
+    color: #475569;
+    font-size: 0.82rem;
+    font-weight: 650;
+    line-height: 1.3;
+}
+.nk303-trend-years b {
+    color: #0f172a;
+    font-weight: 800;
+}
 
 .nk303-rank {
     margin: 0;
@@ -2923,13 +2938,45 @@ button.nk303-kpi {
     min-width: 0;
 }
 .nk303-dirs--isq {
-    grid-template-columns: repeat(auto-fill, minmax(11.5rem, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(14.5rem, 1fr));
+    gap: 0.7rem;
+}
+.nk303-dirs--isq .nk303-dir {
+    overflow: hidden;
+    padding: 0.8rem 0.85rem 0.85rem;
+    border-radius: 14px;
+}
+.nk303-dirs--isq .nk303-dir-top {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.4rem;
+    margin-bottom: 0.15rem;
+}
+.nk303-dirs--isq .nk303-dir-top b {
+    display: block;
+    max-width: 100%;
+    font-size: 0.86rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: #0f172a;
+    overflow-wrap: anywhere;
+}
+.nk303-dirs--isq .nk303-mat {
+    white-space: normal;
+    max-width: 100%;
+    margin: 0;
+    padding: 0.22rem 0.5rem;
+    font-size: 0.68rem;
+    line-height: 1.35;
+    border-radius: 8px;
+    text-align: left;
+    justify-content: flex-start;
 }
 .nk303-dirs--isq .nk303-dir-score {
     font-size: 1.35rem;
     font-weight: 800;
     color: #0f172a;
-    margin: 0.15rem 0 0.35rem;
+    margin: 0.35rem 0 0;
 }
 .nk303-dir {
     background: #fff;

@@ -625,9 +625,8 @@ export function updateSprintFilterState() {
 
 function previousSprintValue(sprintSelect, names) {
     var list = names || [];
-    var selected = sprintSelect && sprintSelect.value;
-    var from = (selected && selected !== 'all') ? selected : latestSprintValue(sprintSelect, list);
-    var idx = list.indexOf(from);
+    var latest = latestSprintValue(sprintSelect, list);
+    var idx = list.indexOf(latest);
     if (idx >= 0 && idx + 1 < list.length) return list[idx + 1];
     return '';
 }

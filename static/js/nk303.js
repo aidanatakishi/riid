@@ -31,7 +31,7 @@ import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda4';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { state } from './state.js';
 import { apiFetch, canSeeDiagnostics } from './session.js?v=idda15';
-import { serviceDigitizationHtml, exqOrgStagesPanelHtml } from './service_digitization.js?v=idda16';
+import { serviceDigitizationHtml, exqOrgStagesPanelHtml } from './service_digitization.js?v=idda18';
 
 var PAGE_ID = 'nk303Page';
 var MAIN_ID = 'appMain';
@@ -972,9 +972,15 @@ function buildModel() {
     var actions = collectActions(orgs);
     var trendYears = yearList.slice().sort(function(a, b) { return a - b; });
     var trend = trendYears.map(function(y) {
-        var slice = latestByOrg(all.filter(function(it) { return Number(it.year) === y; }));
-        var scoredY = slice.filter(function(o) { return o.qrsg != null; });
-        return { y: y, avg: avg(scoredY.map(function(o) { return o.qrsg; })), n: scoredY.length };
+        var yearRows = all.filter(function(it) {
+            return it && !it.fromExcel && Number(it.year) === y;
+        });
+        var scoredY = latestByOrg(yearRows).filter(function(o) { return o.qrsg != null; });
+        return {
+            y: y,
+            avg: avg(scoredY.map(function(o) { return o.qrsg; })),
+            n: yearRows.length
+        };
     });
     var delta = null;
     if (ui.year !== 'all') {
@@ -1366,10 +1372,14 @@ function trendChartHtml(model) {
         var sign = model.spanDelta < 0 ? '' : '+';
         hint += ' ' + model.spanFrom + '–' + model.spanTo + ': ' + sign + fmt1(model.spanDelta) + ' bal.';
     }
+    var counts = pts.filter(function(t) { return t && t.y != null; }).map(function(t) {
+        return '<span><b>' + esc(String(t.y)) + '</b> ' + (Number(t.n) || 0) + ' diaqnostika</span>';
+    }).join('');
     return '<section class="nk303-card nk303-card--index">'
         + '<p class="nk303-kicker">Diaqnostika və qiymətləndirmə</p>'
         + '<h3>Rəqəmsallaşma indeksinin dinamikası</h3>'
         + '<p class="nk303-hint">' + esc(hint) + '</p>'
+        + (counts ? '<p class="nk303-trend-years">' + counts + '</p>' : '')
         + (has
             ? '<div class="nk303-chart nk303-chart--index"><canvas id="nkTrendChart" aria-label="Rəqəmsallaşma indeksinin dinamikası"></canvas></div>'
             : '<p class="nk303-empty">' + esc(NA) + '</p>')
@@ -1382,8 +1392,30 @@ function scoredTrendPts(trend) {
     }).slice().sort(function(a, b) { return Number(a.y) - Number(b.y); });
 }
 
-function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+function easeInOutQuart(t) {
+    return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
+}
+
+function trendAxisBounds(series) {
+    var ys = [];
+    var i;
+    for (i = 0; i < series.length; i++) {
+        if (series[i] && series[i].y != null && isFinite(series[i].y)) ys.push(Number(series[i].y));
+    }
+    if (!ys.length) return { min: 0, max: 100 };
+    var lo = Math.min.apply(null, ys);
+    var hi = Math.max.apply(null, ys);
+    var span = Math.max(hi - lo, 6);
+    var pad = Math.max(span * 0.28, 2.5);
+    var min = Math.max(0, Math.floor((lo - pad) / 5) * 5);
+    var max = Math.min(100, Math.ceil((hi + pad) / 5) * 5);
+    if (max - min < 15) {
+        var mid = (lo + hi) / 2;
+        min = Math.max(0, Math.floor((mid - 10) / 5) * 5);
+        max = Math.min(100, Math.ceil((mid + 10) / 5) * 5);
+    }
+    if (!(max > min)) return { min: 0, max: 100 };
+    return { min: min, max: max };
 }
 
 function curvedTrendSeries(trend) {
@@ -1410,7 +1442,7 @@ function curvedTrendSeries(trend) {
             var t = s / steps;
             out.push({
                 x: x0 + (x1 - x0) * t,
-                y: y0 + (y1 - y0) * easeInOutCubic(t),
+                y: y0 + (y1 - y0) * easeInOutQuart(t),
                 real: false
             });
         }
@@ -3876,6 +3908,7 @@ function drawCharts(model) {
         var series = curvedTrendSeries(model.trend || []);
         if (series.length) {
             var yearTicks = series.filter(function(p) { return p.real; }).map(function(p) { return p.x; });
+            var yBounds = trendAxisBounds(series);
             makeChart('nkTrendChart', {
                 type: 'line',
                 data: {
@@ -3886,52 +3919,59 @@ function drawCharts(model) {
                         backgroundColor: 'rgba(124,58,237,0.14)',
                         fill: true,
                         spanGaps: true,
-                        tension: 0.2,
+                        tension: 0.42,
                         cubicInterpolationMode: 'monotone',
                         pointRadius: function(ctx) {
                             var p = series[ctx.dataIndex];
                             return p && p.real ? 5 : 0;
                         },
-                        pointHoverRadius: function(ctx) {
-                            var p = series[ctx.dataIndex];
-                            return p && p.real ? 7 : 0;
-                        },
+                        pointHoverRadius: 0,
+                        pointHitRadius: 0,
                         pointBackgroundColor: '#7c3aed',
                         pointBorderColor: '#fff',
                         pointBorderWidth: 2,
                         borderWidth: 2.8
                     }]
                 },
+                plugins: [{
+                    id: 'trendDiagCounts',
+                    afterDatasetsDraw: function(chart) {
+                        var meta = chart.getDatasetMeta(0);
+                        var area = chart.chartArea;
+                        if (!meta || !area) return;
+                        var ctx = chart.ctx;
+                        series.forEach(function(p, i) {
+                            if (!p || !p.real || p.n == null) return;
+                            var pt = meta.data[i];
+                            if (!pt) return;
+                            var label = String(p.n);
+                            ctx.save();
+                            ctx.font = '800 12px Inter, system-ui, sans-serif';
+                            ctx.fillStyle = '#5b21b6';
+                            ctx.textBaseline = 'bottom';
+                            var w = ctx.measureText(label).width;
+                            var x = pt.x;
+                            if (x - w / 2 < area.left + 2) x = area.left + 2 + w / 2;
+                            if (x + w / 2 > area.right - 2) x = area.right - 2 - w / 2;
+                            ctx.textAlign = 'center';
+                            ctx.fillText(label, x, pt.y - 8);
+                            ctx.restore();
+                        });
+                    }
+                }],
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+                    events: [],
+                    layout: { padding: { top: 16 } },
                     plugins: {
                         legend: { display: false },
-                        tooltip: {
-                            filter: function(item) {
-                                var p = series[item.dataIndex];
-                                return !!(p && p.real);
-                            },
-                            callbacks: {
-                                title: function(items) {
-                                    var i = items && items[0] && items[0].dataIndex;
-                                    var row = series[i];
-                                    return row && row.year != null ? String(row.year) : '';
-                                },
-                                label: function(ctx) {
-                                    var row = series[ctx.dataIndex] || {};
-                                    if (row.y == null) return 'Bal yoxdur';
-                                    var n = row.n || 0;
-                                    return 'Ortalama: ' + fmt1(row.y) + ' · ' + n + ' qurum';
-                                }
-                            }
-                        }
+                        tooltip: { enabled: false }
                     },
                     scales: {
                         y: {
-                            min: 0,
-                            max: 100,
+                            min: yBounds.min,
+                            max: yBounds.max,
                             ticks: { color: '#94a3b8', font: { size: 10 } },
                             grid: { color: '#eef2f7' },
                             border: { display: false }

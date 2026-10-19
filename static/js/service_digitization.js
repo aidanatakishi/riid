@@ -401,7 +401,7 @@ function ServiceDigitizationSection(raw) {
         return st.na ? null : st.value;
     });
 
-    var digitizedSub = esc(String(s.totalServices || s.digitized)) + ' xidmətdən ' + esc(num(s.digitizedPct, 1)) + '%';
+    var digitizedSub = 'Ümumi xidmət sayı: ' + esc(String(s.totalServices || s.digitized));
     var orgSub = esc(String(s.orgsTotal || 0)) + ' qurumdan ' + esc(String(s.orgsWithResult || 0)) + ' nəticəli';
 
     var gapVal = o.gap == null ? '—' : num(o.gap, 1);
@@ -429,7 +429,6 @@ function ServiceDigitizationSection(raw) {
     return '<section class="svc-digit" id="serviceDigitizationSection" aria-labelledby="svcDigitTitle">'
         + '<header class="svc-digit-head">'
         + '<h3 id="svcDigitTitle">Xidmətlərin rəqəmsallaşma vəziyyəti</h3>'
-        + '<p>Mövcud nəticələr və hədəflər · Jira EXQ · kliklə siyahını aç</p>'
         + '</header>'
         + '<div class="svc-digit-stack">'
         + OverallHero(o)
