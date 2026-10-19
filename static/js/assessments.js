@@ -1155,6 +1155,50 @@ function scoreBadge(value) {
     return '<span class="assess-score-badge">' + escapeHtml(value) + '</span>';
 }
 
+function foldAssessText(s) {
+    return normalizeStr(s)
+        .replace(/ı/g, 'i')
+        .replace(/ə/g, 'e')
+        .replace(/ö/g, 'o')
+        .replace(/ü/g, 'u')
+        .replace(/ğ/g, 'g')
+        .replace(/ş/g, 's')
+        .replace(/ç/g, 'c');
+}
+
+/** Bal yoxdursa mətn nəticəsini kompakt göstər (İSQ/EXQ). */
+function assessTextResultNote(raw) {
+    var full = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+    if (!full || full === '—') return null;
+    if (parseScoreForSort(full) != null && full.length <= 12) return null;
+    var body = full
+        .replace(/^(İSQ|ISQ|EXQ)\s*n[eə]tic[eə]si\s*[:：\-–—]?\s*/i, '')
+        .trim();
+    if (!body) body = full;
+    if (parseScoreForSort(body) != null && body.length <= 12) return null;
+    var n = foldAssessText(body);
+    var short;
+    if (/teqdim\s*edil/.test(n) || (n.indexOf('hesabat') !== -1 && n.indexOf('teqdim') !== -1)) {
+        short = 'Hesabat təqdim edilib';
+    } else if (n.indexOf('tekmilles') !== -1) {
+        short = 'Təkmilləşdirmə hesabatı';
+    } else {
+        short = body.length > 42 ? body.slice(0, 41).replace(/\s+\S*$/, '') + '…' : body;
+    }
+    return { short: short, full: full };
+}
+
+function assessScoreOrNoteHtml(scoreLabel, rawText) {
+    var label = scoreLabel == null ? '' : String(scoreLabel).trim();
+    if (label && label !== '—') return scoreBadge(label);
+    var note = assessTextResultNote(rawText);
+    if (note) {
+        return '<span class="assess-score-note" title="' + escapeHtml(note.full) + '">'
+            + escapeHtml(note.short) + '</span>';
+    }
+    return '<span class="assess-score-badge is-empty">—</span>';
+}
+
 function taskBrowseUrl(task) {
     var key = task && task.key;
     if (!key) return '';
@@ -1611,9 +1655,10 @@ function renderIsq(rows) {
     if (!rows.length) return emptyHtml();
     var body = rows.map(function(r) {
         var t = r.task;
+        var raw = t && t.fields ? t.fields.customfield_17316 : null;
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
-            { label: 'İSQ nəticəsi', html: scoreBadge(getIsqScore(t)) },
+            { label: 'İSQ nəticəsi', html: assessScoreOrNoteHtml(getIsqScore(t), formatAssessmentFieldText(raw)) },
             { label: 'Göndərilmə tarixi', cls: 'assess-hub-cell--date', html: sendDateHtml(t) },
             { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
@@ -1650,10 +1695,12 @@ function renderExq(rows) {
         var exq = getExqResult(t);
         var bal = exq && exq.percent != null ? exq.percent : getExqScore(t);
         var count = getExqServiceCount(t);
+        var rawExq = t && t.fields ? t.fields.customfield_17317 : null;
         return hubRow([
             { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
             { label: 'Status', html: statusPill(status, t) },
-            { label: 'Xidmət və yekun', cls: 'assess-hub-cell--exq-metrics', html: exqRowMetricsHtml(bal, count, avg, maxSvc) },
+            { label: 'Xidmət və yekun', cls: 'assess-hub-cell--exq-metrics',
+                html: exqRowMetricsHtml(bal, count, avg, maxSvc, formatAssessmentFieldText(rawExq)) },
             { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
         ], '');
     }).join('');
@@ -2135,17 +2182,28 @@ function exqSvcHeroHtml(sum, qurumN, filterKey) {
         + '</button>';
 }
 
-function exqRowMetricsHtml(score, count, avg, maxSvc) {
+function exqRowMetricsHtml(score, count, avg, maxSvc, rawText) {
     var n = parseScoreForSort(score);
     var svcN = count == null || !isFinite(Number(count)) ? 0 : Number(count);
     var hasSvc = count != null && isFinite(Number(count));
     var pct = maxSvc > 0 ? Math.round((svcN / maxSvc) * 100) : 0;
+    var yekun = n != null
+        ? exqScoreMeterHtml(n, { label: 'Yekun nəticə', compact: true, avg: avg })
+        : (function() {
+            var note = assessTextResultNote(rawText);
+            if (note) {
+                return '<div class="exq-meter is-none is-compact is-note" title="' + escapeHtml(note.full) + '">'
+                    + '<div class="exq-meter-top"><span>Yekun nəticə</span>'
+                    + '<b class="exq-meter-note">' + escapeHtml(note.short) + '</b></div></div>';
+            }
+            return exqScoreMeterHtml(null, { label: 'Yekun nəticə', compact: true, avg: avg });
+        })();
     return '<div class="exq-row-metrics">'
         + '<div class="exq-row-svc-bar">'
         + '<div class="exq-row-svc"><span>Qiymətləndirilmiş xidmət</span><b>' + (hasSvc ? svcN : '—') + '</b></div>'
         + '<div class="exq-meter-track" aria-hidden="true"><i style="width:' + pct + '%"></i></div>'
         + '</div>'
-        + exqScoreMeterHtml(n, { label: 'Yekun nəticə', compact: true, avg: avg })
+        + yekun
         + '</div>';
 }
 
@@ -3132,27 +3190,23 @@ function meqsedMixLegendHtml(items, total) {
     }).join('') + '</ul>';
 }
 
-function meqsedKindRowsHtml(stats) {
-    var kinds = MEQSED_KIND_ORDER.filter(function(k) {
+function meqsedKindChartRows(stats) {
+    return MEQSED_KIND_ORDER.filter(function(k) {
         return k !== 'other' || ((stats.byKind && stats.byKind.other) || 0) > 0;
-    });
-    var items = meqsedResultItems(stats);
-    return '<div class="meqsed-ov-kinds">' + kinds.map(function(kind) {
+    }).map(function(kind, idx) {
         var split = (stats.byKindResult && stats.byKindResult[kind]) || emptyResultSplit();
-        var n = split.total || 0;
-        var on = meqsedOvFilterOn(kind);
-        var segs = items.map(function(it) {
-            var v = split[it.key] || 0;
-            if (!v) return '';
-            return '<i style="flex-grow:' + v + ';background:' + it.color + '" title="' + escapeHtml(it.label) + ': ' + v + '"></i>';
-        }).join('');
-        return '<button type="button" class="meqsed-ov-kind' + (on ? ' is-active' : '') + '"'
-            + ' onclick="event.stopPropagation(); setAssessListFilter(\'' + kind + '\')">'
-            + '<span class="meqsed-ov-kind-name">' + escapeHtml(MEQSED_NOVU_LABELS[kind] || kind) + '</span>'
-            + '<div class="meqsed-ov-kind-bar">' + (segs || '<i class="is-empty"></i>') + '</div>'
-            + '<b>' + n + '</b>'
-            + '</button>';
-    }).join('') + '</div>';
+        return { kind: kind, split: split, n: split.total || 0, idx: idx };
+    }).filter(function(r) { return r.n > 0; })
+        .sort(function(a, b) { return (b.n - a.n) || (a.idx - b.idx); });
+}
+
+function meqsedKindRowsHtml(stats) {
+    var rows = meqsedKindChartRows(stats);
+    if (!rows.length) return '<p class="meqsed-ld-chart-empty">Müraciət növü yoxdur.</p>';
+    var h = Math.min(260, Math.max(120, rows.length * 26 + 24));
+    return '<div class="meqsed-ov-kind-chart" style="--meqsed-kind-h:' + h + 'px">'
+        + '<canvas id="meqsedKindChart" aria-label="Müraciət növü üzrə nəticə"></canvas>'
+        + '</div>';
 }
 
 var MEQSED_TOP_ORG_COLORS = [
@@ -3221,7 +3275,7 @@ function meqsedOverviewBodyHtml(stats) {
         + meqsedMixLegendHtml(items, total)
         + '</section>'
         + '<section class="meqsed-ov-card">'
-        + '<h4>Müraciət növü üzrə nəticə</h4>'
+        + '<h4>Müraciət növü üzrə nəticə <span>— ümumi ' + total + ' · növə klikləyin</span></h4>'
         + meqsedKindRowsHtml(stats)
         + '</section>'
         + '<section class="meqsed-ov-card">'
@@ -3253,11 +3307,13 @@ export function meqsedOverviewHtml(stats, filter) {
 }
 
 export function drawMeqsedOverviewCharts(stats) {
+    drawMeqsedKindChart(stats);
     drawMeqsedMonthChart(stats);
     drawMeqsedTopOrgChart(stats);
 }
 
 export function destroyMeqsedOverviewCharts() {
+    destroyAssessChart('meqsedKindChart', 'meqsedKindChart');
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
     destroyAssessChart('meqsedTopOrgChart', 'meqsedTopOrgChart');
 }
@@ -3378,6 +3434,7 @@ function destroyExqStatusChart() { destroyAssessListDonut(); }
 function destroyMeqsedOpinionCharts() {
     destroyAssessListDonut();
     destroyAssessChart('meqsedOpinionBarChart', 'meqsedOpinionBar');
+    destroyAssessChart('meqsedKindChart', 'meqsedKindChart');
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
     destroyAssessChart('meqsedTopOrgChart', 'meqsedTopOrgChart');
     destroyAssessChart('assessScoreBandChart', 'assessScoreBandChart');
@@ -3864,6 +3921,98 @@ function drawScoreBandChart(byBand, hideNone) {
     });
 }
 
+function drawMeqsedKindChart(stats) {
+    if (typeof Chart === 'undefined' || !stats) return;
+    destroyAssessChart('meqsedKindChart', 'meqsedKindChart');
+    var canvas = document.getElementById('meqsedKindChart');
+    if (!canvas) return;
+    var rows = meqsedKindChartRows(stats);
+    if (!rows.length) return;
+    var series = meqsedResultItems(stats);
+    var maxN = rows.reduce(function(m, r) { return Math.max(m, r.n || 0); }, 0);
+    state.meqsedKindChart = new Chart(canvas.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: rows.map(function(r) {
+                var raw = MEQSED_NOVU_LABELS[r.kind] || r.kind;
+                return raw.length > 26 ? raw.slice(0, 25) + '…' : raw;
+            }),
+            datasets: series.map(function(it) {
+                return {
+                    label: it.label,
+                    data: rows.map(function(r) { return (r.split && r.split[it.key]) || 0; }),
+                    backgroundColor: it.color,
+                    borderWidth: 0,
+                    borderRadius: 3,
+                    barPercentage: 0.7,
+                    categoryPercentage: 0.78,
+                    maxBarThickness: 14,
+                    _kinds: rows.map(function(r) { return r.kind; })
+                };
+            })
+        },
+        options: {
+            animation: false,
+            animations: false,
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: 2, right: 14, left: 0, bottom: 2 } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 8,
+                    cornerRadius: 8,
+                    callbacks: {
+                        title: function(items) {
+                            var i = items && items[0] ? items[0].dataIndex : -1;
+                            var r = rows[i];
+                            return r ? (MEQSED_NOVU_LABELS[r.kind] || r.kind) : '';
+                        },
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + (ctx.raw || 0);
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    beginAtZero: true,
+                    suggestedMax: maxN ? Math.ceil(maxN * 1.08) : undefined,
+                    ticks: { precision: 0, maxTicksLimit: 5, color: '#94a3b8', font: { size: 10 } },
+                    grid: { color: 'rgba(148, 163, 184, 0.14)' },
+                    border: { display: false }
+                },
+                y: {
+                    stacked: true,
+                    ticks: {
+                        autoSkip: false,
+                        color: '#475569',
+                        font: { size: 10, weight: '600' }
+                    },
+                    grid: { display: false },
+                    border: { display: false }
+                }
+            },
+            onClick: function(evt, els) {
+                if (!els || !els.length) return;
+                var ds = this.data.datasets[els[0].datasetIndex];
+                var kind = ds && ds._kinds ? ds._kinds[els[0].index] : '';
+                if (kind && typeof window.setAssessListFilter === 'function') {
+                    window.setAssessListFilter(kind);
+                }
+            },
+            onHover: function(evt, els) {
+                var target = (evt && evt.native && evt.native.target)
+                    || (evt && evt.chart && evt.chart.canvas);
+                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+            }
+        }
+    });
+}
+
 function drawMeqsedMonthChart(stats) {
     if (typeof Chart === 'undefined' || !stats) return;
     destroyAssessChart('meqsedMonthChart', 'meqsedMonthChart');
@@ -3873,6 +4022,10 @@ function drawMeqsedMonthChart(stats) {
     var series = meqsedResultItems(stats);
     var has = months.some(function(m) { return m && m.total > 0; });
     if (!has) return;
+    var monthMax = 0;
+    months.forEach(function(m) {
+        if (m && m.total > monthMax) monthMax = m.total;
+    });
     state.meqsedMonthChart = new Chart(canvas.getContext('2d'), {
         type: 'bar',
         data: {
@@ -3882,11 +4035,11 @@ function drawMeqsedMonthChart(stats) {
                     label: it.label,
                     data: months.map(function(m) { return (m && m[it.key]) || 0; }),
                     backgroundColor: it.color,
-                    borderRadius: 5,
+                    borderRadius: 3,
                     borderSkipped: false,
-                    barPercentage: 0.78,
-                    categoryPercentage: 0.78,
-                    maxBarThickness: 28,
+                    barPercentage: 0.68,
+                    categoryPercentage: 0.72,
+                    maxBarThickness: 18,
                     _filter: it.filter
                 };
             })
@@ -3897,12 +4050,12 @@ function drawMeqsedMonthChart(stats) {
             responsive: true,
             maintainAspectRatio: false,
             clip: false,
-            layout: { padding: { top: 12, right: 6, left: 2 } },
+            layout: { padding: { top: 10, right: 4, left: 0 } },
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     backgroundColor: 'rgba(15, 23, 42, 0.94)',
-                    padding: 10,
+                    padding: 8,
                     cornerRadius: 8,
                     callbacks: {
                         label: function(ctx) {
@@ -3915,14 +4068,14 @@ function drawMeqsedMonthChart(stats) {
                 x: {
                     stacked: true,
                     grid: { display: false },
-                    ticks: { color: '#94a3b8', font: { size: 11, weight: '600' } },
+                    ticks: { color: '#94a3b8', font: { size: 10, weight: '600' }, maxRotation: 0 },
                     border: { display: false }
                 },
                 y: {
                     stacked: true,
                     beginAtZero: true,
-                    grace: '18%',
-                    ticks: { precision: 0, color: '#94a3b8', font: { size: 10 } },
+                    suggestedMax: monthMax ? Math.ceil(monthMax * 1.12) : undefined,
+                    ticks: { precision: 0, maxTicksLimit: 5, color: '#94a3b8', font: { size: 10 } },
                     grid: { color: 'rgba(148, 163, 184, 0.14)' },
                     border: { display: false }
                 }
@@ -3945,6 +4098,7 @@ function drawMeqsedMonthChart(stats) {
 
 function drawMeqsedOpinionCharts(stats) {
     if (!stats) return;
+    drawMeqsedKindChart(stats);
     drawMeqsedMonthChart(stats);
     drawMeqsedTopOrgChart(stats);
 }

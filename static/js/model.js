@@ -1981,19 +1981,20 @@ export var DIAG_CRITERIA_DEFS = [
 ];
 
 export var ISQ_DIR_DEFS = [
-    { id: 'strategy', title: 'Strateji və idarəçilik sənədləri', short: 'Strateji' },
-    { id: 'procedure', title: 'Prosedurlar və təlimatlar', short: 'Prosedur' },
-    { id: 'ops', title: 'Əməliyyatlar', short: 'Əməliyyat' },
-    { id: 'lifecycle', title: 'Proqram təminatının həyat dövrü', short: 'Həyat dövrü' },
-    { id: 'quality', title: 'Proqram təminatının keyfiyyətinə nəzarət', short: 'Keyfiyyət' },
-    { id: 'integ', title: 'İnteqrasiya', short: 'İnteqrasiya' },
-    { id: 'info', title: 'İnformasiya ehtiyatı sistemi', short: 'Ehtiyat' },
-    { id: 'network', title: 'Şəbəkə', short: 'Şəbəkə' },
-    { id: 'data', title: 'Məlumatların idarəedilməsi', short: 'Məlumat' },
-    { id: 'infra', title: 'Fiziki və virtual infrastruktur', short: 'İnfrastruktur' }
+    { id: 'strategy', title: 'Strateji və idarəçilik sənədləri', short: 'Strateji', fieldId: 'customfield_17503' },
+    { id: 'procedure', title: 'Prosedurlar və təlimatlar', short: 'Prosedur', fieldId: 'customfield_17504' },
+    { id: 'ops', title: 'Əməliyyatlar', short: 'Əməliyyat', fieldId: 'customfield_17505' },
+    { id: 'lifecycle', title: 'Proqram təminatının həyat dövrü', short: 'Həyat dövrü', fieldId: 'customfield_17506' },
+    { id: 'quality', title: 'Proqram təminatının keyfiyyətinə nəzarət', short: 'Keyfiyyət', fieldId: 'customfield_17507' },
+    { id: 'integ', title: 'İnteqrasiya', short: 'İnteqrasiya', fieldId: 'customfield_17508' },
+    { id: 'info', title: 'İnformasiya ehtiyatı sistemi', short: 'Ehtiyat', fieldId: 'customfield_17509' },
+    { id: 'network', title: 'Şəbəkə', short: 'Şəbəkə', fieldId: 'customfield_17510' },
+    { id: 'data', title: 'Məlumatların idarəedilməsi', short: 'Məlumat', fieldId: 'customfield_17511' },
+    { id: 'infra', title: 'Fiziki və virtual infrastruktur', short: 'İnfrastruktur', fieldId: 'customfield_17512' }
 ];
 
 export var ISQ_NETICE_HEADINGS = ISQ_DIR_DEFS.map(function(d) { return d.title; });
+export var ISQ_DIR_FIELD_IDS = ISQ_DIR_DEFS.map(function(d) { return d.fieldId; }).filter(Boolean);
 
 var ASSESS_NEARBY_IDS = ['customfield_17315', 'customfield_17318', 'customfield_17320'];
 var ASSESS_RESERVED_IDS = {
@@ -2465,6 +2466,13 @@ export function collectSelfDisplayFieldIds() {
 export function collectIsqDisplayFieldIds() {
     var ids = ['customfield_17316'];
     var seen = { customfield_17316: true };
+    var i;
+    for (i = 0; i < ISQ_DIR_FIELD_IDS.length; i++) {
+        var fid = ISQ_DIR_FIELD_IDS[i];
+        if (!fid || seen[fid]) continue;
+        seen[fid] = true;
+        ids.push(fid);
+    }
     var names = state.jiraFieldNames || {};
     var key;
     for (key in names) {
@@ -5155,9 +5163,18 @@ function fillIsqFromNamedFields(t, dirMap) {
         if (n == null) {
             text = formatAssessmentFieldText(val);
             if (!text || text === '—') return;
+            // «N/A» və oxşar — bal yox, mətn kimi saxlama
+            if (/^n\/?a$/i.test(String(text).trim())) {
+                dirMap[title] = mergeDirSlot(dirMap[title], null, text);
+                return;
+            }
         }
         dirMap[title] = mergeDirSlot(dirMap[title], n != null ? formatAssessmentScore(n) : null, text === '—' ? '' : text);
     }
+    // Əvvəl sabit İSQ sütun field-ləri (kataloq gözləmədən)
+    ISQ_DIR_DEFS.forEach(function(d) {
+        if (d && d.fieldId) consider(d.fieldId, d.title);
+    });
     var key;
     for (key in names) {
         if (Object.prototype.hasOwnProperty.call(names, key)) consider(key, names[key]);

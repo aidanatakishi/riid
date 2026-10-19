@@ -672,7 +672,8 @@ button.svc-digit-radar-pt {
         grid-template-columns: 1fr;
         gap: 14px;
     }
-    .svc-digit-hero-val { font-size: 40px; }
+    .svc-digit-hero-val { font-size: clamp(28px, 9vw, 40px); }
+    .svc-digit-kpi-val { font-size: clamp(24px, 8vw, 32px); }
     .svc-digit-radar-plot { max-width: 100%; }
     .svc-digit-tip {
         min-width: 118px;

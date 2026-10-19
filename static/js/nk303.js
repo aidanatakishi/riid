@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda59';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda63';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -12,6 +12,10 @@ import {
     getTaskStartDate,
     getPhaseFieldText,
     PHASE_FIELDS,
+    getEsdSentLetterInfo,
+    isSubtaskType,
+    getParentIssue,
+    getIsqInfo,
     MEQSED_NOVU_KINDS,
     MEQSED_NOVU_LABELS,
     classifyMeqsedNovu,
@@ -22,7 +26,7 @@ import {
     exqStarColor,
     exqStarLabel,
     EXQ_DIGIT_STAGES
-} from './model.js?v=idda19';
+} from './model.js?v=idda24';
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda4';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { state } from './state.js';
@@ -151,11 +155,11 @@ var DIR_ACTIONS = {
 };
 
 var PROCESS = [
-    'Sorğunun göndərilməsi',
-    'Özünüqiymətləndirmə',
-    'Sənədlərin və məlumatların toplanması',
-    'Yoxlama və təhlil',
-    'Hesabat və fəaliyyət planının hazırlanması',
+    'Özünüqiymətləndirmə ilkin görüşlər',
+    'Yerində baxışların keçirilməsi',
+    'Sənədlərin toplanılması',
+    'Təhlil mərhələsi',
+    'Hesabat fəaliyyəti',
     'Nəticənin quruma təqdim edilməsi'
 ];
 
@@ -189,6 +193,7 @@ var ui = {
     hubPage: 1,
     hubFilter: '',
     hubSort: 'desc',
+    hubDetailKey: '',
     reportId: '',
     reportKind: '',
     reportPickKind: false,
@@ -332,14 +337,105 @@ function visStatusOf(group) {
     return VIS_STATUS.filter(function(s) { return s.id === 'not_started'; })[0] || VIS_STATUS[0];
 }
 
-function processIndex(group, hasResult) {
-    if (group === 'done') return hasResult ? 5 : 4;
-    if (group === 'review' || group === 'esd') return 3;
-    if (group === 'progress') return hasResult ? 4 : 2;
-    if (group === 'planned') return 1;
-    if (group === 'paused' || group === 'blocked') return 3;
+function issueSummaryText(t) {
+    return String((t && t.fields && t.fields.summary) || '').trim();
+}
+
+function isIssueDoneStatus(t) {
+    if (!t || !t.fields || !t.fields.status) return false;
+    return getStatusGroup(t.fields.status.name) === 'done';
+}
+
+/** «Hesabatın hazırlanması» alt-tapşırığı — yerində baxış şərtindən istisna. */
+function isDiagReportPrepSubtask(t) {
+    var s = fold(issueSummaryText(t));
+    if (!s || s.indexOf('hesabat') === -1) return false;
+    return s.indexOf('hazirla') !== -1;
+}
+
+function collectDiagChildIssues(parent) {
+    var children = [];
+    var seen = {};
+    function addChild(issue) {
+        if (!issue || !issue.key || seen[issue.key] || (parent && issue.key === parent.key)) return;
+        var full = (state.issueIndex && state.issueIndex[issue.key]) || issue;
+        seen[issue.key] = true;
+        children.push(full);
+    }
+    if (!parent || !parent.fields) return children;
+    (parent.fields.subtasks || []).forEach(addChild);
+    (parent.fields.issuelinks || []).forEach(function(link) {
+        var linked = link.outwardIssue || link.inwardIssue;
+        if (linked && isSubtaskType(linked)) addChild(linked);
+    });
+    (state.allTasks || []).forEach(function(issue) {
+        if (!isSubtaskType(issue)) return;
+        var p = getParentIssue(issue);
+        if (p && p.key === parent.key) addChild(issue);
+    });
+    return children;
+}
+
+function diagPhaseBlob(t, kids) {
+    var parts = [];
+    function pushText(raw) {
+        var s = String(raw || '').trim();
+        if (s) parts.push(s);
+    }
+    pushText(issueSummaryText(t));
+    (getRawPhaseEntries(t) || []).forEach(function(p) { pushText(p && p.text); });
+    PHASE_FIELDS.forEach(function(pf) { pushText(getPhaseFieldText(t, pf.text)); });
+    (kids || []).forEach(function(child) {
+        pushText(issueSummaryText(child));
+        (getRawPhaseEntries(child) || []).forEach(function(p) { pushText(p && p.text); });
+    });
+    return fold(parts.join(' | '));
+}
+
+/**
+ * Cari mərhələ indeksi (0…5).
+ * Yerində baxış: hesabat hazırlanması istisna olmaqla bütün alt görüşlər Done olanda tamamlanır.
+ */
+function processIndex(t, group, hasResult) {
+    var kids = collectDiagChildIssues(t);
+    var meetings = kids.filter(function(c) { return !isDiagReportPrepSubtask(c); });
+    var reports = kids.filter(isDiagReportPrepSubtask);
+    var meetingsAllDone = meetings.length > 0 && meetings.every(isIssueDoneStatus);
+    var meetingsSomeDone = meetings.some(isIssueDoneStatus);
+    var reportDone = reports.some(isIssueDoneStatus);
+    var reportOpen = reports.some(function(c) { return !isIssueDoneStatus(c); });
+    var letter = getEsdSentLetterInfo(t) || {};
+    var hasLetter = !!(letter.date || letter.number || letter.raw);
+    var blob = diagPhaseBlob(t, kids);
+
+    // 5 — Nəticənin quruma təqdim edilməsi
+    if (hasLetter) return 5;
+    if (group === 'done' && (hasResult || reportDone)) return 5;
+    if (reportDone && (hasResult || group === 'review' || group === 'esd')) return 5;
+    if (/netice.*qurum|quruma.*teqdim|teqdim edil/.test(blob) && (reportDone || group === 'done')) return 5;
+
+    // 4 — Hesabat fəaliyyəti
+    if (reportDone || (meetingsAllDone && reports.length && reportOpen)) return 4;
+    if (meetingsAllDone && /hesabat/.test(blob)) return 4;
+    if (group === 'done') return 4;
+
+    // 3 — Təhlil mərhələsi
+    if (meetingsAllDone && (/tehlil|yoxlama/.test(blob) || group === 'review' || group === 'esd')) return 3;
+
+    // 2 — Sənədlərin toplanılması (yerində baxış tamamlanıb → növbəti)
+    if (meetingsAllDone) return 2;
+    if (meetingsSomeDone && (/sened|toplan/.test(blob))) return 2;
+
+    // 1 — Yerində baxışların keçirilməsi (görüşlər gedir / bir qismi Done)
+    if (meetingsSomeDone || (meetings.length && (group === 'progress' || group === 'paused' || group === 'blocked'))) {
+        return 1;
+    }
+    if (group === 'progress' && !meetings.length) return 1;
+
+    // 0 — Özünüqiymətləndirmə ilkin görüşlər
     if (group === 'rejected') return 0;
-    return hasResult ? 4 : 0;
+    if (hasResult) return 4;
+    return 0;
 }
 
 function dirIdFromTitle(title) {
@@ -605,7 +701,7 @@ function parseRow(row, index) {
         hasResult: hasResult,
         start: start,
         updated: updated && !isNaN(updated.getTime()) ? updated : null,
-        processIdx: processIndex(group, hasResult),
+        processIdx: processIndex(t, group, hasResult),
         phases: phases,
         phaseNotes: phaseNotes,
         dirGaps: {},
@@ -1081,7 +1177,67 @@ function iconSvg(name) {
         + (paths[name] || '') + '</svg>';
 }
 
+function isOrgDetailView() {
+    if (ui.hub && ui.hubDetailKey) return true;
+    if (!ui.hub && (ui.mode === 'institution' || ui.orgKey)) return true;
+    return false;
+}
+
+function backTarget() {
+    if (ui.hub && ui.hubDetailKey) {
+        var tab = HUB_TABS.filter(function(it) { return it.id === ui.hub; })[0];
+        return {
+            kicker: 'Geri qayıt',
+            name: (tab && tab.label ? tab.label + ' siyahısı' : 'Siyahıya qayıt'),
+            step: 'hubList'
+        };
+    }
+    if (!ui.hub && (ui.mode === 'institution' || ui.orgKey)) {
+        return { kicker: 'Geri qayıt', name: 'Qiymətləndirmə analitikası', step: 'diagList' };
+    }
+    if (ui.hub) {
+        return { kicker: 'Geri qayıt', name: 'Qiymətləndirmə analitikası', step: 'diagHome' };
+    }
+    return { kicker: 'Geri qayıt', name: 'İdarəetmə paneli', step: 'panel' };
+}
+
+function goBackOneStep() {
+    var step = backTarget().step;
+    if (step === 'hubList') {
+        ui.hubDetailKey = '';
+        window.scrollTo(0, 0);
+        render();
+        return;
+    }
+    if (step === 'diagList') {
+        ui.orgKey = '';
+        ui.mode = 'country';
+        ui.expandDir = '';
+        ui.expandCrit = '';
+        ui.nav = 'overview';
+        window.scrollTo(0, 0);
+        render();
+        return;
+    }
+    if (step === 'diagHome') {
+        closeHub();
+        window.scrollTo(0, 0);
+        render();
+        return;
+    }
+    closeNk303();
+}
+
 function pageHeadCopy(model) {
+    if (ui.hub && ui.hubDetailKey) {
+        var detail = resolveHubDetailRow(currentHubView());
+        if (detail) {
+            return {
+                title: detail.qurum || 'Qurum',
+                sub: ui.hub === 'isq' ? 'Qurumun İSQ nəticələri' : 'Qurumun nəticələri'
+            };
+        }
+    }
     if (ui.hub && PAGE_HEADS[ui.hub]) return PAGE_HEADS[ui.hub];
     if (ui.mode === 'institution' && model && model.selected) {
         return { title: model.selected.name, sub: 'Qurumun diaqnostika nəticələri' };
@@ -1102,26 +1258,29 @@ function pageHeadHtml(model) {
     var title = copy.title;
     var sub = copy.sub;
     var onDiag = !ui.hub;
+    var inDetail = isOrgDetailView();
     var yearHtml = '';
-    if (!(onDiag && ui.orgKey)) {
+    if (!(onDiag && ui.orgKey) && !ui.hubDetailKey) {
         if (onDiag) {
             yearHtml = '<label class="nk303-field"><span>İl</span><select onchange="nk303Call(\'year\', this.value)">' + yearOpts + '</select></label>';
         } else {
             yearHtml = hubYearFilterHtml(ui.hub);
         }
     }
-    var orgHtml = onDiag
+    var orgHtml = (onDiag && !inDetail)
         ? '<label class="nk303-field"><span>Qurum</span><select onchange="nk303Call(\'org\', this.value)">' + orgOpts + '</select></label>'
         : '';
     var toolsHtml = (yearHtml || orgHtml)
         ? '<div class="nk303-tools"><div class="nk303-filters">' + yearHtml + orgHtml + '</div></div>'
         : '';
+    var back = backTarget();
     return '<div class="nk303-wrap"><div class="nk303-head">'
         + '<div class="nk303-head-left">'
-        + '<a href="/" class="nk303-home" onclick="closeNk303(); return false;">'
+        + '<button type="button" class="nk303-home' + (inDetail || ui.hub ? ' nk303-home--back' : '') + '"'
+        + ' onclick="nk303Call(\'back\'); return false;">'
         + '<span class="nk303-home-ic">' + iconSvg('chevron') + '</span>'
-        + '<span class="nk303-home-txt"><span class="nk303-home-kicker">Geri qayıt</span>'
-        + '<span class="nk303-home-name">İdarəetmə paneli</span></span></a>'
+        + '<span class="nk303-home-txt"><span class="nk303-home-kicker">' + esc(back.kicker) + '</span>'
+        + '<span class="nk303-home-name">' + esc(back.name) + '</span></span></button>'
         + '<p class="nk303-kicker">Qiymətləndirmə analitikası</p>'
         + '<h1 id="nk303Title">' + esc(title) + '</h1>'
         + '<p class="sub">' + esc(sub) + '</p>'
@@ -1260,8 +1419,130 @@ function curvedTrendSeries(trend) {
     return out;
 }
 
+function resolveHubDetailRow(view) {
+    var key = String(ui.hubDetailKey || '').trim();
+    if (!key || !view) return null;
+    var list = view.rows || [];
+    var i;
+    var r;
+    for (i = 0; i < list.length; i++) {
+        r = list[i];
+        if (!r) continue;
+        if (r.key && String(r.key) === key) return r;
+    }
+    var folded = fold(key);
+    for (i = 0; i < list.length; i++) {
+        r = list[i];
+        if (!r) continue;
+        if (fold(r.qurum || '') === folded) return r;
+    }
+    return null;
+}
+
+function hubIsqPillarCards(task) {
+    var info = getIsqInfo(task) || {};
+    var byTitle = {};
+    (info.directions || []).forEach(function(d) {
+        if (!d || !d.title) return;
+        byTitle[fold(d.title)] = d;
+    });
+    var cards = ISQ_PILLARS.map(function(p) {
+        var d = byTitle[fold(p.name)] || null;
+        var score = d && d.score && d.score !== '—' ? num(d.score) : null;
+        var text = d && d.text ? String(d.text).trim() : '';
+        if (score == null && text && /^n\/?a$/i.test(text)) {
+            text = 'N/A';
+        }
+        return {
+            id: p.id,
+            name: p.name,
+            short: p.short,
+            score: score,
+            text: text
+        };
+    });
+    // Sütunlar boşdursa extras-dakı meyarları da göstər
+    var hasDir = cards.some(function(c) { return c.score != null || c.text; });
+    if (!hasDir && info.extras && info.extras.length) {
+        return info.extras.map(function(e, i) {
+            return {
+                id: 'extra_' + i,
+                name: e.title || ('Meyar ' + (i + 1)),
+                short: e.title || ('Meyar ' + (i + 1)),
+                score: e.score && e.score !== '—' ? num(e.score) : null,
+                text: e.text ? String(e.text).trim() : ''
+            };
+        });
+    }
+    return cards;
+}
+
+function hubOrgDetailHtml(view) {
+    var r = resolveHubDetailRow(view);
+    if (!r) {
+        return '<section class="nk303-card"><p class="nk303-empty">Qurum tapılmadı.</p>'
+            + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'back\')">Siyahıya qayıt</button>'
+            + '</section>';
+    }
+    var t = r.task;
+    var star = r.star != null ? Number(r.star) : exqStarFromPercent(r.score);
+    var start = t ? getTaskStartDate(t) : null;
+    var updated = t && t.fields && t.fields.updated ? new Date(t.fields.updated) : null;
+    if (updated && isNaN(updated.getTime())) updated = null;
+    var statusName = r.status || (t && t.fields && t.fields.status && t.fields.status.name) || '—';
+    var group = getStatusGroup(statusName) || 'other';
+    var vis = visStatusOf(group);
+    var pillars = hubIsqPillarCards(t);
+    var pillarHtml = pillars.map(function(p) {
+        return '<article class="nk303-dir">'
+            + '<div class="nk303-dir-top"><b>' + esc(p.short || p.name) + '</b>'
+            + matBadge(p.score) + '</div>'
+            + '<div class="nk303-dir-score">' + esc(p.score == null ? '—' : fmt1(p.score) + '%') + '</div>'
+            + (p.text ? '<p class="nk303-hint">' + esc(clipText(p.text, 160)) + '</p>' : '')
+            + '</article>';
+    }).join('');
+    return '<section class="nk303-card" style="margin-bottom:0.55rem">'
+        + '<div class="nk303-profile">'
+        + '<div>'
+        + '<p class="nk303-kicker">Qurumun İSQ nəticələri</p>'
+        + '<h3 style="margin:0;font-size:1.05rem">' + esc(r.qurum || '—') + '</h3>'
+        + '<dl class="nk303-meta">'
+        + '<div><dt>İl</dt><dd>' + esc(r.year || '—') + '</dd></div>'
+        + '<div><dt>Status</dt><dd>' + esc(vis.label) + ' · ' + esc(statusName) + '</dd></div>'
+        + '<div><dt>Başlanğıc</dt><dd>' + esc(start ? fmtDate(start) : NA) + '</dd></div>'
+        + '<div><dt>Son yenilənmə</dt><dd>' + esc(updated ? fmtDate(updated) : NA) + '</dd></div>'
+        + '<div><dt>Tapşırıq</dt><dd class="nk303-meta-task">' + issueLinkHtml(r.key) + '</dd></div>'
+        + '</dl></div>'
+        + '<div>'
+        + '<p class="nk303-hint">Yekun nəticə</p>'
+        + '<div class="nk303-score">'
+        + (function() {
+            if (r.score != null) {
+                return '<strong>' + esc(fmt1(r.score) + '%') + '</strong>'
+                    + (star ? '<span class="nk303-mat">' + esc(exqStarLabel(star)) + '</span>'
+                        + '<div class="nk303-kpi-stars" style="margin-top:0.35rem">' + exqStarsHtml(star) + '</div>' : '');
+            }
+            var note = hubTextResultNote(r.result);
+            if (note) {
+                return '<span class="nk303-score-note nk303-score-note--lg" title="' + esc(note.full) + '">'
+                    + esc(note.short) + '</span>';
+            }
+            return '<strong>—</strong>';
+        })()
+        + '</div></div></div>'
+        + '</section>'
+        + '<section class="nk303-card"><h3>İSQ sütunları</h3>'
+        + '<p class="nk303-hint">Qurum üzrə 10 qiymətləndirmə meyarı və status.</p>'
+        + '<div class="nk303-dirs nk303-dirs--isq">' + pillarHtml + '</div>'
+        + '</section>';
+}
+
 function hubPageHtml(view) {
     var cls = 'nk303-hub-page' + (view.section === 'meqsed' ? ' is-meqsed' : '');
+    if (ui.hubDetailKey) {
+        return '<h3 id="nk303HubTitle" class="sr-only">' + esc((view && view.label) || 'İSQ') + ' — qurum</h3>'
+            + '<div class="' + cls + '">' + hubOrgDetailHtml(view) + '</div>';
+    }
     return '<h3 id="nk303HubTitle" class="sr-only">' + esc(view.label) + ' nəticələri</h3>'
         + '<div class="' + cls + '">' + hubBodyHtml(view) + '</div>';
 }
@@ -1648,6 +1929,47 @@ function clipText(s, n) {
     if (!t) return '';
     if (t.length <= n) return t;
     return t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…';
+}
+
+/** Bal yox, yalnız mətn nəticəsi olan İSQ/EXQ sətirləri üçün qısa etiketi. */
+function hubTextResultNote(raw) {
+    var full = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+    if (!full || full === '—' || full === NA) return null;
+    if (num(full) != null && full.length <= 12) return null;
+    var body = full
+        .replace(/^(İSQ|ISQ|EXQ)\s*n[eə]tic[eə]si\s*[:：\-–—]?\s*/i, '')
+        .trim();
+    if (!body) body = full;
+    if (num(body) != null && body.length <= 12) return null;
+    var f = fold(body);
+    var short;
+    // «…hesabat quruma təqdim edilmişdir» və oxşar — kompakt etiket
+    if (/teqdim\s*edil/.test(f) || (/hesabat/.test(f) && /teqdim/.test(f))) {
+        short = 'Hesabat təqdim edilib';
+    } else if (/tekmilles/.test(f) && /istiqamet/.test(f)) {
+        short = 'Təkmilləşdirmə hesabatı';
+    } else {
+        short = clipText(body, 40);
+    }
+    return { short: short, full: full };
+}
+
+function hubYekunCellHtml(r, kind) {
+    var score = r && r.score != null && isFinite(Number(r.score)) ? Number(r.score) : null;
+    var star = score != null ? exqStarOfRow(r) : null;
+    if (score != null) {
+        var w = Math.max(0, Math.min(100, score));
+        var suffix = (kind === 'isq' || kind === 'exq') ? '%' : '';
+        return '<div class="nk303-scorecell"><b>' + esc(fmt1(score) + suffix) + '</b>'
+            + (star ? '<em class="nk303-star-mini">' + esc(exqStarLabel(star)) + '</em>' : '')
+            + '<span class="bar"><i style="width:' + w + '%;background:' + exqBarColor(score) + '"></i></span></div>';
+    }
+    var note = hubTextResultNote(r && r.result);
+    if (note) {
+        return '<div class="nk303-scorecell is-note" title="' + esc(note.full) + '">'
+            + '<span class="nk303-score-note">' + esc(note.short) + '</span></div>';
+    }
+    return '<div class="nk303-scorecell"><b>—</b></div>';
 }
 
 function recommendAction(dirId, score, model, criterion) {
@@ -2404,7 +2726,7 @@ function processHtml(org) {
             return '<li class="' + cls.trim() + '">' + inner + '</li>';
         }).join('')
         + '</ol></div>'
-        + '<p class="nk303-hint">Mərhələlər Qərar 303, bənd 3.1 əsasında xəritələnir. Status: '
+        + '<p class="nk303-hint">Yerində baxış: hesabat hazırlanması istisna olmaqla bütün alt görüşlər Done olduqda tamamlanır. Status: '
         + esc(org.statusName) + ' (' + esc(org.visLabel) + ').</p>'
         + '</div>';
 }
@@ -3710,6 +4032,7 @@ function resetHubState() {
     ui.hubPage = 1;
     ui.hubFilter = '';
     ui.hubSort = 'desc';
+    ui.hubDetailKey = '';
     ui.reportId = '';
     ui.reportKind = '';
     ui.reportPickKind = false;
@@ -3743,6 +4066,7 @@ function openHub(section) {
     ui.hubPage = 1;
     ui.hubFilter = '';
     ui.hubSort = section === 'meqsed' ? 'date' : 'desc';
+    ui.hubDetailKey = '';
     ui.mode = 'country';
     ui.orgKey = '';
     ui.nav = 'overview';
@@ -4309,9 +4633,14 @@ function hubTableHtml(view) {
     var body = slice.map(function(r, i) {
         var rank = (ui.hubPage - 1) * HUB_PAGE_SIZE + i + 1;
         var href = r.key ? jiraBrowseUrl(r.key) : '';
-        var click = href
-            ? ' class="is-click" onclick="nk303Call(\'hubOpen\',\'' + qarg(r.key) + '\')" title="Jira-da aç: ' + esc(r.key) + '"'
-            : '';
+        var detailId = r.key || r.qurum || '';
+        var click = '';
+        if (view.section === 'isq' && detailId) {
+            click = ' class="is-click" onclick="nk303Call(\'hubDetail\',\'' + qarg(detailId) + '\')"'
+                + ' title="Qurum kartını aç: ' + esc(r.qurum || detailId) + '"';
+        } else if (href) {
+            click = ' class="is-click" onclick="nk303Call(\'hubOpen\',\'' + qarg(r.key) + '\')" title="Jira-da aç: ' + esc(r.key) + '"';
+        }
         var eyeId = r.key || fold(r.qurum) || '';
         var eyeBtn = (view.section === 'exq' && eyeId)
             ? '<button type="button" class="nk303-eye-btn" title="Mərhələlər üzrə nəticə və hədəf"'
@@ -4321,9 +4650,11 @@ function hubTableHtml(view) {
             : '';
         var cells = '<td class="num">' + rank + '</td>'
             + '<td class="q" title="' + esc(r.qurum) + (r.key ? ' · ' + esc(r.key) : '') + '">'
-            + (href
-                ? '<a class="nk303-qurum-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">' + esc(r.qurum) + '</a>'
-                : esc(r.qurum))
+            + (view.section === 'isq'
+                ? esc(r.qurum)
+                : (href
+                    ? '<a class="nk303-qurum-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">' + esc(r.qurum) + '</a>'
+                    : esc(r.qurum)))
             + '</td>';
         if (view.section === 'meqsed') {
             var op = hubOpinionLabel(r.opinion || (r.resultKey === 'baxilir' ? 'baxilir' : ''));
@@ -4331,22 +4662,14 @@ function hubTableHtml(view) {
                 + '<td><span class="nk303-pri is-' + op.id + '">' + esc(op.label) + '</span></td>'
                 + '<td>' + esc(r.date || '—') + '</td>';
         } else if (view.section === 'exq') {
-            var w = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
-            var rowStar = exqStarOfRow(r);
             cells += '<td class="num">' + esc(r.year || '—') + '</td>'
                 + '<td class="num">' + esc(r.svc == null ? '—' : String(r.svc)) + '</td>'
-                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score) + '%') + '</b>'
-                + (rowStar ? '<em class="nk303-star-mini">' + esc(exqStarLabel(rowStar)) + '</em>' : '')
-                + '<span class="bar"><i style="width:' + w + '%;background:' + exqBarColor(r.score) + '"></i></span></div></td>'
+                + '<td>' + hubYekunCellHtml(r, 'exq') + '</td>'
                 + '<td>' + esc(r.status || '—') + '</td>'
                 + '<td class="nk303-eye-cell">' + eyeBtn + '</td>';
         } else if (view.section === 'isq') {
-            var iw = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
-            var isqStar = exqStarOfRow(r);
             cells += '<td class="num">' + esc(r.year || '—') + '</td>'
-                + '<td><div class="nk303-scorecell"><b>' + esc(r.score == null ? '—' : fmt1(r.score) + '%') + '</b>'
-                + (isqStar ? '<em class="nk303-star-mini">' + esc(exqStarLabel(isqStar)) + '</em>' : '')
-                + '<span class="bar"><i style="width:' + iw + '%;background:' + exqBarColor(r.score) + '"></i></span></div></td>'
+                + '<td>' + hubYekunCellHtml(r, 'isq') + '</td>'
                 + '<td>' + esc(r.status || '—') + '</td>';
         } else {
             var sw = r.score == null ? 0 : Math.max(0, Math.min(100, r.score));
@@ -4392,7 +4715,9 @@ function hubTableHtml(view) {
         + '<p class="nk303-hint" style="margin:0">' + list.length
         + (view.section === 'exq' ? ' qurum' : ' qeyd')
         + (view.section !== 'exq' && view.rows && list.length !== view.rows.length ? ' / ' + view.rows.length : '')
-        + (slice.some(function(r) { return r.key; }) ? ' · sətirə klikləyib tapşırığı Jira-da açın' : '')
+        + (view.section === 'isq'
+            ? ' · sətirə klikləyib qurum kartını açın'
+            : (slice.some(function(r) { return r.key; }) ? ' · sətirə klikləyib tapşırığı Jira-da açın' : ''))
         + '</p></div>'
         + (list.length
             ? '<div class="nk303-table-wrap"><table class="nk303-table'
@@ -4564,28 +4889,30 @@ function mqKpi(label, value, sub, filter, tone) {
         + '</button>';
 }
 
-function mqKindHtml(st) {
+function mqKindRows(st) {
     var order = (MEQSED_NOVU_KINDS || []).slice();
     if ((st.byKind && st.byKind.other) || 0) order.push('other');
     var rows = order.map(function(kind, idx) {
         var split = (st.byKindResult && st.byKindResult[kind]) || {};
         var n = split.total || (st.byKind && st.byKind[kind]) || 0;
-        return { kind: kind, n: n, idx: idx };
+        return { kind: kind, n: n, split: split, idx: idx };
     }).filter(function(r) { return r.n > 0; });
     rows.sort(function(a, b) { return (b.n - a.n) || (a.idx - b.idx); });
+    return rows;
+}
+
+function mqKindHtml(st) {
+    var rows = mqKindRows(st);
     if (!rows.length) return '<p class="mq-empty">Müraciət növü yoxdur.</p>';
-    var max = rows[0].n || 1;
-    return '<div class="mq-kinds">' + rows.map(function(r) {
-        var on = mqFilterOn(r.kind);
-        var w = Math.max(1, Math.round((r.n / max) * 100));
-        return '<button type="button" class="mq-kind' + (on ? ' is-on' : '') + '"'
-            + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
-            + ' onclick="' + mqHit(r.kind) + '">'
-            + '<span>' + esc((MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[r.kind]) || r.kind) + '</span>'
-            + '<div class="mq-kind-track" aria-hidden="true"><i style="width:' + w + '%"></i></div>'
-            + '<b>' + r.n + '</b>'
-            + '</button>';
-    }).join('') + '</div>';
+    var h = Math.min(280, Math.max(120, rows.length * 28 + 28));
+    var legend = '<ul class="mq-kind-legend" aria-label="Rəy rəngləri">'
+        + mqOpinionItems(st).map(function(t) {
+            return '<li><i style="background:' + t.color + '"></i>' + esc(t.label) + '</li>';
+        }).join('')
+        + '</ul>';
+    return '<div class="mq-kind-chart" style="--mq-kind-h:' + h + 'px">'
+        + '<canvas id="mqKindChart" aria-label="Müraciət növü üzrə nəticə"></canvas>'
+        + '</div>' + legend;
 }
 
 function mqOrgBlock(st) {
@@ -4640,9 +4967,9 @@ function meqsedDashHtml(view) {
         + mqKpi('Mənfi rəy', st.neg || 0, 'nəticə', 'neg', 'is-neg')
         + '</div>'
         + '<div class="mq-grid">'
-        + '<section class="mq-card">'
+        + '<section class="mq-card mq-card--kinds">'
         + '<h3>Müraciət növü üzrə nəticə</h3>'
-        + '<p class="mq-sub">Ümumi ' + total + ' müraciət</p>'
+        + '<p class="mq-sub">Ümumi ' + total + ' müraciət · növə klikləyib filtrləyin</p>'
         + mqKindHtml(st)
         + '</section>'
         + '<section class="mq-card">'
@@ -5089,7 +5416,113 @@ function drawHubCharts(view) {
             }
         });
     }
+    drawMeqsedKindChart(st);
     drawMeqsedFlowChart(st);
+}
+
+function drawMeqsedKindChart(st) {
+    if (typeof Chart === 'undefined' || !st) return;
+    var canvas = document.getElementById('mqKindChart');
+    if (!canvas) return;
+    var rows = mqKindRows(st);
+    if (!rows.length) return;
+    var series = mqOpinionItems(st);
+    var labels = rows.map(function(r) {
+        var raw = (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[r.kind]) || r.kind;
+        return raw.length > 28 ? raw.slice(0, 27) + '…' : raw;
+    });
+    var maxN = rows.reduce(function(m, r) { return Math.max(m, r.n || 0); }, 0);
+    makeHubChart('mqKindChart', {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: series.map(function(it) {
+                return {
+                    label: it.label,
+                    data: rows.map(function(r) { return (r.split && r.split[it.key]) || 0; }),
+                    backgroundColor: it.color,
+                    borderWidth: 0,
+                    borderRadius: 3,
+                    barPercentage: 0.7,
+                    categoryPercentage: 0.78,
+                    maxBarThickness: 16,
+                    _kinds: rows.map(function(r) { return r.kind; })
+                };
+            })
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: { padding: { top: 2, right: 18, left: 0, bottom: 2 } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(15, 23, 42, 0.94)',
+                    padding: 8,
+                    cornerRadius: 8,
+                    callbacks: {
+                        title: function(items) {
+                            var i = items && items[0] ? items[0].dataIndex : -1;
+                            var r = rows[i];
+                            if (!r) return '';
+                            return (MEQSED_NOVU_LABELS && MEQSED_NOVU_LABELS[r.kind]) || r.kind;
+                        },
+                        label: function(ctx) {
+                            return ' ' + ctx.dataset.label + ': ' + (ctx.raw || 0);
+                        },
+                        footer: function(items) {
+                            var i = items && items[0] ? items[0].dataIndex : -1;
+                            var r = rows[i];
+                            if (!r) return '';
+                            var share = (st.total || 0) ? Math.round((r.n / st.total) * 100) : 0;
+                            return 'Cəmi: ' + r.n + ' · ' + share + '%';
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    beginAtZero: true,
+                    suggestedMax: maxN ? Math.ceil(maxN * 1.08) : undefined,
+                    ticks: {
+                        precision: 0,
+                        maxTicksLimit: 5,
+                        color: '#94a3b8',
+                        font: { size: 10 }
+                    },
+                    grid: { color: 'rgba(148, 163, 184, 0.16)' },
+                    border: { display: false }
+                },
+                y: {
+                    stacked: true,
+                    ticks: {
+                        autoSkip: false,
+                        color: '#475569',
+                        font: { size: 10, weight: '600' },
+                        callback: function(val) {
+                            var t = this.getLabelForValue(val);
+                            return t && t.length > 22 ? t.slice(0, 21) + '…' : t;
+                        }
+                    },
+                    grid: { display: false },
+                    border: { display: false }
+                }
+            },
+            onClick: function(evt, els) {
+                if (!els || !els.length) return;
+                var ds = this.data.datasets[els[0].datasetIndex];
+                var kind = ds && ds._kinds ? ds._kinds[els[0].index] : '';
+                if (kind) nk303Call('hubFilter', kind);
+            },
+            onHover: function(evt, els) {
+                var target = (evt && evt.native && evt.native.target)
+                    || (evt && evt.chart && evt.chart.canvas);
+                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+            }
+        }
+    });
 }
 
 function drawMeqsedFlowChart(st) {
@@ -5098,14 +5531,18 @@ function drawMeqsedFlowChart(st) {
     if (!canvas) return;
     var months = st.byMonth || [];
     var series = mqOpinionItems(st);
+    var monthMax = 0;
+    months.forEach(function(m) {
+        if (m && m.total > monthMax) monthMax = m.total;
+    });
     var totalsPlugin = {
         id: 'mqFlowTotals',
         afterDatasetsDraw: function(chart) {
             var c = chart.ctx;
             var sets = chart.data.datasets || [];
             c.save();
-            c.font = '700 11px Inter, system-ui, sans-serif';
-            c.fillStyle = '#334155';
+            c.font = '650 10px Inter, system-ui, sans-serif';
+            c.fillStyle = '#64748b';
             c.textAlign = 'center';
             c.textBaseline = 'bottom';
             (chart.data.labels || []).forEach(function(_, i) {
@@ -5122,7 +5559,7 @@ function drawMeqsedFlowChart(st) {
                     x = bar.x;
                     if (top == null || bar.y < top) top = bar.y;
                 });
-                if (sum && x != null && top != null) c.fillText(String(sum), x, top - 3);
+                if (sum && x != null && top != null) c.fillText(String(sum), x, top - 2);
             });
             c.restore();
         }
@@ -5138,9 +5575,9 @@ function drawMeqsedFlowChart(st) {
                     backgroundColor: it.color,
                     borderWidth: 0,
                     borderRadius: 2,
-                    barPercentage: 0.72,
-                    categoryPercentage: 0.78,
-                    maxBarThickness: 36,
+                    barPercentage: 0.68,
+                    categoryPercentage: 0.72,
+                    maxBarThickness: 18,
                     _filter: it.filter
                 };
             })
@@ -5148,12 +5585,12 @@ function drawMeqsedFlowChart(st) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            layout: { padding: { top: 18, right: 4, left: 0, bottom: 0 } },
+            layout: { padding: { top: 12, right: 2, left: 0, bottom: 0 } },
             plugins: {
                 legend: { display: false },
                 tooltip: {
                     backgroundColor: 'rgba(15, 23, 42, 0.94)',
-                    padding: 10,
+                    padding: 8,
                     cornerRadius: 8,
                     callbacks: {
                         label: function(ctx) {
@@ -5166,15 +5603,20 @@ function drawMeqsedFlowChart(st) {
                 x: {
                     stacked: true,
                     grid: { display: false },
-                    ticks: { color: '#94a3b8', font: { size: 11, weight: '600' } },
+                    ticks: { color: '#94a3b8', font: { size: 10, weight: '600' }, maxRotation: 0 },
                     border: { display: false }
                 },
                 y: {
                     stacked: true,
                     beginAtZero: true,
-                    grace: '18%',
-                    ticks: { precision: 0, color: '#94a3b8', font: { size: 11 } },
-                    grid: { color: 'rgba(148, 163, 184, 0.22)' },
+                    suggestedMax: monthMax ? Math.ceil(monthMax * 1.12) : undefined,
+                    ticks: {
+                        precision: 0,
+                        maxTicksLimit: 5,
+                        color: '#94a3b8',
+                        font: { size: 10 }
+                    },
+                    grid: { color: 'rgba(148, 163, 184, 0.16)' },
                     border: { display: false }
                 }
             },
@@ -5827,16 +6269,21 @@ export function nk303Call(action, payload) {
     } else if (action === 'refresh') {
         if (typeof window.fetchDashboardData === 'function') window.fetchDashboardData();
         return;
+    } else if (action === 'back') {
+        goBackOneStep();
+        return;
     } else if (action === 'reset') {
         resetFilters();
         ui.mode = 'country';
         ui.nav = 'overview';
+        ui.hubDetailKey = '';
     } else if (action === 'openOrg') {
         ui.orgKey = darg(payload || '');
         ui.mode = 'institution';
         ui.nav = 'overview';
         ui.expandDir = '';
         ui.expandCrit = '';
+        ui.hubDetailKey = '';
         applyOrgYear(ui.orgKey);
         window.scrollTo(0, 0);
     } else if (action === 'openDir') {
@@ -5915,7 +6362,13 @@ export function nk303Call(action, payload) {
         ui.hubFilter = '';
         ui.hubSearch = darg(payload || '');
         ui.hubPage = 1;
+        ui.hubDetailKey = '';
         renderHub({ scrollToList: true });
+        return;
+    } else if (action === 'hubDetail') {
+        ui.hubDetailKey = darg(payload || '');
+        window.scrollTo(0, 0);
+        render();
         return;
     } else if (action === 'hubYear') {
         applyHubYear(payload);

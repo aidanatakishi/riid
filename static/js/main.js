@@ -1,13 +1,13 @@
 import { state } from './state.js';
 import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js?v=idda7';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda15';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda48';
-import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange } from './filters.js?v=idda47';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda49';
+import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda48';
 import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda48';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda16';
 import { loadDocxLib, exportTasksToWord } from './report.js?v=idda34';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda59';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda135';
+import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda63';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda142';
 import { initChat } from './chat.js?v=idda65';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda15';
 
@@ -58,6 +58,11 @@ window.updateSprintFilterState = updateSprintFilterState;
 window.selectLatestSprint = selectLatestSprint;
 window.selectPreviousSprint = selectPreviousSprint;
 window.onSprintDropdownChange = onSprintDropdownChange;
+window.toggleSprintPicker = toggleSprintPicker;
+window.closeSprintPicker = closeSprintPicker;
+window.pickSprintOption = pickSprintOption;
+window.filterSprintPickerOptions = filterSprintPickerOptions;
+window.syncSprintPicker = syncSprintPicker;
 window.onDateRangeChange = onDateRangeChange;
 window.resetAllFilters = resetAllFilters;
 window.applyFilters = applyFilters;
@@ -158,20 +163,42 @@ window.onTeamChange = onTeamChange;
 function placeNk303LaunchInHeader() {
     var tools = document.querySelector('.app-head-tools');
     if (!tools) return;
-    var launches = document.querySelectorAll('.nk303-launch, #analyticsLaunchBtn');
+    var link = document.getElementById('analyticsLaunchBtn') || tools.querySelector('.nk303-launch');
+    var extras = document.querySelectorAll('.nk303-launch, #analyticsLaunchBtn');
     var i;
-    for (i = 0; i < launches.length; i++) launches[i].remove();
-    var link = document.createElement('a');
-    link.href = '/diaqnostika';
-    link.id = 'analyticsLaunchBtn';
-    link.className = 'app-head-tool is-accent nk303-launch';
-    link.title = 'Qiymətləndirmə analitikası';
-    link.addEventListener('click', function(ev) {
-        ev.preventDefault();
-        if (typeof window.openNk303 === 'function') window.openNk303();
-    });
-    link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg><span>Qiymətləndirmə analitikası</span>';
-    tools.insertBefore(link, tools.firstChild);
+    for (i = 0; i < extras.length; i++) {
+        if (extras[i] !== link) extras[i].remove();
+    }
+    if (!link) {
+        link = document.createElement('a');
+        link.href = '/diaqnostika';
+        link.id = 'analyticsLaunchBtn';
+        link.className = 'app-head-tool is-accent nk303-launch';
+        link.title = 'Qiymətləndirmə analitikası';
+        link.setAttribute('aria-label', 'Qiymətləndirmə analitikası');
+        link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg><span class="app-head-tool-label">Analitika</span>';
+        link.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            if (typeof window.openNk303 === 'function') window.openNk303();
+        });
+    } else {
+        link.classList.add('app-head-tool', 'is-accent', 'nk303-launch');
+        link.title = link.title || 'Qiymətləndirmə analitikası';
+        link.setAttribute('aria-label', link.getAttribute('aria-label') || 'Qiymətləndirmə analitikası');
+        var label = link.querySelector('.app-head-tool-label');
+        if (label) label.textContent = 'Analitika';
+        else {
+            Array.prototype.forEach.call(link.querySelectorAll('span'), function(span) {
+                if (!span.classList.contains('app-head-tool-label')) {
+                    span.className = 'app-head-tool-label';
+                    span.textContent = 'Analitika';
+                }
+            });
+        }
+    }
+    if (link.parentNode !== tools || tools.firstChild !== link) {
+        tools.insertBefore(link, tools.firstChild);
+    }
 }
 
 placeNk303LaunchInHeader();

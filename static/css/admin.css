@@ -329,6 +329,9 @@ body.admin-page {
     font-size: 0.88rem;
 }
 .hidden { display: none !important; }
+.admin-shell input,
+.admin-shell select,
+.admin-shell textarea { font-size: 16px; }
 @media (max-width: 920px) {
     .admin-grid,
     .admin-row { grid-template-columns: 1fr; }
@@ -346,9 +349,16 @@ body.admin-page {
     }
     .admin-person-actions .admin-btn {
         flex: 1 1 auto;
+        min-height: 2.75rem;
     }
 }
 @media (max-width: 480px) {
-    .admin-shell { padding: 0.75rem 0.65rem 1.5rem; }
+    .admin-shell {
+        padding: max(0.75rem, env(safe-area-inset-top, 0px))
+            max(0.65rem, env(safe-area-inset-right, 0px))
+            max(1.5rem, env(safe-area-inset-bottom, 0px))
+            max(0.65rem, env(safe-area-inset-left, 0px));
+    }
     .admin-top h1 { font-size: 1.2rem; }
+    .admin-btn { min-height: 2.75rem; }
 }

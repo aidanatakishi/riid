@@ -413,7 +413,137 @@ function selectSprintByName(name) {
     if (!found) return false;
     sprintSelect.value = name;
     updateSprintFilterState();
+    syncSprintPicker();
     return true;
+}
+
+function sprintPickerSelectedLabel(select) {
+    if (!select) return 'Bütün Sprintlər';
+    var opt = select.options[select.selectedIndex];
+    return (opt && opt.text) ? String(opt.text) : 'Bütün Sprintlər';
+}
+
+export function syncSprintPicker() {
+    var select = document.getElementById('sprintFilter');
+    var label = document.getElementById('sprintPickerLabel');
+    var btn = document.getElementById('sprintPickerBtn');
+    var list = document.getElementById('sprintPickerList');
+    var wrap = document.getElementById('sprintPicker');
+    if (!select || !list) return;
+    if (label) label.textContent = sprintPickerSelectedLabel(select);
+    if (btn) {
+        btn.classList.toggle('is-active', !!(select.value && select.value !== 'all'));
+        btn.disabled = !!select.disabled;
+        btn.title = select.title || 'Sprint seçin';
+    }
+    if (wrap) wrap.classList.toggle('is-muted', !!(select.classList.contains('opacity-50')));
+    var html = '';
+    Array.from(select.options).forEach(function(opt) {
+        var val = opt.value;
+        var text = opt.text || val;
+        var on = select.value === val;
+        html += '<li role="option" class="sprint-picker-option' + (on ? ' is-on' : '') + '"'
+            + ' data-value="' + String(val).replace(/"/g, '&quot;') + '"'
+            + ' aria-selected="' + (on ? 'true' : 'false') + '"'
+            + ' onclick="pickSprintOption(this)">'
+            + '<span>' + String(text).replace(/</g, '&lt;') + '</span>'
+            + (on ? '<i aria-hidden="true">✓</i>' : '')
+            + '</li>';
+    });
+    list.innerHTML = html || '<li class="sprint-picker-empty">Sprint yoxdur</li>';
+    filterSprintPickerOptions((document.getElementById('sprintPickerSearch') || {}).value || '');
+}
+
+export function filterSprintPickerOptions(query) {
+    var q = normalizeStr(query || '');
+    var list = document.getElementById('sprintPickerList');
+    if (!list) return;
+    var rows = list.querySelectorAll('.sprint-picker-option');
+    var visible = 0;
+    rows.forEach(function(row) {
+        var text = normalizeStr(row.textContent || '');
+        var show = !q || text.indexOf(q) !== -1;
+        row.hidden = !show;
+        if (show) visible += 1;
+    });
+    var empty = list.querySelector('.sprint-picker-empty-filter');
+    if (!visible && rows.length) {
+        if (!empty) {
+            empty = document.createElement('li');
+            empty.className = 'sprint-picker-empty sprint-picker-empty-filter';
+            empty.textContent = 'Uyğun sprint yoxdur';
+            list.appendChild(empty);
+        }
+        empty.hidden = false;
+    } else if (empty) {
+        empty.hidden = true;
+    }
+}
+
+function onSprintPickerKeydown(evt) {
+    if (evt && evt.key === 'Escape') closeSprintPicker();
+}
+
+export function closeSprintPicker() {
+    var wrap = document.getElementById('sprintPicker');
+    var menu = document.getElementById('sprintPickerMenu');
+    var btn = document.getElementById('sprintPickerBtn');
+    var search = document.getElementById('sprintPickerSearch');
+    if (menu) menu.classList.add('hidden');
+    if (wrap) wrap.classList.remove('is-open');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (btn) btn.classList.remove('is-open');
+    if (search) search.value = '';
+    filterSprintPickerOptions('');
+    document.removeEventListener('click', onSprintPickerDocClick, true);
+    document.removeEventListener('keydown', onSprintPickerKeydown, true);
+}
+
+function onSprintPickerDocClick(evt) {
+    var wrap = document.getElementById('sprintPicker');
+    if (!wrap) return closeSprintPicker();
+    if (wrap.contains(evt.target)) return;
+    closeSprintPicker();
+}
+
+export function toggleSprintPicker(evt) {
+    if (evt) {
+        evt.preventDefault();
+        evt.stopPropagation();
+    }
+    var wrap = document.getElementById('sprintPicker');
+    var menu = document.getElementById('sprintPickerMenu');
+    var btn = document.getElementById('sprintPickerBtn');
+    if (!wrap || !menu || !btn || btn.disabled) return;
+    var open = menu.classList.contains('hidden');
+    if (!open) {
+        closeSprintPicker();
+        return;
+    }
+    syncSprintPicker();
+    menu.classList.remove('hidden');
+    wrap.classList.add('is-open');
+    btn.setAttribute('aria-expanded', 'true');
+    btn.classList.add('is-open');
+    var search = document.getElementById('sprintPickerSearch');
+    if (search) {
+        setTimeout(function() { try { search.focus(); } catch (e) {} }, 0);
+    }
+    setTimeout(function() {
+        document.addEventListener('click', onSprintPickerDocClick, true);
+        document.addEventListener('keydown', onSprintPickerKeydown, true);
+    }, 0);
+}
+
+export function pickSprintOption(el) {
+    if (!el) return;
+    var val = el.getAttribute('data-value');
+    var select = document.getElementById('sprintFilter');
+    if (!select) return;
+    select.value = val == null ? 'all' : val;
+    closeSprintPicker();
+    syncSprintPicker();
+    onSprintDropdownChange();
 }
 
 export function populateSprintFilter() {
@@ -444,6 +574,7 @@ export function populateSprintFilter() {
         userChoseSprint = false;
         sprintSelect.value = latestSprintValue(sprintSelect, sortedSprints) || 'all';
         updateSprintFilterState();
+        syncSprintPicker();
         return;
     }
 
@@ -451,6 +582,7 @@ export function populateSprintFilter() {
     if (usingDates) {
         sprintSelect.value = 'all';
         updateSprintFilterState();
+        syncSprintPicker();
         return;
     }
     if (previousVal && optionExists) {
@@ -462,6 +594,7 @@ export function populateSprintFilter() {
         sprintSelect.value = latestSprintValue(sprintSelect, sortedSprints) || 'all';
     }
     updateSprintFilterState();
+    syncSprintPicker();
 }
 
 export function clearDateRangeInputs() {
@@ -487,6 +620,7 @@ export function updateSprintFilterState() {
         sprintSelect.title = '';
     }
     updateDateTriggerLabel();
+    syncSprintPicker();
 }
 
 function previousSprintValue(sprintSelect, names) {
