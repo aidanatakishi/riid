@@ -115,55 +115,45 @@ function OverallHero(overall) {
     var tgt = clampPct(overall.target);
     var gap = overall.gap;
     var star = overall.star;
-    var gapHtml = gap == null
-        ? ''
-        : ' · fərq <span class="is-gap">' + esc(num(gap, 1)) + '</span>';
+    var hasCur = isFinite(overall.current);
+    var valText = hasCur ? (num(overall.current, 1) + '%') : '—';
+    var sentence = 'Hədəf ' + num(overall.target) + '%-dir.'
+        + (gap == null ? '' : (' Mövcud nəticədən fərq ' + num(gap, 1) + '.'));
     var starHtml = star
-        ? '<div class="svc-digit-hero-stars">'
-            + '<span class="svc-digit-star-pill">' + esc(exqStarLabel(star)) + '</span>'
+        ? '<span class="svc-digit-star-pill">' + esc(exqStarLabel(star)) + '</span>'
             + starsRowHtml(star)
-            + '</div>'
         : '';
-    var valText = isFinite(overall.current) ? (esc(num(overall.current, 1)) + '%') : '—';
-    var tag = overall.filter ? 'button' : 'div';
     var click = overall.filter ? filterClick(overall.filter) : '';
-    var typeAttr = overall.filter ? ' type="button"' : '';
-    var cls = 'svc-digit-card svc-digit-hero-card' + (overall.filter ? ' is-click' : '');
-    return '<' + tag + ' class="' + cls + '"' + typeAttr + click
-        + ' title="Nəticəsi olan qurumlara bax">'
-        + '<div class="svc-digit-hero">'
-        + '<div class="svc-digit-hero-copy">'
-        + '<p class="svc-digit-hero-label">Ümumi nəticə (mövcud)</p>'
-        + '<p class="svc-digit-hero-val">' + valText + '</p>'
-        + starHtml
-        + '<p class="svc-digit-hero-sub">Hədəf <b>' + esc(num(overall.target)) + '%</b>' + gapHtml + '</p>'
+    var aria = 'Ümumi nəticə ' + valText + ', hədəf ' + num(overall.target) + '%'
+        + (star ? ', ' + exqStarLabel(star) : '');
+    return '<section class="svc-digit-measure">'
+        + '<div class="svc-digit-measure-top">'
+        + '<button type="button" class="svc-digit-measure-pct' + (hasCur ? '' : ' is-empty') + '"' + click
+            + ' title="Nəticəsi olan qurumlara bax">' + esc(valText) + '</button>'
+        + '<p>' + esc(sentence) + (starHtml ? starHtml : '') + '</p>'
         + '</div>'
-        + '<div class="svc-digit-hero-track-wrap">'
-        + '<div class="svc-digit-hero-track" role="img" aria-label="Ümumi nəticə ' + esc(valText) + ', hədəf ' + esc(num(overall.target)) + '%'
-            + (star ? ', ' + esc(exqStarLabel(star)) : '') + '">'
-        + '<div class="svc-digit-hero-fill" style="width:' + cur + '%"></div>'
-        + '<span class="svc-digit-hero-goal" style="left:' + tgt + '%" aria-hidden="true"></span>'
-        + '</div>'
-        + '<div class="svc-digit-hero-legend">'
-        + '<span class="svc-digit-leg is-now"><i aria-hidden="true"></i>Mövcud</span>'
-        + '<span class="svc-digit-leg is-goal"><i aria-hidden="true"></i>Hədəf</span>'
-        + '</div>'
-        + '</div>'
-        + '</div>'
-        + '</' + tag + '>';
+        + '<button type="button" class="svc-digit-measure-track"' + click
+            + ' title="Nəticəsi olan qurumlara bax" aria-label="' + esc(aria) + '">'
+        + '<i style="width:' + cur + '%"></i>'
+        + '<span class="svc-digit-measure-goal" style="left:' + tgt + '%" aria-hidden="true"></span>'
+        + '</button>'
+        + '<ul class="svc-digit-measure-legend">'
+        + '<li><i class="is-now"></i><span>Mövcud</span><b>' + esc(valText) + '</b></li>'
+        + '<li><i class="is-goal"></i><span>Hədəf</span><b>' + esc(num(overall.target)) + '%</b></li>'
+        + '</ul>'
+        + '</section>';
 }
 
 function KpiCard(opts) {
     var tag = opts.filter ? 'button' : 'article';
     var typeAttr = opts.filter ? ' type="button"' : '';
     var click = opts.filter ? filterClick(opts.filter) : '';
-    var cls = 'svc-digit-card' + (opts.filter ? ' is-click' : '');
+    var cls = 'svc-digit-measure-kpi' + (opts.warn ? ' is-warn' : '') + (opts.filter ? ' is-click' : '');
     return '<' + tag + ' class="' + cls + '"' + typeAttr + click
         + (opts.title ? ' title="' + esc(opts.title) + '"' : '') + '>'
-        + '<p class="svc-digit-kpi-label">' + esc(opts.label) + '</p>'
-        + '<p class="svc-digit-kpi-val' + (opts.warn ? ' is-warn' : '') + '">' + esc(String(opts.value)) + '</p>'
-        + (opts.barHtml || '')
-        + (opts.subHtml || '')
+        + '<span>' + esc(opts.label) + '</span>'
+        + '<strong>' + esc(String(opts.value)) + '</strong>'
+        + '<em>' + (opts.subHtml || '') + '</em>'
         + '</' + tag + '>';
 }
 
@@ -411,18 +401,14 @@ function ServiceDigitizationSection(raw) {
         return st.na ? null : st.value;
     });
 
-    var digitizedBar = '<div class="svc-digit-kpi-bar" aria-hidden="true"><i style="width:' + s.digitizedPct + '%"></i></div>'
-        + '<p class="svc-digit-kpi-sub">' + esc(String(s.totalServices || s.digitized)) + ' xidmətdən ' + esc(num(s.digitizedPct, 1)) + '%</p>';
-
-    var orgPct = s.orgsTotal ? round1((s.orgsWithSvc / s.orgsTotal) * 100) : 0;
-    var orgBar = '<div class="svc-digit-kpi-bar" aria-hidden="true"><i style="width:' + clampPct(orgPct) + '%"></i></div>'
-        + '<p class="svc-digit-kpi-sub">' + esc(String(s.orgsTotal || 0)) + ' qurumdan ' + esc(String(s.orgsWithResult || 0)) + ' nəticəli</p>';
+    var digitizedSub = esc(String(s.totalServices || s.digitized)) + ' xidmətdən ' + esc(num(s.digitizedPct, 1)) + '%';
+    var orgSub = esc(String(s.orgsTotal || 0)) + ' qurumdan ' + esc(String(s.orgsWithResult || 0)) + ' nəticəli';
 
     var gapVal = o.gap == null ? '—' : num(o.gap, 1);
     var gapSub = o.gap == null
-        ? '<p class="svc-digit-kpi-sub">Hədəf ' + esc(num(o.target)) + '%</p>'
-        : '<p class="svc-digit-kpi-sub">Hədəf ' + esc(num(o.target)) + '% · mövcud '
-            + (isFinite(o.current) ? esc(num(o.current, 1)) + '%' : '—') + '</p>';
+        ? 'Hədəf ' + esc(num(o.target)) + '%'
+        : 'Hədəf ' + esc(num(o.target)) + '% · mövcud '
+            + (isFinite(o.current) ? esc(num(o.current, 1)) + '%' : '—');
 
     var weak = d.weak;
     var weakCard = weak
@@ -432,12 +418,12 @@ function ServiceDigitizationSection(raw) {
             warn: weak.lag > 20,
             filter: weak.filter,
             title: weak.name + ' — bu meyar üzrə nəticəyə bax',
-            subHtml: '<p class="svc-digit-kpi-sub">' + esc(weak.name) + ' · fərq ' + esc(num(weak.lag)) + '</p>'
+            subHtml: esc(weak.name) + ' · fərq ' + esc(num(weak.lag))
         })
         : KpiCard({
             label: 'Ən zəif meyar',
             value: '—',
-            subHtml: '<p class="svc-digit-kpi-sub">Meyar məlumatı yoxdur</p>'
+            subHtml: 'Meyar məlumatı yoxdur'
         });
 
     return '<section class="svc-digit" id="serviceDigitizationSection" aria-labelledby="svcDigitTitle">'
@@ -447,18 +433,18 @@ function ServiceDigitizationSection(raw) {
         + '</header>'
         + '<div class="svc-digit-stack">'
         + OverallHero(o)
-        + '<div class="svc-digit-kpis">'
+        + '<div class="svc-digit-measure-kpis">'
         + KpiCard({
             label: 'Rəqəmsallaşmış xidmət',
             value: s.digitized,
-            barHtml: digitizedBar,
+            subHtml: digitizedSub,
             filter: filters.digitized || 'svc_sum',
             title: 'Xidməti olan qurumlara bax'
         })
         + KpiCard({
             label: 'Qiymətləndirilən qurum',
             value: s.orgsWithSvc,
-            barHtml: orgBar,
+            subHtml: orgSub,
             filter: filters.orgs || 'svc_sum',
             title: 'Xidməti olan qurumlara bax'
         })

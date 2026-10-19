@@ -7,7 +7,7 @@ import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpic
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda16';
 import { loadDocxLib, exportTasksToWord } from './report.js?v=idda34';
 import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda64';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda147';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda148';
 import { initChat } from './chat.js?v=idda65';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda15';
 
