@@ -466,6 +466,14 @@ function setLoadingOverlayText(msg) {
     if (p) p.textContent = msg || 'Məlumatlar yüklənir...';
 }
 
+function setRefreshButtonSpinning(on) {
+    var btn = document.getElementById('refreshDashboardBtn');
+    if (!btn) return;
+    btn.classList.toggle('is-spinning', !!on);
+    if (on) btn.setAttribute('aria-busy', 'true');
+    else btn.removeAttribute('aria-busy');
+}
+
 function setDataLoadProgress(text) {
     var el = document.getElementById('dataLoadProgress');
     if (!text) {
@@ -825,6 +833,7 @@ export async function fetchDashboardData(opts) {
              ? ('Cari il yüklənir (' + endYear + ')…')
              : 'Məlumatlar yüklənir...');
          if (overlay) overlay.classList.remove('hidden');
+         setRefreshButtonSpinning(true);
      }
      try {
          lastJqlCache.key = '';
@@ -834,6 +843,7 @@ export async function fetchDashboardData(opts) {
              var firstChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
              applyDashboardPayload(firstChunk, { silent: silent });
              if (overlay) overlay.classList.add('hidden');
+             setRefreshButtonSpinning(false);
              setLoadingOverlayText('Məlumatlar yüklənir...');
              if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
              if (!state.todayRefreshInterval) {
@@ -888,5 +898,6 @@ export async function fetchDashboardData(opts) {
          setDataLoadProgress('');
          setLoadingOverlayText('Məlumatlar yüklənir...');
          if (overlay) overlay.classList.add('hidden');
+         setRefreshButtonSpinning(false);
      }
 }

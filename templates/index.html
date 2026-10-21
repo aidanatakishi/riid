@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda5">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda171">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda172">
     <link rel="stylesheet" href="/static/css/service_digitization.css?v=idda18">
     <link rel="stylesheet" href="/static/css/done_bot.css?v=idda3">
     <link rel="stylesheet" href="/static/css/nk303.css?v=idda111">
@@ -53,7 +53,7 @@
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                 <span id="reportDownloadLabel" class="app-head-tool-label">Həftəlik</span>
             </button>
-            <button type="button" class="app-head-tool app-head-tool--primary" onclick="fetchDashboardData()" data-tip="Məlumatı yenilə" aria-label="Yenilə">
+            <button type="button" id="refreshDashboardBtn" class="app-head-tool app-head-tool--primary" onclick="fetchDashboardData()" data-tip="Məlumatı yenilə" aria-label="Yenilə">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                 <span class="app-head-tool-label">Yenilə</span>
             </button>
@@ -772,7 +772,7 @@
             <option value="servis-dizayn">Servis dizayn</option>
         </select>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda290"></script>
+    <script type="module" src="/static/js/main.js?v=idda291"></script>
 
 </body>
 </html>

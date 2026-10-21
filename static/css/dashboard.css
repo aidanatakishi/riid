@@ -4481,6 +4481,7 @@ body.app-page {
     box-sizing: border-box;
 }
 .app-head {
+    position: relative;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -4495,6 +4496,33 @@ body.app-page {
     border: 1px solid rgba(167, 139, 250, 0.28);
     border-bottom: 4px solid #7c3aed;
     box-shadow: 0 12px 28px -16px rgba(46, 16, 101, 0.55);
+}
+/* 4 — soft shimmer along the bottom accent */
+.app-head::after {
+    content: "";
+    position: absolute;
+    left: 1.1rem;
+    right: 1.1rem;
+    bottom: -4px;
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+        90deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.15) 35%,
+        rgba(255, 255, 255, 0.7) 50%,
+        rgba(255, 255, 255, 0.15) 65%,
+        transparent 100%
+    );
+    background-size: 42% 100%;
+    background-repeat: no-repeat;
+    background-position: -40% 0;
+    pointer-events: none;
+    animation: appHeadShimmer 3.2s ease-in-out infinite;
+}
+@keyframes appHeadShimmer {
+    0% { background-position: -45% 0; }
+    100% { background-position: 145% 0; }
 }
 .app-head-left {
     min-width: 0;
@@ -4592,7 +4620,7 @@ body.app-page {
     line-height: 1;
     text-decoration: none;
     box-shadow: none;
-    transition: background 0.18s ease, color 0.18s ease;
+    transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
 }
 .app-head-tool-ico,
 .app-head-tool-text,
@@ -4612,13 +4640,15 @@ body.app-page {
     height: 1rem;
     flex-shrink: 0;
     opacity: 0.9;
-    transition: opacity 0.18s ease;
+    transition: opacity 0.18s ease, transform 0.18s ease;
 }
+/* 5 — hover micro: lift + refresh icon tilt */
 .app-head-tool:hover,
 .app-head-tool:focus-visible {
     background: rgba(255, 255, 255, 0.16);
     color: #fff;
     outline: none;
+    transform: translateY(-1px);
 }
 .app-head-tool:hover svg,
 .app-head-tool:focus-visible svg { opacity: 1; }
@@ -4636,14 +4666,39 @@ body.app-page {
     background: #fff;
     color: #5b21b6;
     box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+    transform: translateY(-1px);
+}
+.app-head-tool.app-head-tool--primary:hover svg,
+.app-head-tool.app-head-tool--primary:focus-visible svg {
+    transform: rotate(8deg);
 }
 .app-head-tool[aria-expanded="true"] {
     background: rgba(255, 255, 255, 0.2);
     color: #fff;
 }
-.app-head-tool:active { background: rgba(255, 255, 255, 0.22); }
+.app-head-tool:active { background: rgba(255, 255, 255, 0.22); transform: translateY(0); }
 .app-head-tool.app-head-tool--primary:active,
 .app-head-tool.is-accent:active { background: #f5f3ff; }
+
+/* 6 — Yenilə spin while fetching */
+.app-head-tool--primary.is-spinning svg {
+    animation: appHeadRefreshSpin 0.75s linear infinite;
+    transform: none;
+}
+@keyframes appHeadRefreshSpin {
+    to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .app-head::after { animation: none; opacity: 0; }
+    .app-head-tool,
+    .app-head-tool svg { transition: none; }
+    .app-head-tool:hover,
+    .app-head-tool:focus-visible,
+    .app-head-tool.app-head-tool--primary:hover,
+    .app-head-tool.app-head-tool--primary:focus-visible { transform: none; }
+    .app-head-tool.app-head-tool--primary:hover svg { transform: none; }
+    .app-head-tool--primary.is-spinning svg { animation: none; }
+}
 
 /* Modern hover tip — above the button */
 .app-head-tool[data-tip]::after {
