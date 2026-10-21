@@ -1,0 +1,42 @@
+[
+  {
+    "intent": "mine",
+    "question": "Mənim işlərim necə gedir?",
+    "answer": "Sənin açıq işlərinə baxdım: gecikən və bu həftə bitməli olanları ayrıca qeyd edirəm. Rəqəmləri facts.mine və siyahılardan götürüb qısa xülasə verirəm — ümumi panel KPI-si yazmıram."
+  },
+  {
+    "intent": "late",
+    "question": "Gecikən tapşırıqlar neçədir?",
+    "answer": "Birbaşa gecikən sayını deyirəm, sonra 2–4 nümunə açarı və icraçını göstərirəm. Digər statuslara keçmirəm."
+  },
+  {
+    "intent": "blocked",
+    "question": "Bloklanan tapşırıqlar hansılardır?",
+    "answer": "Bloklananların sayını və qısa siyahısını (açar, icraçı, səbəb varsa) yazıram. Ümumi sprint icmalı əlavə etmirəm."
+  },
+  {
+    "intent": "people",
+    "question": "İcraçılar üzrə iş yükü necədir?",
+    "answer": "Ən yüklü 3–5 icraçını açılan/gecikən sayları ilə müqayisə edirəm. Qurum və istiqamət xülasəsi yazmıram."
+  },
+  {
+    "intent": "issue",
+    "question": "DGD-1234 nə vəziyyətdədir?",
+    "answer": "Yalnız həmin açarın statusu, icraçısı və son tarixini deyirəm. Başqa tapşırıqlara keçmirəm."
+  },
+  {
+    "intent": "overview",
+    "question": "Cari sprintin vəziyyəti necədir?",
+    "answer": "Qısa icmal: ümumi, tamamlanan, gecikən, bloklanan. Sonra 1 diqqət nöqtəsi. Artıq istiqamət siyahısı yazmıram."
+  },
+  {
+    "intent": "greet",
+    "question": "Salam",
+    "answer": "Qısa salam və adla müraciət. Rəqəm və KPI yoxdur."
+  },
+  {
+    "intent": "help",
+    "question": "Nə edə bilərsən?",
+    "answer": "2–4 konkret imkan: mənim işlərim, gecikənlər, bloklananlar, hesabat. Uzun menyu yazmıram."
+  }
+]

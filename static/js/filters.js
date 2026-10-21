@@ -4,7 +4,7 @@ import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueTh
 import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda48';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda16';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda34';
-import { renderAssessmentSections } from './assessments.js?v=idda49';
+import { renderAssessmentSections, paintAssessmentOverview } from './assessments.js?v=idda68';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -1105,9 +1105,22 @@ function assessmentHubNeedsRender() {
     return true;
 }
 
+function maybePaintAssessmentOverview() {
+    try {
+        if (typeof window.paintAssessmentOverview === 'function') window.paintAssessmentOverview();
+        else paintAssessmentOverview();
+    } catch (err) { console.error(err); }
+}
+
 function maybeRenderAssessmentHub() {
+    /* Overview qrafiki həmişə yenilənir — boş ağ kart qalmasın. */
+    maybePaintAssessmentOverview();
+    if (!isSectionOpen('assessmentHubContent')) return;
     if (!assessmentHubNeedsRender()) return;
-    try { renderAssessmentSections(); } catch (err) { console.error(err); }
+    try {
+        if (typeof window.renderAssessmentSections === 'function') window.renderAssessmentSections();
+        else renderAssessmentSections();
+    } catch (err) { console.error(err); }
 }
 
 export function renderVisibleLazySections() {

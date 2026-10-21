@@ -54,6 +54,19 @@ body.nk303-page #nk303Page { display: block !important; }
     padding: 1.35rem 1.75rem 2rem;
     min-width: 0;
 }
+.nk303-wrap--enter {
+    animation: nkSoftIn 0.28s ease-out;
+}
+@keyframes nkSoftIn {
+    from { opacity: 0.4; }
+    to { opacity: 1; }
+}
+.nk303-hub-body {
+    min-height: 8rem;
+}
+@media (prefers-reduced-motion: reduce) {
+    .nk303-wrap--enter { animation: none !important; }
+}
 
 .nk303-head {
     display: flex;

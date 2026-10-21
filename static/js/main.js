@@ -1,14 +1,14 @@
 import { state } from './state.js';
-import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js?v=idda7';
+import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js?v=idda8';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda15';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda49';
-import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda49';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda51';
+import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda51';
 import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda48';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda16';
 import { loadDocxLib, exportTasksToWord } from './report.js?v=idda34';
-import { renderAssessmentSections, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda64';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda152';
-import { initChat } from './chat.js?v=idda65';
+import { renderAssessmentSections, paintAssessmentOverview, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda68';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda156';
+import { initChat } from './chat.js?v=idda68';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda15';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
@@ -125,6 +125,7 @@ window.showUserActivity = showUserActivity;
 window.loadDocxLib = loadDocxLib;
 window.exportTasksToWord = exportTasksToWord;
 window.renderAssessmentSections = renderAssessmentSections;
+window.paintAssessmentOverview = paintAssessmentOverview;
 window.setAssessmentYear = setAssessmentYear;
 window.setAssessmentYearForActiveTab = setAssessmentYearForActiveTab;
 window.setAssessmentTab = setAssessmentTab;
@@ -249,6 +250,6 @@ window.onload = async function() {
     if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey)) {
         fetchDashboardData().catch(function (err) { console.error(err); });
     }
-    try { renderAssessmentSections(); } catch (e) {}
+    try { paintAssessmentOverview(); } catch (e) {}
     try { syncNk303Route(); } catch (e) {}
 };

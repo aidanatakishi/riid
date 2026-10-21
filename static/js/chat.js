@@ -54,10 +54,8 @@ var ASSESS_DEFS = [
     { id: 'meqsed', label: 'Məqsədəuyğunluq rəyi', aliases: ['meqseduygun', 'meqsed'] }
 ];
 var SUGGESTIONS = [
-    'Cari həftə üzrə icra riskləri',
-    'İcraçılar üzrə iş yükü və gecikmə',
-    'Bloklanan tapşırıqların siyahısı',
-    'Hesabatı göstərin və yükləyin'
+    'Mənim işlərim necə gedir?',
+    'Cari həftə üzrə risklər'
 ];
 var BOT_NAME = 'AI Done';
 var greetTick = 0;
@@ -1803,16 +1801,22 @@ function answerQuestion(raw) {
 function detectChatIntent(question, kind) {
     var q = fold(question || '');
     var k = String(kind || '');
+    // Explicit kinds win; map person→people for routing
+    if (k === 'person') return 'people';
+    if (k === 'risk') return /blok|cetinlik/.test(q) ? 'blocked' : 'late';
     if (k && k !== 'open') return k;
-    if (/menim|oz islerim|oz tapsiriq/.test(q)) return 'mine';
+    if (/salam|hello|necesen|sabahiniz|axsaminiz/.test(q)) return 'greet';
+    if (/tesekkur|sagol|sag olun/.test(q)) return 'thanks';
+    if (/sen kimsen|kimsen|ai done|ne ede bilersen|komek/.test(q)) return /komek|ne ede/.test(q) ? 'help' : 'identity';
+    if (/menim|oz islerim|oz tapsiriq|menim islerim/.test(q)) return 'mine';
     if (/gecik/.test(q)) return 'late';
     if (/blok|cetinlik/.test(q)) return 'blocked';
-    if (/is yuku|icraci|kimde/.test(q)) return 'people';
+    if (/is yuku|icraci|kimde|kim ustunde/.test(q)) return 'people';
     if (/qurum/.test(q)) return 'qurum';
     if (/istiqamet/.test(q)) return 'directions';
     if (/sprint/.test(q)) return 'sprint';
     if (/qiymetlendir|diaqnostika|exq|isq|meqsed/.test(q)) return 'assess';
-    if (/veziyyet|xulase|icmal|nece gedir/.test(q)) return 'overview';
+    if (/veziyyet|xulase|icmal|nece gedir|cari hefte/.test(q)) return 'overview';
     if (/dgd-\d+/i.test(question || '')) return 'issue';
     return 'open';
 }
@@ -1842,14 +1846,23 @@ function packChatFacts(local) {
     var matched = [];
     try { matched = findTasksByWords(fold(local.question || '')).slice(0, 10); } catch (e2) { matched = []; }
 
-    // Suala görə yalnız lazımi kəsikləri göndər — LLM ümumi KPI tökülməsin
-    var wantPeople = /people|person|mine|late|blocked|overview|risk|open|kpi/.test(intent);
-    var wantDirs = /directions|entity|overview|risk|open/.test(intent);
-    var wantQurums = /qurum|overview|open/.test(intent);
-    var wantLate = /late|risk|overview|mine|person|open|kpi/.test(intent);
-    var wantBlocked = /blocked|risk|overview|mine|person|open|kpi/.test(intent);
-    var wantDue = /overview|risk|sprint|mine|open|kpi|due/.test(intent);
-    var wantNumbers = intent !== 'issue' || !matched.length;
+    // Suala görə yalnız lazımi kəsikləri göndər — open-da ümumi KPI tökülməsin
+    var isOpen = intent === 'open';
+    var wantPeople = /people|person|mine|late|blocked|overview|risk|kpi/.test(intent);
+    var wantDirs = /directions|entity|overview|risk/.test(intent);
+    var wantQurums = /qurum|overview/.test(intent);
+    var wantLate = /late|risk|overview|mine|person|kpi/.test(intent);
+    var wantBlocked = /blocked|risk|overview|mine|person|kpi/.test(intent);
+    var wantDue = /overview|risk|sprint|mine|kpi|due/.test(intent);
+    var qFoldOpen = fold(local.question || '');
+    var wantNumbers = !isOpen && (intent !== 'issue' || !matched.length);
+    if (isOpen) {
+        // Açıq sualda yalnız sual rəqəm/vəziyyət istəyəndə yüngül KPI
+        wantNumbers = /nece|say|veziyyet|xulase|icmal|faiz|%/.test(qFoldOpen);
+        if (/gecik/.test(qFoldOpen)) wantLate = true;
+        if (/blok|cetinlik/.test(qFoldOpen)) wantBlocked = true;
+        if (/icraci|is yuku|kimde/.test(qFoldOpen)) wantPeople = true;
+    }
 
     var packed = {
         kind: kind,
@@ -2110,11 +2123,15 @@ async function downloadChatReport() {
 function renderHints() {
     var box = document.getElementById('dashChatHints');
     if (!box) return;
-    var hints = SUGGESTIONS.slice();
-    if (viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName)) {
-        hints = ['Mənim işlərim necə gedir?'].concat(hints);
+    // İlk mesajdan sonra sürətli keçidləri gizlət — səs-küy azalır
+    if (chatHistory.length > 0) {
+        box.innerHTML = '';
+        box.classList.add('is-empty');
+        return;
     }
-    box.innerHTML = '<p class="dash-chat-hints-label">Sürətli sorğular</p>'
+    var hints = SUGGESTIONS.slice(0, 2);
+    box.classList.remove('is-empty');
+    box.innerHTML = '<p class="dash-chat-hints-label">Nümunə</p>'
         + '<div class="dash-chat-hints-grid">'
         + hints.map(function(s) {
             return '<button type="button" class="dash-chat-hint" data-q="' + esc(s) + '">' + esc(s) + '</button>';
@@ -2166,6 +2183,7 @@ function resetChat() {
     var log = document.getElementById('dashChatLog');
     if (log) log.innerHTML = '';
     addBot(welcomeHtml(), false);
+    renderHints();
 }
 
 function llmEnabled() {
@@ -2186,10 +2204,69 @@ function addBot(html, pending) {
     var log = document.getElementById('dashChatLog');
     var row = document.createElement('div');
     row.className = 'dash-chat-msg is-bot' + (pending ? ' is-pending' : '');
-    row.innerHTML = '<div class="dash-chat-who">' + esc(BOT_NAME) + '</div><div class="dash-chat-bubble">' + html + '</div>';
+    row.innerHTML = '<div class="dash-chat-who">' + esc(BOT_NAME) + '</div>'
+        + '<div class="dash-chat-bubble">' + html + '</div>'
+        + '<div class="dash-chat-feedback hidden" hidden></div>';
     log.appendChild(row);
     log.scrollTop = log.scrollHeight;
     return row;
+}
+
+function sendChatFeedback(chatId, vote, reason, box) {
+    if (!box) return;
+    box.classList.add('is-sent');
+    Array.prototype.forEach.call(box.querySelectorAll('.dash-chat-fb'), function(b) {
+        b.disabled = true;
+        b.classList.toggle('is-on', b.getAttribute('data-vote') === vote);
+    });
+    var reasons = box.querySelector('.dash-chat-fb-reasons');
+    if (reasons) reasons.remove();
+    var label = box.querySelector('.dash-chat-feedback-label');
+    if (label) label.textContent = vote === 'up' ? 'Təşəkkürlər' : 'Qeyd olundu';
+    fetch('/api/chat/feedback', {
+        credentials: 'same-origin',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: chatId, vote: vote, reason: reason || '' })
+    }).catch(function() {});
+}
+
+function attachFeedback(row, chatId) {
+    if (!row || !chatId) return;
+    var box = row.querySelector('.dash-chat-feedback');
+    if (!box) return;
+    box.hidden = false;
+    box.classList.remove('hidden');
+    box.innerHTML = '<span class="dash-chat-feedback-label">Cavab faydalı oldu?</span>'
+        + '<button type="button" class="dash-chat-fb" data-vote="up" title="Yaxşı" aria-label="Yaxşı">👍</button>'
+        + '<button type="button" class="dash-chat-fb" data-vote="down" title="Zəif" aria-label="Zəif">👎</button>';
+    box.onclick = function(e) {
+        var reasonBtn = e.target.closest('[data-reason]');
+        if (reasonBtn && !box.classList.contains('is-sent')) {
+            sendChatFeedback(chatId, 'down', reasonBtn.getAttribute('data-reason') || '', box);
+            return;
+        }
+        var btn = e.target.closest('[data-vote]');
+        if (!btn || box.classList.contains('is-sent')) return;
+        var vote = btn.getAttribute('data-vote');
+        if (vote === 'up') {
+            sendChatFeedback(chatId, 'up', '', box);
+            return;
+        }
+        // 👎: popup yox — inline səbəb seçimi
+        if (box.querySelector('.dash-chat-fb-reasons')) return;
+        Array.prototype.forEach.call(box.querySelectorAll('.dash-chat-fb'), function(b) {
+            b.classList.toggle('is-on', b.getAttribute('data-vote') === 'down');
+        });
+        var reasons = document.createElement('div');
+        reasons.className = 'dash-chat-fb-reasons';
+        reasons.innerHTML =
+            '<button type="button" class="dash-chat-fb-reason" data-reason="sualı başa düşmədi">Başa düşmədi</button>'
+            + '<button type="button" class="dash-chat-fb-reason" data-reason="yanlış rəqəm">Yanlış rəqəm</button>'
+            + '<button type="button" class="dash-chat-fb-reason" data-reason="ümumi danışdı">Ümumi danışdı</button>'
+            + '<button type="button" class="dash-chat-fb-reason" data-reason="">Keç</button>';
+        box.appendChild(reasons);
+    };
 }
 
 function onSubmit(e) {
@@ -2203,20 +2280,51 @@ function onSubmit(e) {
     reply(q);
 }
 
+function llmFailHtml(errText) {
+    var tip = 'Bir az sonra yenidən yazın və ya sualı daha konkret soruşun.';
+    if (/401|açar|Unauthorized|invalid.?api.?key/i.test(errText || '')) {
+        tip = 'Server AI açarı yoxlanmalıdır — admin .env-də OPENAI_API_KEY-i yeniləsin.';
+    } else if (/429|limit/i.test(errText || '')) {
+        tip = 'AI limiti dolub; bir neçə dəqiqə sonra yenidən cəhd edin.';
+    } else if (/timeout/i.test(errText || '')) {
+        tip = 'Cavab gecikdi; eyni sualı bir daha göndərin.';
+    }
+    return '<p class="dash-chat-lead">Hazırda ağıllı cavabı tam formalaşdıra bilmədim.</p>'
+        + '<p class="dash-chat-sub">' + esc(tip) + '</p>';
+}
+
+async function callChatApi(question, local, sendDraft, used) {
+    var res = await fetch('/api/chat', {
+        credentials: 'same-origin',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            question: question,
+            draft: sendDraft ? used : '',
+            facts: packChatFacts(local),
+            history: chatHistory.slice(0, -1).slice(-6)
+        })
+    });
+    if (!res.ok) return { ok: false, error: 'HTTP ' + res.status };
+    return await res.json();
+}
+
 async function reply(question) {
     chatBusy = true;
     var thinkingApi = getDoneBot() || window.DoneBot;
     if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(true);
     chatHistory.push({ role: 'user', content: question });
+    renderHints();
     var pending = addBot('<p class="dash-chat-wait">Düşünürəm…</p>', true);
     var local = answerQuestion(question);
     var html = local.html;
     var used = local.text || '';
     var localKind = (local.facts && local.facts.kind) || '';
-    // Hesabat UI və boş panel lokal qalsın; qalanı (salam/kömək daxil) real AI-ə getsin
-    // open şablonunu LLM-ə draft kimi vermə — cavabı şablonlaşdırır
+    // Hesabat UI və boş panel lokal qalsın; digər hər şey server AI açarı ilə
     var skipLlm = /^(report|empty)$/.test(localKind);
     var sendDraft = !/^(open|greet|thanks|identity|help|about|)$/.test(localKind);
+    // Lokal open/şablon cavabı LLM olmadan göstərilməsin — məntiqsiz KPI tökülür
+    var preferLlmOnly = /^(open|greet|thanks|identity|help|about|overview|kpi|risk|people|person|qurum|directions|sprint|issue)$/.test(localKind);
     try {
         if (!chatLlm) {
             try {
@@ -2227,48 +2335,54 @@ async function reply(question) {
                 }
             } catch (cfgErr) {}
         }
+        var chatId = '';
         if (!skipLlm && chatLlm) {
             try {
-                var res = await fetch('/api/chat', {
-                    credentials: 'same-origin',
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        question: question,
-                        draft: sendDraft ? used : '',
-                        facts: packChatFacts(local),
-                        history: chatHistory.slice(0, -1).slice(-6)
-                    })
-                });
-                if (res.ok) {
-                    var data = await res.json();
-                    if (data && data.answer && data.source === 'llm') {
-                        chatLlmWarned = false;
-                        html = renderMarkdownish(data.answer);
-                        used = data.answer;
-                    } else if (data && data.error) {
-                        var errText = String(data.error || '');
-                        if (/401|açar rədd|Unauthorized|invalid.?api.?key/i.test(errText) && !chatLlmWarned) {
-                            chatLlmWarned = true;
-                            if (typeof window.showToast === 'function') {
-                                window.showToast('AI açarı işləmir — panel cavabı göstərilir. .env-də OPENAI_API_KEY yeniləyin.', 'error');
-                            }
+                var data = await callChatApi(question, local, sendDraft, used);
+                if (!(data && data.answer && data.source === 'llm')) {
+                    data = await callChatApi(question, local, sendDraft, used);
+                }
+                chatId = (data && data.chatId) || '';
+                if (data && data.answer && data.source === 'llm') {
+                    chatLlmWarned = false;
+                    html = renderMarkdownish(data.answer);
+                    used = data.answer;
+                } else {
+                    var errText = String((data && data.error) || '');
+                    if (/401|açar rədd|Unauthorized|invalid.?api.?key/i.test(errText) && !chatLlmWarned) {
+                        chatLlmWarned = true;
+                        if (typeof window.showToast === 'function') {
+                            window.showToast('AI açarı işləmir. Admin .env-də OPENAI_API_KEY yeniləsin.', 'error');
                         }
-                        // Lokal HTML artıq hazırdır; boş LLM cavabı onu silməsin
+                    }
+                    if (preferLlmOnly || localKind === 'open') {
+                        html = llmFailHtml(errText);
+                        used = stripHtml(html);
+                    } else {
                         html = local.html;
                         used = local.text || used;
                     }
                 }
             } catch (err) {
-                html = local.html;
-                used = local.text || used;
+                if (preferLlmOnly || localKind === 'open') {
+                    html = llmFailHtml(String(err && err.message || ''));
+                    used = stripHtml(html);
+                } else {
+                    html = local.html;
+                    used = local.text || used;
+                }
             }
+        } else if (!skipLlm && !chatLlm && preferLlmOnly) {
+            html = llmFailHtml('Açar yoxdur');
+            used = stripHtml(html);
         }
         chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
         if (chatHistory.length > 16) chatHistory = chatHistory.slice(-16);
         pending.classList.remove('is-pending');
         pending.querySelector('.dash-chat-bubble').innerHTML = html;
+        if (chatId) attachFeedback(pending, chatId);
         document.getElementById('dashChatLog').scrollTop = document.getElementById('dashChatLog').scrollHeight;
+        renderHints();
     } finally {
         chatBusy = false;
         var doneApi = getDoneBot() || window.DoneBot;

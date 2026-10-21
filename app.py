@@ -137,6 +137,7 @@ ensure_superadmin()
 sync_display_names()
 
 OPEN_PATHS = {
+    '/favicon.ico',
     '/login',
     '/api/auth/login',
     '/api/auth/logout',
@@ -215,6 +216,15 @@ def add_cors_headers(resp):
         resp.headers['Pragma'] = 'no-cache'
         resp.headers['Expires'] = '0'
     return resp
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(
+        os.path.join(ROOT, 'static'),
+        'favicon.ico',
+        mimetype='image/x-icon',
+    )
 
 
 @app.route('/')

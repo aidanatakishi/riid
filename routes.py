@@ -14,6 +14,7 @@ from urllib.parse import quote
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
 from chat_llm import answer_chat, chat_llm_ready, polish_monthly_report
 import chat_llm
+from chat_log import append_chat, list_chat, chat_stats, set_feedback, get_chat
 from diag_excel import parse_diag_excel
 from rehber_excel import TABS, TAB_LABELS, parse_tab, build_template, template_filename
 from report_pptx import parse_report_file, normalize_report_kind
@@ -770,12 +771,173 @@ def api_chat():
         facts['viewer'] = viewer
     if not question:
         return jsonify({'error': 'Sual boşdur'}), 400
+    user = find_user_by_id(session_user_id())
+    kind = str(facts.get('kind') or facts.get('localKind') or '')[:60]
+    intent = str(facts.get('intent') or kind or '')[:60]
+    started = time.time()
+    log_base = {
+        'userId': (user or {}).get('id') or session_user_id() or '',
+        'username': (user or {}).get('username') or '',
+        'displayName': (
+            (viewer or {}).get('displayName')
+            or (viewer or {}).get('jiraDisplayName')
+            or (user or {}).get('username')
+            or ''
+        ),
+        'question': question,
+        'kind': kind,
+        'intent': intent,
+        'facts': facts,
+        'draft': draft[:1200],
+    }
     if not chat_llm_ready():
-        return jsonify({'answer': draft, 'source': 'local'})
+        chat_id = append_chat(dict(
+            log_base,
+            answer='',
+            source='error',
+            error='Açar yoxdur',
+            durationMs=int((time.time() - started) * 1000),
+        ))
+        return jsonify({
+            'answer': '',
+            'source': 'error',
+            'error': 'LLM açarı yoxdur',
+            'chatId': chat_id,
+        })
     text = answer_chat(question, facts, draft, history)
+    duration_ms = int((time.time() - started) * 1000)
     if text:
-        return jsonify({'answer': text, 'source': 'llm', 'model': chat_llm.LAST_MODEL})
-    return jsonify({'answer': draft, 'source': 'local', 'error': chat_llm.LAST_ERROR})
+        chat_id = append_chat(dict(
+            log_base,
+            answer=text,
+            source='llm',
+            model=chat_llm.LAST_MODEL or '',
+            durationMs=duration_ms,
+        ))
+        return jsonify({
+            'answer': text,
+            'source': 'llm',
+            'model': chat_llm.LAST_MODEL,
+            'chatId': chat_id,
+            'durationMs': duration_ms,
+        })
+    err = chat_llm.LAST_ERROR or 'cavab alınmadı'
+    chat_id = append_chat(dict(
+        log_base,
+        answer='',
+        source='error',
+        error=err,
+        durationMs=duration_ms,
+    ))
+    return jsonify({
+        'answer': '',
+        'source': 'error',
+        'error': err,
+        'chatId': chat_id,
+        'durationMs': duration_ms,
+    })
+
+
+@api.route('/api/chat/feedback', methods=['POST', 'OPTIONS'])
+@login_required
+def api_chat_feedback():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    chat_id = str(data.get('chatId') or data.get('id') or '').strip()
+    vote = str(data.get('vote') or '').strip().lower()
+    reason = str(data.get('reason') or '').strip()
+    item, err = set_feedback(chat_id, vote, reason, session_user_id())
+    if err:
+        return jsonify({'error': err}), 400
+    return jsonify({
+        'ok': True,
+        'id': item.get('id'),
+        'feedback': item.get('feedback'),
+        'flags': item.get('flags') or [],
+    })
+
+
+@api.route('/api/chat/logs', methods=['GET', 'OPTIONS'])
+@login_required
+def api_chat_logs():
+    if request.method == 'OPTIONS':
+        return options_ok()
+    if not can_manage_users(find_user_by_id(session_user_id())):
+        return jsonify({'error': 'İcazə yoxdur'}), 403
+    try:
+        limit = int(request.args.get('limit') or 80)
+    except Exception:
+        limit = 80
+    return jsonify({
+        'items': list_chat(
+            limit=limit,
+            source=request.args.get('source') or '',
+            flag=request.args.get('flag') or '',
+            intent=request.args.get('intent') or '',
+            q=request.args.get('q') or '',
+        ),
+        'stats': chat_stats(200),
+        'hasChatLlm': chat_llm_ready(),
+        'model': (os.environ.get('OPENAI_MODEL') or os.environ.get('GEMINI_CHAT_MODEL') or '').strip(),
+    })
+
+
+@api.route('/api/chat/replay', methods=['POST', 'OPTIONS'])
+@login_required
+def api_chat_replay():
+    """Admin: eyni sualı saxlanmış faktlarla yenidən işə sal."""
+    if request.method == 'OPTIONS':
+        return options_ok()
+    if not can_manage_users(find_user_by_id(session_user_id())):
+        return jsonify({'error': 'İcazə yoxdur'}), 403
+    data = request_json()
+    if not isinstance(data, dict):
+        data = {}
+    chat_id = str(data.get('chatId') or data.get('id') or '').strip()
+    item = get_chat(chat_id)
+    if not item:
+        return jsonify({'error': 'Qeyd tapılmadı'}), 404
+    if not chat_llm_ready():
+        return jsonify({'error': 'LLM açarı yoxdur'}), 400
+    question = str(item.get('question') or '').strip()
+    facts = item.get('facts') if isinstance(item.get('facts'), dict) else {}
+    draft = str(item.get('draft') or '')
+    viewer = session_viewer()
+    if viewer:
+        facts = dict(facts)
+        facts['viewer'] = viewer
+    started = time.time()
+    text = answer_chat(question, facts, draft, [])
+    duration_ms = int((time.time() - started) * 1000)
+    if not text:
+        return jsonify({
+            'error': chat_llm.LAST_ERROR or 'cavab alınmadı',
+            'previous': item.get('answer') or '',
+        }), 502
+    new_id = append_chat({
+        'userId': session_user_id() or '',
+        'username': (find_user_by_id(session_user_id()) or {}).get('username') or '',
+        'displayName': 'Replay',
+        'question': question,
+        'answer': text,
+        'source': 'llm',
+        'model': chat_llm.LAST_MODEL or '',
+        'kind': item.get('kind') or '',
+        'intent': item.get('intent') or '',
+        'durationMs': duration_ms,
+        'facts': facts,
+        'draft': draft,
+    })
+    return jsonify({
+        'chatId': new_id,
+        'answer': text,
+        'previous': item.get('answer') or '',
+        'model': chat_llm.LAST_MODEL,
+        'durationMs': duration_ms,
+    })
 
 
 @api.route('/api/report/polish-month', methods=['POST', 'OPTIONS'])

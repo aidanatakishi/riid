@@ -2,7 +2,7 @@ import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js?v=idda15';
 import { normalizeStr, showToast, hideSettings } from './utils.js?v=idda7';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda24';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda48';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda51';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -461,6 +461,32 @@ export async function fetchIssuesCreatedRange(baseUrl, pat, projectKey, startIso
     return data;
 }
 
+function setLoadingOverlayText(msg) {
+    var p = document.querySelector('#loadingOverlay p');
+    if (p) p.textContent = msg || 'Məlumatlar yüklənir...';
+}
+
+function setDataLoadProgress(text) {
+    var el = document.getElementById('dataLoadProgress');
+    if (!text) {
+        if (el) {
+            el.classList.add('hidden');
+            el.textContent = '';
+        }
+        return;
+    }
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'dataLoadProgress';
+        el.className = 'app-data-progress';
+        el.setAttribute('role', 'status');
+        el.setAttribute('aria-live', 'polite');
+        document.body.appendChild(el);
+    }
+    el.textContent = text;
+    el.classList.remove('hidden');
+}
+
 async function fetchDashboardIssues(baseUrl, pat, projectKey) {
     var endYear = new Date().getFullYear();
     var byKey = {};
@@ -791,31 +817,76 @@ export async function fetchDashboardData(opts) {
          state.restoreQuiet = true;
          restoreOpenSections(snap);
      }
-     if (!silent) document.getElementById('loadingOverlay').classList.remove('hidden');
+     var overlay = document.getElementById('loadingOverlay');
+     var endYear = new Date().getFullYear();
+     var progressive = firstLoad && !silent;
+     if (!silent) {
+         setLoadingOverlayText(progressive
+             ? ('Cari il yüklənir (' + endYear + ')…')
+             : 'Məlumatlar yüklənir...');
+         if (overlay) overlay.classList.remove('hidden');
+     }
      try {
          lastJqlCache.key = '';
          lastJqlCache.data = null;
-         var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);
-         applyDashboardPayload(data, { silent: silent });
-         if (!silent) showToast('Məlumatlar uğurla yeniləndi!', 'success');
-         if (!silent && typeof window.syncNk303Route === 'function') window.syncNk303Route();
-         if (!state.todayRefreshInterval) {
-             state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+         if (progressive) {
+             /* İlk açılış: cari il → UI açılsın, qalan illər arxa planda */
+             var firstChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
+             applyDashboardPayload(firstChunk, { silent: silent });
+             if (overlay) overlay.classList.add('hidden');
+             setLoadingOverlayText('Məlumatlar yüklənir...');
+             if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
+             if (!state.todayRefreshInterval) {
+                 state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+             }
+             if (!state.autoRefreshInterval) {
+                 state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, 900000);
+             }
+             afterFilterPaint(function() {
+                 if (snap) restoreViewChrome(snap);
+                 persistViewState();
+                 state.restoreQuiet = false;
+             });
+             setTimeout(function() { state.restoreQuiet = false; }, 2000);
+             var y;
+             for (y = endYear - 1; y >= ASSESS_DATA_START_YEAR; y--) {
+                 setDataLoadProgress('Əvvəlki illər yüklənir: ' + y + '…');
+                 var older = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, y);
+                 mergeFetchedIssues(older, { skipDashboardRefresh: true });
+             }
+             rebuildDashboardListsFromIndex();
+             bumpDataEpoch();
+             populateSprintFilter();
+             applyFilters();
+             setDataLoadProgress('');
+             if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
+         } else {
+             /* Yeniləmə: bir dəfəlik tam yükləmə — UI flaş etməsin */
+             var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);
+             applyDashboardPayload(data, { silent: silent });
+             if (!silent) showToast('Məlumatlar uğurla yeniləndi!', 'success');
+             if (!silent && typeof window.syncNk303Route === 'function') window.syncNk303Route();
+             if (!state.todayRefreshInterval) {
+                 state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+             }
+             if (!state.autoRefreshInterval) {
+                 state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, 900000);
+             }
+             afterFilterPaint(function() {
+                 if (snap) restoreViewChrome(snap);
+                 persistViewState();
+                 state.restoreQuiet = false;
+             });
+             setTimeout(function() { state.restoreQuiet = false; }, 2000);
          }
-         if (!state.autoRefreshInterval) {
-             state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, 900000);
-         }
-         afterFilterPaint(function() {
-             if (snap) restoreViewChrome(snap);
-             persistViewState();
-             state.restoreQuiet = false;
-         });
-         setTimeout(function() { state.restoreQuiet = false; }, 2000);
      } catch (error) {
          state.restoreQuiet = false;
+         setDataLoadProgress('');
          showToast(error.message, 'error');
      } finally {
          state.dashboardFetchBusy = false;
-         document.getElementById('loadingOverlay').classList.add('hidden');
+         setDataLoadProgress('');
+         setLoadingOverlayText('Məlumatlar yüklənir...');
+         if (overlay) overlay.classList.add('hidden');
      }
 }

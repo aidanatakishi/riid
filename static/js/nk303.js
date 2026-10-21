@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, prefetchAssessmentHubViews, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda64';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda68';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -45,7 +45,6 @@ var histBound = false;
 var excelStore = { files: [], orgs: [], loaded: false };
 var reportStore = { files: [], reports: [], loaded: false };
 var adminState = { isAdmin: false, bound: false };
-var hubPrefetchTimer = null;
 var HUB_TABS = [
     { id: 'diag', label: 'Diaqnostika', color: KIND.diag },
     { id: 'isq', label: 'İSQ', color: KIND.isq },
@@ -4091,14 +4090,12 @@ function closeHub() {
 function openHub(section) {
     if (!section || section === 'diag' || section === 'report') {
         closeHub();
-        window.scrollTo(0, 0);
-        render();
+        render({ soft: true, scrollTop: true });
         return;
     }
     if (ui.hub === section) {
         closeHub();
-        window.scrollTo(0, 0);
-        render();
+        render({ soft: true, scrollTop: true });
         return;
     }
     ui.hub = section;
@@ -4111,8 +4108,7 @@ function openHub(section) {
     ui.orgKey = '';
     ui.nav = 'overview';
     hideHubOverlay();
-    window.scrollTo(0, 0);
-    render();
+    render({ soft: true, scrollTop: true });
 }
 
 function hubKpiHit(key) {
@@ -5966,24 +5962,45 @@ function renderHub(opts) {
     });
 }
 
-function scheduleHubPrefetch() {
-    if (hubPrefetchTimer) clearTimeout(hubPrefetchTimer);
-    hubPrefetchTimer = setTimeout(function() {
-        hubPrefetchTimer = null;
-        try { prefetchAssessmentHubViews(); } catch (e) {}
-    }, 50);
+function lightHubShellModel() {
+    return {
+        years: [],
+        orgs: [],
+        orgOptions: [],
+        countryAvg: null,
+        byVis: { not_started: 0, in_progress: 0, review: 0, done: 0 },
+        byMat: {},
+        rankedOrgs: [],
+        gaps: [],
+        trend: [],
+        spanFrom: null,
+        spanTo: null,
+        spanDelta: null
+    };
 }
 
-function render() {
+function scrollWindowInstant(y) {
+    try {
+        window.scrollTo({ top: y || 0, left: 0, behavior: 'instant' });
+    } catch (e) {
+        window.scrollTo(0, y || 0);
+    }
+}
+
+function render(opts) {
+    opts = opts || {};
     var root = document.getElementById(ROOT_ID);
     if (!root) return;
-    var y = window.scrollY || 0;
-    var model = buildModel();
+    var y = opts.scrollTop ? 0 : (window.scrollY || 0);
+    /* Hub səhifəsində ölkə modelini qurma — yalnız kliklənən hub view. */
+    var model = ui.hub ? lightHubShellModel() : buildModel();
     destroyNkCharts();
     destroyHubCharts();
     destroyMeqsedOverviewCharts();
     root.innerHTML = pageHeadHtml(model) + bodyHtml(model);
     document.title = pageHeadCopy(model).title;
+    var wrap = root.querySelector('.nk303-wrap');
+    if (opts.soft && wrap) wrap.classList.add('nk303-wrap--enter');
     requestAnimationFrame(function() {
         if (ui.hub) {
             var view = currentHubView();
@@ -5991,8 +6008,7 @@ function render() {
         } else {
             drawCharts(model);
         }
-        window.scrollTo(0, y);
-        scheduleHubPrefetch();
+        scrollWindowInstant(y);
     });
 }
 
@@ -6196,10 +6212,10 @@ function showNk303Page() {
     bindHistory();
     bindAdminGate();
     if (isAdminPath() && !adminState.isAdmin) showAdminGate();
-    render();
+    render({ soft: true, scrollTop: true });
     loadAdminState().then(function() {
         if (!ui.open) return;
-        render();
+        render({ soft: true });
         loadExcelUploads();
         loadReportUploads();
     });

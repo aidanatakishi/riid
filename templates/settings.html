@@ -4,12 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <meta name="theme-color" content="#4c1d95">
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
     <title>Tənzimləmələr — Rəqəmsal İdarəetmə Paneli</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda5">
     <link rel="stylesheet" href="/static/css/admin.css?v=idda93">
-    <link rel="stylesheet" href="/static/css/settings.css?v=idda5">
+    <link rel="stylesheet" href="/static/css/settings.css?v=idda8">
 </head>
 <body class="settings-page">
     <div class="set-shell">
@@ -24,6 +25,7 @@
             <nav class="set-links" aria-label="Tənzimləmələr">
                 <a class="set-link is-on" href="#scope" data-view="scope" id="navScope">Layihə və komanda</a>
                 <a class="set-link hidden" href="#users" data-view="users" id="navUsers">İstifadəçilər</a>
+                <a class="set-link hidden" href="#chat" data-view="chat" id="navChat">AI Done jurnalı</a>
                 <button type="button" class="set-link is-exit" id="logoutBtn">Çıxış</button>
             </nav>
         </aside>
@@ -78,6 +80,47 @@
                             <button type="button" class="admin-btn admin-btn--quiet hidden" id="clearTokenBtn">Tokeni sil</button>
                         </div>
                     </form>
+                </article>
+            </section>
+
+            <section id="view-chat" class="hidden">
+                <article class="set-card">
+                    <div class="set-chat-head">
+                        <div>
+                            <h3>AI Done keyfiyyət</h3>
+                            <p class="set-note" id="chatLogStatus">Bütün cihazlardan gələn suallar, AI cavabları, 👍/👎 və avtomatik bayraqlar.</p>
+                        </div>
+                        <button type="button" class="admin-btn admin-btn--ghost" id="chatLogRefresh">Yenilə</button>
+                    </div>
+                    <div class="set-chat-stats" id="chatLogStats"></div>
+                    <div class="set-chat-filters">
+                        <label class="admin-field">
+                            <span>Filter</span>
+                            <select id="chatLogFlag">
+                                <option value="">Hamısı</option>
+                                <option value="down">Yalnız 👎</option>
+                                <option value="up">Yalnız 👍</option>
+                                <option value="error">Xətalar</option>
+                                <option value="timeout">Timeout</option>
+                                <option value="too_short">Çox qısa</option>
+                                <option value="slow">Yavaş</option>
+                            </select>
+                        </label>
+                        <label class="admin-field">
+                            <span>Mənbə</span>
+                            <select id="chatLogSource">
+                                <option value="">Hamısı</option>
+                                <option value="llm">AI</option>
+                                <option value="error">Xəta</option>
+                            </select>
+                        </label>
+                        <label class="admin-field">
+                            <span>Axtar</span>
+                            <input id="chatLogQ" type="search" placeholder="sual, istifadəçi…" autocomplete="off">
+                        </label>
+                    </div>
+                    <p class="admin-error" id="chatLogError"></p>
+                    <div class="set-chat-list" id="chatLogList"></div>
                 </article>
             </section>
 
@@ -154,6 +197,6 @@
             </div>
         </div>
     </div>
-    <script src="/static/js/settings.js?v=idda7"></script>
+    <script src="/static/js/settings.js?v=idda10"></script>
 </body>
 </html>

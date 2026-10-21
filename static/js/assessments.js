@@ -314,23 +314,9 @@ export function getAssessmentHubView(section) {
     return hubViewCache[section];
 }
 
+/* Hub modelləri yalnız kliklənən bölmə üçün qurulur — idle prefetch UI-ni yavaşladır. */
 export function prefetchAssessmentHubViews() {
-    ensureHubViewCache();
-    getAssessmentHubNav();
-    var i = 0;
-    function step() {
-        ensureHubViewCache();
-        if (i >= SECTIONS.length) return;
-        var id = SECTIONS[i++];
-        try {
-            if (!hubViewCache[id]) getAssessmentHubView(id);
-        } catch (e) {}
-        if (i < SECTIONS.length) {
-            if (typeof requestIdleCallback === 'function') requestIdleCallback(step, { timeout: 280 });
-            else setTimeout(step, 0);
-        }
-    }
-    step();
+    return;
 }
 
 var REHBER_NA = 'Məlumat mövcud deyil';
@@ -515,7 +501,9 @@ function serializeHubRow(section, r, i) {
         result: '',
         extra: '',
         canOpen: !!(t && t.key),
-        time: (r && r.time) || 0
+        time: (r && r.time) || 0,
+        /* Hub detal (İSQ sütunları, tarixlər və s.) üçün Jira task istinadı */
+        task: t || null
     };
     if (section === 'diag') {
         row.score = diagNumericScore(r);
@@ -1536,6 +1524,26 @@ function renderAssessCatLegend(catCounts) {
     }).join('');
 }
 
+function setAssessDashLoading(on) {
+    var card = document.querySelector('.assess-dash-card--cat');
+    var wrap = document.getElementById('assessCatChartWrap');
+    var empty = document.getElementById('assessCatEmpty');
+    var legend = document.getElementById('assessCatLegend');
+    if (card) card.classList.toggle('is-loading', !!on);
+    if (wrap) wrap.classList.toggle('is-skeleton', !!on);
+    if (!on) return;
+    if (empty) {
+        empty.textContent = 'Məlumatlar yüklənir…';
+        empty.classList.remove('hidden');
+    }
+    if (legend) {
+        legend.innerHTML = [0, 1, 2, 3, 4].map(function() {
+            return '<div class="assess-cat-skel" aria-hidden="true">'
+                + '<i></i><span></span><b></b><em></em></div>';
+        }).join('');
+    }
+}
+
 function renderAssessDash() {
     var el = document.getElementById('assessDash');
     if (!el) return;
@@ -1544,24 +1552,38 @@ function renderAssessDash() {
     var titleEl = document.getElementById('assessCatChartTitle');
     var legendEl = document.getElementById('assessCatLegend');
     var hasIssues = Object.keys(state.issueIndex || {}).length > 0;
+    var loading = !!state.dashboardFetchBusy && !hasIssues;
     if (kpis) {
         kpis.innerHTML = '';
         kpis.classList.add('hidden');
         kpis.setAttribute('hidden', '');
     }
+    if (titleEl) titleEl.textContent = 'Bölmələr üzrə qurum sayı';
     if (!hasIssues) {
         lastDashSig = '';
         destroyAssessChart('assessYearChart', 'assessYearChart');
         destroyAssessChart('assessCatChart', 'assessCatChart');
-        setAssessChartVisible('assessCatChartWrap', 'assessCatEmpty', false);
-        if (hint) hint.textContent = '';
-        if (legendEl) legendEl.innerHTML = '';
+        if (loading) {
+            setAssessChartVisible('assessCatChartWrap', 'assessCatEmpty', true);
+            setAssessDashLoading(true);
+            if (hint) hint.textContent = 'İlk məlumatlar gəlir…';
+        } else {
+            setAssessDashLoading(false);
+            setAssessChartVisible('assessCatChartWrap', 'assessCatEmpty', false);
+            if (hint) hint.textContent = '';
+            if (legendEl) legendEl.innerHTML = '';
+            var empty = document.getElementById('assessCatEmpty');
+            if (empty) {
+                empty.textContent = 'Qeyd yoxdur.';
+                empty.classList.remove('hidden');
+            }
+        }
         return;
     }
+    setAssessDashLoading(false);
     var model = collectDashModel();
     var catCounts = model.catCounts;
     var period = periodLabel(selectedYear);
-    if (titleEl) titleEl.textContent = 'Bölmələr üzrə qurum sayı';
     if (hint) hint.textContent = period ? ('Seçilmiş dövr: ' + period) : '';
     var sig = String(selectedYear) + '|' + activeTab + '|'
         + catCounts.map(function(c) { return c.s + ':' + c.n; }).join(',');
@@ -1575,6 +1597,16 @@ function renderAssessDash() {
     lastDashSig = sig;
     if (catOk) drawAssessCatChart(catCounts);
     else destroyAssessChart('assessCatChart', 'assessCatChart');
+}
+
+/** Həmişə görünən overview (qrafik + dövr). Qurum siyahısı ayrı, yalnız açılanda. */
+export function paintAssessmentOverview() {
+    syncTabPanels();
+    try {
+        fillYearSelect(listedYears(), selectedYear);
+    } catch (e) {}
+    renderAssessDash();
+    scheduleTabCounts();
 }
 
 function hubListDetailActive(section, searchActive) {
@@ -4815,12 +4847,20 @@ function setListDashBusy(on) {
 }
 
 function withListDashBusy(fn) {
+    var body = document.getElementById(HUB_BODY_ID);
+    var shell = document.querySelector('.assess-table-shell');
+    if (body) body.classList.remove('is-soft-enter');
+    if (shell) shell.classList.remove('is-soft-enter');
     setListDashBusy(true);
     try {
         fn();
     } finally {
         requestAnimationFrame(function() {
-            requestAnimationFrame(function() { setListDashBusy(false); });
+            requestAnimationFrame(function() {
+                setListDashBusy(false);
+                if (body) body.classList.add('is-soft-enter');
+                else if (shell) shell.classList.add('is-soft-enter');
+            });
         });
     }
 }

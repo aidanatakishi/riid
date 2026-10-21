@@ -19,12 +19,15 @@ env/
 
 # Jira dump-ları və token git-ə düşməsin. Hesablar yalnız lokal data/ qovluğunda qalır.
 data/*.json
+data/*.jsonl
 !data/users.example.json
+!data/chat_gold.json
 data/users.json
 data/users.json.bak
 data/accounts.state.json
 data/secrets.json
 data/secret.key
+data/chat_log.jsonl
 
 # Yüklənmiş diaqnostika Excel-ləri
 uploads/

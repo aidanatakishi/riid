@@ -38,22 +38,173 @@
     function activeView() {
         var hash = String(location.hash || '').replace('#', '');
         if (hash === 'users' && canManage) return 'users';
+        if (hash === 'chat' && canManage) return 'chat';
         return 'scope';
     }
     function setView(view) {
-        if (view === 'users' && !canManage) view = 'scope';
+        if ((view === 'users' || view === 'chat') && !canManage) view = 'scope';
         var isUsers = view === 'users';
-        document.getElementById('view-scope').classList.toggle('hidden', isUsers);
+        var isChat = view === 'chat';
+        var isScope = !isUsers && !isChat;
+        document.getElementById('view-scope').classList.toggle('hidden', !isScope);
         document.getElementById('view-users').classList.toggle('hidden', !isUsers);
-        document.getElementById('navScope').classList.toggle('is-on', !isUsers);
+        var viewChat = document.getElementById('view-chat');
+        if (viewChat) viewChat.classList.toggle('hidden', !isChat);
+        document.getElementById('navScope').classList.toggle('is-on', isScope);
         var navUsers = document.getElementById('navUsers');
         if (navUsers) navUsers.classList.toggle('is-on', isUsers);
-        document.getElementById('setTitle').textContent = isUsers ? 'İstifadəçilər' : 'Layihə və komanda';
+        var navChat = document.getElementById('navChat');
+        if (navChat) navChat.classList.toggle('is-on', isChat);
+        document.getElementById('setTitle').textContent = isUsers
+            ? 'İstifadəçilər'
+            : (isChat ? 'AI Done jurnalı' : 'Layihə və komanda');
         document.getElementById('setSub').textContent = isUsers
             ? 'Hesablar, rollar və hər kəsə verilən access-lər.'
-            : 'Jira KEY və komanda bu panelin əhatəsini müəyyən edir.';
+            : (isChat
+                ? 'Bütün cihazlardan gələn sualları və AI cavablarını izləyin.'
+                : 'Jira KEY və komanda bu panelin əhatəsini müəyyən edir.');
         if (isUsers && location.hash !== '#users') history.replaceState(null, '', '#users');
-        if (!isUsers && location.hash && location.hash !== '#scope') history.replaceState(null, '', '#scope');
+        else if (isChat && location.hash !== '#chat') history.replaceState(null, '', '#chat');
+        else if (isScope && location.hash && location.hash !== '#scope') history.replaceState(null, '', '#scope');
+        if (isChat) loadChatLogs();
+    }
+    function chatFilterQuery() {
+        var flag = (document.getElementById('chatLogFlag') || {}).value || '';
+        var source = (document.getElementById('chatLogSource') || {}).value || '';
+        var q = (document.getElementById('chatLogQ') || {}).value || '';
+        var params = new URLSearchParams();
+        params.set('limit', '80');
+        if (flag) params.set('flag', flag);
+        if (source) params.set('source', source);
+        if (q.trim()) params.set('q', q.trim());
+        return '/api/chat/logs?' + params.toString();
+    }
+    function renderChatStats(stats) {
+        var box = document.getElementById('chatLogStats');
+        if (!box) return;
+        stats = stats || {};
+        var avg = stats.avgDurationMs != null ? (Math.round(stats.avgDurationMs / 100) / 10) + 's' : '—';
+        box.innerHTML =
+            '<div class="set-chat-stat"><b>' + esc(String(stats.llmRate != null ? stats.llmRate : 0)) + '%</b><span>AI uğur</span></div>'
+            + '<div class="set-chat-stat"><b>' + esc(String(stats.errorRate != null ? stats.errorRate : 0)) + '%</b><span>Xəta</span></div>'
+            + '<div class="set-chat-stat"><b>' + esc(String(stats.thumbsDown || 0)) + '</b><span>👎 zəif</span></div>'
+            + '<div class="set-chat-stat"><b>' + esc(avg) + '</b><span>Orta müddət</span></div>';
+        var top = stats.topQuestions || [];
+        var existing = document.getElementById('chatLogTop');
+        if (existing) existing.remove();
+        if (top.length) {
+            var p = document.createElement('p');
+            p.id = 'chatLogTop';
+            p.className = 'set-chat-top';
+            p.innerHTML = '<strong>Top suallar:</strong> ' + top.map(function (t) {
+                return esc(t.q) + ' (' + esc(String(t.n)) + ')';
+            }).join(' · ');
+            box.insertAdjacentElement('afterend', p);
+        }
+    }
+    function loadChatLogs() {
+        var list = document.getElementById('chatLogList');
+        var status = document.getElementById('chatLogStatus');
+        if (!list) return;
+        showError('chatLogError', '');
+        list.innerHTML = '<p class="set-chat-empty">Yüklənir…</p>';
+        return api(chatFilterQuery()).then(function (res) {
+            if (!res.ok) {
+                list.innerHTML = '';
+                showError('chatLogError', (res.data && res.data.error) || 'Jurnal oxunmadı');
+                return;
+            }
+            var items = (res.data && res.data.items) || [];
+            renderChatStats(res.data.stats || {});
+            if (status) {
+                status.textContent = (res.data.hasChatLlm
+                    ? 'Server AI açarı aktivdir'
+                    : 'Server AI açarı yoxdur — .env-də OPENAI_API_KEY yazın')
+                    + (res.data.model ? ' · ' + res.data.model : '')
+                    + ' · ' + ((res.data.stats && res.data.stats.total) || items.length) + ' qeyd';
+            }
+            if (!items.length) {
+                list.innerHTML = '<p class="set-chat-empty">Bu filterə uyğun söhbət yoxdur.</p>';
+                return;
+            }
+            list.innerHTML = items.map(function (it) {
+                var src = String(it.source || '');
+                var fb = it.feedback || {};
+                var badgeClass = src === 'llm' ? '' : (src === 'error' ? ' is-err' : ' is-local');
+                var badge = src === 'llm' ? 'AI' : (src === 'error' ? 'Xəta' : 'Lokal');
+                var who = it.displayName || it.username || 'İstifadəçi';
+                var when = String(it.ts || '').replace('T', ' ').replace('Z', '');
+                var ans = it.answer || it.error || '—';
+                var flags = (it.flags || []).filter(function (f) {
+                    return f !== 'thumbs_up' && f !== 'thumbs_down';
+                });
+                var voteBadge = fb.vote === 'down'
+                    ? '<span class="set-chat-badge is-down">👎</span>'
+                    : (fb.vote === 'up' ? '<span class="set-chat-badge">👍</span>' : '');
+                var dur = it.durationMs != null ? Math.round(it.durationMs / 100) / 10 + 's' : '';
+                return '<article class="set-chat-item" data-id="' + esc(it.id || '') + '">'
+                    + '<div class="set-chat-meta">'
+                    + '<span class="set-chat-badge' + badgeClass + '">' + esc(badge) + '</span>'
+                    + voteBadge
+                    + '<span>' + esc(who) + '</span>'
+                    + (when ? '<span>' + esc(when) + '</span>' : '')
+                    + (dur ? '<span>' + esc(dur) + '</span>' : '')
+                    + (it.intent || it.kind ? '<span>' + esc(it.intent || it.kind) + '</span>' : '')
+                    + flags.map(function (f) { return '<span class="set-chat-badge is-local">' + esc(f) + '</span>'; }).join('')
+                    + '</div>'
+                    + '<p class="set-chat-q">' + esc(it.question || '') + '</p>'
+                    + '<p class="set-chat-a">' + esc(ans) + '</p>'
+                    + (fb.reason ? '<p class="set-chat-a"><em>Səbəb: ' + esc(fb.reason) + '</em></p>' : '')
+                    + (it.id ? '<div class="set-chat-actions"><button type="button" class="admin-btn admin-btn--ghost set-chat-replay" data-id="' + esc(it.id) + '">Yenidən işə sal</button></div>' : '')
+                    + '</article>';
+            }).join('');
+        }).catch(function () {
+            list.innerHTML = '';
+            showError('chatLogError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    }
+    function replayChat(chatId, btn) {
+        if (!chatId) return;
+        showError('chatLogError', '');
+        var card = btn && btn.closest ? btn.closest('.set-chat-item') : null;
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = 'İşləyir…';
+        }
+        api('/api/chat/replay', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chatId: chatId })
+        }).then(function (res) {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Yenidən işə sal';
+            }
+            if (!res.ok) {
+                showError('chatLogError', (res.data && res.data.error) || 'Replay alınmadı');
+                return;
+            }
+            var prev = res.data.previous || '';
+            var next = res.data.answer || '';
+            if (card) {
+                var old = card.querySelector('.set-chat-replay-box');
+                if (old) old.remove();
+                var box = document.createElement('div');
+                box.className = 'set-chat-replay-box';
+                box.innerHTML =
+                    '<p class="set-chat-replay-label">Köhnə cavab</p>'
+                    + '<p class="set-chat-a">' + esc(prev.slice(0, 700)) + '</p>'
+                    + '<p class="set-chat-replay-label">Yeni cavab</p>'
+                    + '<p class="set-chat-a">' + esc(next.slice(0, 700)) + '</p>';
+                card.appendChild(box);
+            }
+        }).catch(function () {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Yenidən işə sal';
+            }
+            showError('chatLogError', 'Serverə qoşulmaq mümkün olmadı');
+        });
     }
     function setTokenStatus(hasToken, hasStoreToken) {
         var status = document.getElementById('tokenStatus');
@@ -390,6 +541,37 @@
         ev.preventDefault();
         setView('users');
     });
+    var navChatEl = document.getElementById('navChat');
+    if (navChatEl) {
+        navChatEl.addEventListener('click', function (ev) {
+            ev.preventDefault();
+            setView('chat');
+        });
+    }
+    var chatRefresh = document.getElementById('chatLogRefresh');
+    if (chatRefresh) {
+        chatRefresh.addEventListener('click', function () { loadChatLogs(); });
+    }
+    ['chatLogFlag', 'chatLogSource'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', function () { loadChatLogs(); });
+    });
+    var chatQ = document.getElementById('chatLogQ');
+    if (chatQ) {
+        var chatQTimer = null;
+        chatQ.addEventListener('input', function () {
+            clearTimeout(chatQTimer);
+            chatQTimer = setTimeout(function () { loadChatLogs(); }, 280);
+        });
+    }
+    var chatList = document.getElementById('chatLogList');
+    if (chatList) {
+        chatList.addEventListener('click', function (ev) {
+            var btn = ev.target.closest('.set-chat-replay');
+            if (!btn) return;
+            replayChat(btn.getAttribute('data-id'), btn);
+        });
+    }
     window.addEventListener('hashchange', function () { setView(activeView()); });
     document.getElementById('saveScopeBtn').addEventListener('click', saveScope);
     document.getElementById('team').addEventListener('change', function () {
@@ -525,6 +707,8 @@
         canTech = !!(me.canManageTech || me.role === 'superadmin');
         document.getElementById('setUserHint').textContent = (me.displayName || me.username || 'Hesab') + ' · ' + (me.roleLabel || '');
         document.getElementById('navUsers').classList.toggle('hidden', !canManage);
+        var navChat = document.getElementById('navChat');
+        if (navChat) navChat.classList.toggle('hidden', !canManage);
         if (res.data.homeProjectKey) homeProjectKey = res.data.homeProjectKey;
         document.getElementById('scopeProjectKey').value = res.data.currentProjectKey || homeProjectKey;
         document.getElementById('scopeTeam').value = res.data.currentTeam || me.team || 'komplayns';

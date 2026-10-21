@@ -196,7 +196,6 @@ export function toggleDropdown(id) {
         var openId = id;
         requestAnimationFrame(function() {
             try {
-                if (openId === 'assessmentHubContent') return;
                 if (typeof state.onSectionOpen === 'function') state.onSectionOpen(openId);
             } catch (err) {
                 console.error('Section open failed:', openId, err);

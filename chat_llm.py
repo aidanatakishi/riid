@@ -7,6 +7,7 @@ import urllib3
 
 # Ensure .env keys are loaded even if chat_llm is imported first.
 import config  # noqa: F401
+from chat_gold import examples_for, format_examples
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -188,19 +189,27 @@ def answer_chat(question, facts, draft, history=None, api_key=None):
     system, user = _build_messages(question, facts, draft, history)
     prefer = (os.environ.get('CHAT_LLM_PROVIDER') or '').strip().lower()
     use_openai_first = prefer == 'openai' or (prefer != 'gemini' and bool(openai))
-    if use_openai_first and openai:
-        text = _openai(openai, user, system=system)
-        if text:
-            return text
-    if gemini:
-        text = _gemini_chat(gemini, system + '\n\n' + user)
-        if text:
-            return text
-    if (not use_openai_first) and openai:
-        text = _openai(openai, user, system=system)
-        if text:
-            return text
-    return None
+
+    def try_once():
+        if use_openai_first and openai:
+            text = _openai(openai, user, system=system)
+            if text:
+                return text
+        if gemini:
+            text = _gemini_chat(gemini, system + '\n\n' + user)
+            if text:
+                return text
+        if (not use_openai_first) and openai:
+            text = _openai(openai, user, system=system)
+            if text:
+                return text
+        return None
+
+    text = try_once()
+    # Bir dəfə yenidən cəhd — digər cihazlarda ara-sıra timeout/429 olur
+    if not text and LAST_ERROR and ('timeout' in LAST_ERROR.lower() or '429' in LAST_ERROR or 'SSL' in LAST_ERROR):
+        text = try_once()
+    return text
 
 
 def polish_chat_answer(question, facts, draft, history=None, api_key=None):
@@ -266,17 +275,24 @@ def _build_messages(question, facts, draft, history):
 
     system = (
         'Sən AI Done-san — DGD Rəqəmsal İdarəetmə Panelinin canlı analitik köməkçisisən.\n'
-        'Real insan kimi danış: təbii, isti və konkret. Şablon/robot cümlələri yazma.\n'
+        'Real insan kimi danış: təbii, isti, ağıllı və konkret. Şablon/robot cümlələri yazma.\n'
         'Yalnız Azərbaycan dilində yaz. «Dashboard» demə — «idarəetmə paneli» / «board» de.\n'
         '\n'
+        'DÜŞÜNMƏ ADDIMLARI (cavabda yazma, yalnız tətbiq et):\n'
+        'A) Sual nə istəyir? (bir cümlə ilə özünə)\n'
+        'B) Hansı faktlar buna aiddir?\n'
+        'C) Aid olmayan KPI/siyahını at.\n'
+        'D) Qısa, suala uyğun cavab yaz.\n'
+        '\n'
         'ƏSAS QAYDA — SUALA CAVAB VER:\n'
-        '1) Əvvəl istifadəçinin sualını oxu. Cavab birbaşa həmin suala aid olmalıdır.\n'
+        '1) Cavab birbaşa həmin suala aid olmalıdır.\n'
         '2) Sualın soruşmadığı KPI, istiqamət, qurum, sprint xülasəsini yazma.\n'
         '3) Ümumi «panel vəziyyəti» yazma, əgər sual açıqca icmal/vəziyyət istəmirsə.\n'
         '4) Yalnız verilmiş JSON faktlardan rəqəm/ad/açar götür. Uydurma.\n'
-        '5) Fakt suala cavab vermirsə: bir cümlə ilə de, sonra yaxın mövcud faktı göstər.\n'
+        '5) Fakt suala cavab vermirsə: dürüst de, yaxın mövcud faktı göstər, uydurma.\n'
         '6) HTML yazma. Qısa tireli siyahı olar.\n'
-        '7) Eyni açılış cümləsini təkrarlama; hər cavabı suala uyğun qur.\n'
+        '7) Eyni açılış cümləsini təkrarlama.\n'
+        '8) Lokal hesablama mətni varsa — rəqəmləri götür, mətni kopyalama.\n'
         '\n'
         'FORMA:\n'
         '- Birbaşa cavab (1–2 cümlə)\n'
@@ -292,14 +308,24 @@ def _build_messages(question, facts, draft, history):
             + ((' (Jira: «' + jira_name + '»)') if jira_name else '')
             + '. İkinci şəxsdə müraciət et.\n'
         )
-    if kind in ('greet', 'thanks', 'identity'):
+    route = intent or kind or 'open'
+    if kind in ('greet', 'thanks', 'identity') or route in ('greet', 'thanks', 'identity'):
         system += 'Qısa söhbət: 1–2 cümlə, rəqəm tökme.\n'
-    elif kind in ('help', 'about'):
+    elif kind in ('help', 'about') or route in ('help', 'about'):
         system += 'Qısa izah: panel funksiyası; uzun KPI siyahısı yazma.\n'
+    elif route == 'mine':
+        system += 'Yalnız facts.mine / istifadəçinin öz işləri. Ümumi panel KPI yazma.\n'
+    elif route in ('late', 'blocked'):
+        system += 'Yalnız həmin risk kəsiyi: say + qısa siyahı. Digər KPI əlavə etmə.\n'
+    elif route == 'issue':
+        system += 'Yalnız soruşulan DGD açarı. Başqa işlərə keçmə.\n'
+    elif route == 'people':
+        system += 'İcraçı müqayisəsi: top 3–5. Qurum/istiqamət xülasəsi yazma.\n'
     else:
         system += 'Analiz: maksimum 6–10 cümlə və ya qısa siyahı. Sualı tam ört, artıq yazma.\n'
 
     compact = _compact_facts(facts)
+    gold = format_examples(examples_for(route, question, limit=2))
     user_parts = [
         'Sual:\n' + str(question)[:2000],
         'Əvvəlki söhbət:\n' + hist_block,
@@ -310,6 +336,8 @@ def _build_messages(question, facts, draft, history):
         user_parts.append('Lokal təsnifat: ' + kind)
     if board:
         user_parts.append('Aktiv filterlər: ' + json.dumps(board, ensure_ascii=False)[:600])
+    if gold:
+        user_parts.append(gold)
     # Draft yalnız konkret təsnifatda — open şablonu cavabı çirkləndirir
     draft_text = str(draft or '').strip()
     if draft_text and kind and kind not in ('open', 'greet', 'thanks', 'identity', ''):
@@ -445,13 +473,13 @@ def _openai(key, prompt, system=None):
             'Content-Type': 'application/json'
         }, json={
             'model': model,
-            'temperature': 0.2,
-            'max_tokens': 1800,
+            'temperature': 0.35,
+            'max_tokens': 1600,
             'messages': [
                 {'role': 'system', 'content': system_msg},
                 {'role': 'user', 'content': prompt}
             ]
-        }, timeout=75)
+        }, timeout=90)
         if res.status_code != 200:
             LAST_ERROR = _openai_http_error(res, model)
             print('chat_llm OpenAI fail', LAST_ERROR, flush=True)
