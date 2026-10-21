@@ -4488,7 +4488,7 @@ body.app-page {
     gap: 0.75rem 1rem;
     margin-bottom: 1rem;
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
     padding: clamp(0.9rem, 1.4vw, 1.15rem) clamp(0.95rem, 1.5vw, 1.35rem);
     border-radius: clamp(16px, 1.6vw, 24px);
     background: linear-gradient(135deg, #2e1065 0%, #4c1d95 100%);
@@ -4558,59 +4558,146 @@ body.app-page {
     flex-wrap: nowrap;
     max-width: none;
     min-width: 0;
-    min-height: 2.55rem;
+    min-height: 2.4rem;
     height: auto;
-    padding: 0.18rem;
-    gap: 0.12rem;
+    padding: 0.2rem;
+    gap: 0.15rem;
     border-radius: 999px;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.1);
     border: 1px solid rgba(255, 255, 255, 0.14);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-    backdrop-filter: blur(16px);
+    box-shadow: none;
+    backdrop-filter: blur(12px);
+    overflow: visible;
+    z-index: 5;
 }
 .app-head-tool {
+    position: relative;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.4rem;
     flex: 0 0 auto;
-    height: 2.2rem;
-    padding: 0 0.95rem;
+    min-height: 2rem;
+    height: 2rem;
+    padding: 0 0.85rem;
     border: 0;
     border-radius: 999px;
     background: transparent;
-    color: #ede9fe;
+    color: rgba(245, 243, 255, 0.88);
     font-family: inherit;
     font-size: 0.8rem;
-    font-weight: 650;
+    font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
     line-height: 1;
     text-decoration: none;
-    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+    box-shadow: none;
+    transition: background 0.18s ease, color 0.18s ease;
 }
+.app-head-tool-ico,
+.app-head-tool-text,
+.app-head-tool-hint { display: none; }
 .app-head-tool-label {
     display: inline;
-    max-width: 9rem;
+    max-width: 7rem;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: inherit;
+    font-weight: inherit;
+    letter-spacing: 0.01em;
+    color: inherit;
 }
-.app-head-tool svg { width: 1rem; height: 1rem; flex-shrink: 0; }
-.app-head-tool:hover {
-    background: rgba(255, 255, 255, 0.12);
+.app-head-tool svg {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+    opacity: 0.9;
+    transition: opacity 0.18s ease;
+}
+.app-head-tool:hover,
+.app-head-tool:focus-visible {
+    background: rgba(255, 255, 255, 0.16);
     color: #fff;
+    outline: none;
 }
+.app-head-tool:hover svg,
+.app-head-tool:focus-visible svg { opacity: 1; }
+.app-head-tool.app-head-tool--primary,
 .app-head-tool.is-accent {
     background: #fff;
-    color: #5b21b6;
-    box-shadow: 0 8px 16px -10px rgba(15, 23, 42, 0.5);
+    color: #4c1d95;
 }
-.app-head-tool.is-accent:hover { background: #f5f3ff; color: #4c1d95; }
+.app-head-tool.app-head-tool--primary svg,
+.app-head-tool.is-accent svg { opacity: 1; }
+.app-head-tool.app-head-tool--primary:hover,
+.app-head-tool.app-head-tool--primary:focus-visible,
+.app-head-tool.is-accent:hover,
+.app-head-tool.is-accent:focus-visible {
+    background: #fff;
+    color: #5b21b6;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
 .app-head-tool[aria-expanded="true"] {
-    background: rgba(255, 255, 255, 0.18);
+    background: rgba(255, 255, 255, 0.2);
     color: #fff;
 }
-.app-head-tool:active { transform: scale(0.98); }
+.app-head-tool:active { background: rgba(255, 255, 255, 0.22); }
+.app-head-tool.app-head-tool--primary:active,
+.app-head-tool.is-accent:active { background: #f5f3ff; }
+
+/* Modern hover tip — above the button */
+.app-head-tool[data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+    top: auto;
+    z-index: 50;
+    padding: 0.38rem 0.65rem;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #f8fafc;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 4px);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    box-shadow: 0 8px 20px -12px rgba(15, 23, 42, 0.55);
+}
+.app-head-tool[data-tip]::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 4px);
+    top: auto;
+    z-index: 50;
+    width: 8px;
+    height: 8px;
+    background: rgba(15, 23, 42, 0.92);
+    opacity: 0;
+    pointer-events: none;
+    transform: translate(-50%, 4px) rotate(45deg);
+    transition: opacity 0.16s ease, transform 0.16s ease;
+}
+.app-head-tool:hover[data-tip]::after,
+.app-head-tool:focus-visible[data-tip]::after,
+.app-head-tool:hover[data-tip]::before,
+.app-head-tool:focus-visible[data-tip]::before {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+.app-head-tool:hover[data-tip]::before,
+.app-head-tool:focus-visible[data-tip]::before {
+    transform: translate(-50%, 0) rotate(45deg);
+}
+@media (hover: none) {
+    .app-head-tool[data-tip]::after,
+    .app-head-tool[data-tip]::before { display: none; }
+}
 .app-userbox {
     display: flex;
     flex-direction: column;
@@ -5857,17 +5944,15 @@ body.settings-open { overflow: hidden; }
     color: #7c3aed;
 }
 
-/* Mid desktop: hide tool labels before they collide with the title */
-@media (max-width: 1180px) {
+/* Mid desktop: icon-only tools before labels collide with the title */
+@media (max-width: 1100px) {
     .app-head-tool {
-        width: 2.2rem;
-        min-width: 2.2rem;
+        width: 2rem;
+        min-width: 2rem;
         padding: 0;
         gap: 0;
-        border-radius: 10px;
     }
-    .app-head-tool-label,
-    .app-head-tool > span { display: none !important; }
+    .app-head-tool-label { display: none !important; }
     .app-kicker {
         white-space: nowrap;
         overflow: hidden;
@@ -5939,33 +6024,33 @@ body.settings-open { overflow: hidden; }
         flex: 0 0 auto;
         flex-wrap: nowrap;
         justify-self: end;
+        align-items: center;
         width: auto;
         max-width: none;
-        min-height: 0;
-        height: 2.45rem;
+        min-height: 2.3rem;
+        height: 2.3rem;
         padding: 0.15rem;
-        gap: 0.15rem;
-        border-radius: 12px;
+        gap: 0.1rem;
+        border-radius: 999px;
         background: rgba(255, 255, 255, 0.1);
     }
     .app-head-tool {
         flex: 0 0 auto;
-        width: 2.15rem;
-        height: 2.15rem;
-        min-width: 2.15rem;
-        max-width: 2.15rem;
+        width: 2rem;
+        height: 2rem;
+        min-width: 2rem;
+        max-width: 2rem;
+        min-height: 2rem;
         padding: 0;
-        border-radius: 9px;
         gap: 0;
-        overflow: hidden;
+        justify-content: center;
     }
-    .app-head-tool-label,
-    .app-head-tool > span { display: none !important; }
+    .app-head-tool-label { display: none !important; }
     .app-head-tool svg { width: 1.05rem; height: 1.05rem; }
+    .app-head-tool.app-head-tool--primary,
     .app-head-tool.is-accent {
         background: #fff;
         color: #5b21b6;
-        box-shadow: none;
     }
 }
 @media (max-width: 639px) {
@@ -5985,14 +6070,16 @@ body.settings-open { overflow: hidden; }
         padding-right: max(0.65rem, var(--safe-right, 0px));
     }
     .app-head-tools {
-        height: 2.55rem;
-        padding: 0.18rem;
-        gap: 0.12rem;
+        height: 2.35rem;
+        min-height: 2.35rem;
+        padding: 0.15rem;
+        gap: 0.08rem;
     }
     .app-head-tool {
-        width: 2.2rem;
-        height: 2.2rem;
-        min-width: 2.2rem;
+        width: 2.05rem;
+        height: 2.05rem;
+        min-width: 2.05rem;
+        min-height: 2.05rem;
     }
     .dash-kpis,
     .dash-kpis.has-other { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
@@ -6923,9 +7010,10 @@ body.settings-open { overflow: hidden; }
         grid-template-columns: 1fr;
     }
     .app-head-tool {
-        width: 2.05rem;
-        height: 2.05rem;
-        min-width: 2.05rem;
+        width: 1.95rem;
+        height: 1.95rem;
+        min-width: 1.95rem;
+        min-height: 1.95rem;
     }
     .app-head h1 { font-size: 0.95rem; }
     .filter-chip { justify-content: flex-start; }
@@ -6933,11 +7021,12 @@ body.settings-open { overflow: hidden; }
 }
 
 @media (max-width: 380px) {
-    .app-head-tools { gap: 0.08rem; padding: 0.12rem; }
+    .app-head-tools { gap: 0.06rem; padding: 0.12rem; }
     .app-head-tool {
-        width: 1.95rem;
-        height: 1.95rem;
-        min-width: 1.95rem;
+        width: 1.85rem;
+        height: 1.85rem;
+        min-width: 1.85rem;
+        min-height: 1.85rem;
     }
     .app-btn span { font-size: 0.78rem; }
 }
