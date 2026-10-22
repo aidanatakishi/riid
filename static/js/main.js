@@ -170,28 +170,29 @@ function placeNk303LaunchInHeader() {
     for (i = 0; i < extras.length; i++) {
         if (extras[i] !== link) extras[i].remove();
     }
+    var analyticsHtml = '<span class="app-head-tool-ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg></span><span class="app-head-tool-label">Analitika</span>';
     if (!link) {
         link = document.createElement('a');
         link.href = '/diaqnostika';
         link.id = 'analyticsLaunchBtn';
-        link.className = 'app-head-tool nk303-launch';
+        link.className = 'app-head-tool app-head-tool--analytics nk303-launch';
         link.removeAttribute('title');
         link.setAttribute('data-tip', 'Qiymətləndirmə analitikası');
         link.setAttribute('aria-label', 'Qiymətləndirmə analitikası');
-        link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg><span class="app-head-tool-label">Analitika</span>';
+        link.innerHTML = analyticsHtml;
         link.addEventListener('click', function(ev) {
             ev.preventDefault();
             if (typeof window.openNk303 === 'function') window.openNk303();
         });
     } else {
-        link.className = 'app-head-tool nk303-launch';
+        link.className = 'app-head-tool app-head-tool--analytics nk303-launch';
         link.removeAttribute('title');
         link.setAttribute('data-tip', 'Qiymətləndirmə analitikası');
         link.setAttribute('aria-label', link.getAttribute('aria-label') || 'Qiymətləndirmə analitikası');
-        var label = link.querySelector('.app-head-tool-label');
-        if (label) label.textContent = 'Analitika';
-        if (!label || link.querySelector('.app-head-tool-ico') || link.querySelector('.app-head-tool-text')) {
-            link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg><span class="app-head-tool-label">Analitika</span>';
+        if (!link.querySelector('.app-head-tool-ico') || !link.querySelector('.app-head-tool-label')) {
+            link.innerHTML = analyticsHtml;
+        } else {
+            link.querySelector('.app-head-tool-label').textContent = 'Analitika';
         }
     }
     if (link.parentNode !== tools || tools.firstChild !== link) {

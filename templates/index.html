@@ -11,7 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda5">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda200">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda202">
     <link rel="stylesheet" href="/static/css/service_digitization.css?v=idda18">
     <link rel="stylesheet" href="/static/css/done_bot.css?v=idda3">
     <link rel="stylesheet" href="/static/css/nk303.css?v=idda111">
@@ -45,20 +45,28 @@
             </div>
         </div>
         <div class="app-head-tools" role="toolbar" aria-label="Panel əməliyyatları">
-            <a href="/diaqnostika" id="analyticsLaunchBtn" class="app-head-tool nk303-launch" data-tip="Qiymətləndirmə analitikası" aria-label="Qiymətləndirmə analitikası" onclick="openNk303(); return false;">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>
+            <a href="/diaqnostika" id="analyticsLaunchBtn" class="app-head-tool app-head-tool--analytics nk303-launch" data-tip="Qiymətləndirmə analitikası" aria-label="Qiymətləndirmə analitikası" onclick="openNk303(); return false;">
+                <span class="app-head-tool-ico" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>
+                </span>
                 <span class="app-head-tool-label">Analitika</span>
             </a>
-            <button type="button" id="reportDownloadBtn" class="app-head-tool" onclick="exportTasksToWord('Hesabat')" data-tip="Həftəlik hesabat" aria-label="Həftəlik hesabat">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            <button type="button" id="reportDownloadBtn" class="app-head-tool app-head-tool--report" onclick="exportTasksToWord('Hesabat')" data-tip="Həftəlik hesabat" aria-label="Həftəlik hesabat">
+                <span class="app-head-tool-ico" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                </span>
                 <span id="reportDownloadLabel" class="app-head-tool-label">Həftəlik</span>
             </button>
             <button type="button" id="refreshDashboardBtn" class="app-head-tool app-head-tool--primary" onclick="fetchDashboardData()" data-tip="Məlumatı yenilə" aria-label="Yenilə">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                <span class="app-head-tool-ico" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                </span>
                 <span class="app-head-tool-label">Yenilə</span>
             </button>
-            <button id="settingsBtn" type="button" class="app-head-tool" onclick="toggleSettings()" aria-expanded="false" aria-controls="settingsPanel" aria-haspopup="dialog" data-tip="Tənzimləmələr" aria-label="Tənzimləmələr">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+            <button id="settingsBtn" type="button" class="app-head-tool app-head-tool--settings" onclick="toggleSettings()" aria-expanded="false" aria-controls="settingsPanel" aria-haspopup="dialog" data-tip="Tənzimləmələr" aria-label="Tənzimləmələr">
+                <span class="app-head-tool-ico" aria-hidden="true">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                </span>
                 <span class="app-head-tool-label">Tənzim</span>
             </button>
         </div>
@@ -772,7 +780,7 @@
             <option value="servis-dizayn">Servis dizayn</option>
         </select>
     </div>
-    <script type="module" src="/static/js/main.js?v=idda292"></script>
+    <script type="module" src="/static/js/main.js?v=idda301"></script>
 
 </body>
 </html>
