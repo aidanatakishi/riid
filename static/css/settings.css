@@ -94,6 +94,10 @@ body.settings-page {
 .set-main {
     padding: 1.4rem 1.5rem 2.4rem;
     min-width: 0;
+    max-width: 100%;
+    overflow-x: clip;
+    container-type: inline-size;
+    container-name: set-main;
 }
 .set-head {
     display: flex;
@@ -205,6 +209,50 @@ body.settings-page {
 }
 .set-modal .admin-btn--danger:hover { background: #be123c; color: #fff; }
 .settings-page .admin-person { align-items: center; }
+/* Users view: sidebar already eats width — stack until main is wide enough */
+.settings-page .admin-grid {
+    grid-template-columns: 1fr;
+}
+@container set-main (min-width: 860px) {
+    .admin-grid {
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+    }
+}
+@supports not (container-type: inline-size) {
+    @media (min-width: 1280px) {
+        .settings-page .admin-grid {
+            grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+        }
+    }
+}
+.settings-page .admin-panel,
+.settings-page .admin-fields,
+.settings-page .admin-field,
+.settings-page .admin-list {
+    min-width: 0;
+    max-width: 100%;
+}
+.settings-page .admin-field input,
+.settings-page .admin-field select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+}
+@container set-main (max-width: 640px) {
+    .admin-row { grid-template-columns: 1fr; }
+    .admin-person {
+        grid-template-columns: 2.7rem minmax(0, 1fr);
+    }
+    .admin-person-actions {
+        grid-column: 1 / -1;
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .admin-person-actions .admin-btn {
+        flex: 1 1 auto;
+        min-height: 2.75rem;
+    }
+}
 .set-readonly {
     min-height: 2.55rem;
     display: flex;
@@ -363,10 +411,34 @@ body.settings-page {
     .set-links { flex-direction: row; flex-wrap: wrap; }
     .set-link.is-exit { margin-top: 0; }
     .set-grid { grid-template-columns: 1fr; }
+    .set-main { padding: 1.1rem 1rem 2rem; }
+    .set-head {
+        flex-wrap: wrap;
+        align-items: stretch;
+    }
+    .set-panel-link {
+        width: 100%;
+        justify-content: center;
+    }
+}
+@media (max-width: 640px) {
+    .settings-page .admin-row { grid-template-columns: 1fr; }
+    .settings-page .admin-person {
+        grid-template-columns: 2.7rem minmax(0, 1fr);
+    }
+    .settings-page .admin-person-actions {
+        grid-column: 1 / -1;
+        width: 100%;
+        justify-content: flex-start;
+    }
+    .settings-page .admin-person-actions .admin-btn {
+        flex: 1 1 auto;
+        min-height: 2.75rem;
+    }
 }
 @media (max-width: 520px) {
-    .set-shell {
-        padding: max(0.85rem, env(safe-area-inset-top, 0px))
+    .set-main {
+        padding: max(0.9rem, env(safe-area-inset-top, 0px))
             max(0.7rem, env(safe-area-inset-right, 0px))
             max(1.5rem, env(safe-area-inset-bottom, 0px))
             max(0.7rem, env(safe-area-inset-left, 0px));
@@ -377,4 +449,5 @@ body.settings-page {
         min-height: 2.75rem;
     }
     .set-actions .set-btn { width: 100%; min-height: 2.75rem; }
+    .set-head h2 { font-size: 1.15rem; }
 }

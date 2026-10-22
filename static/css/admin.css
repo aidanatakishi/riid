@@ -101,13 +101,18 @@ body.admin-page {
     grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
     gap: 1rem;
     align-items: start;
+    min-width: 0;
+    width: 100%;
 }
 .admin-panel {
+    min-width: 0;
+    max-width: 100%;
     background: #fff;
     border: 1px solid var(--line);
     border-radius: 18px;
     padding: 1.15rem 1.15rem 1.25rem;
     box-shadow: 0 10px 24px -22px rgba(15, 23, 42, 0.45);
+    overflow: hidden;
 }
 .admin-panel h2 {
     margin: 0;
@@ -123,16 +128,20 @@ body.admin-page {
 .admin-fields {
     display: grid;
     gap: 0.75rem;
+    min-width: 0;
 }
 .admin-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 0.75rem;
+    min-width: 0;
 }
 .admin-field {
     display: flex;
     flex-direction: column;
     gap: 0.32rem;
+    min-width: 0;
+    max-width: 100%;
 }
 .admin-field span {
     font-size: 0.72rem;
@@ -143,6 +152,9 @@ body.admin-page {
 }
 .admin-field input,
 .admin-field select {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
     height: 2.55rem;
     border: 1px solid #e8e0f4;
     border-radius: 11px;
@@ -150,6 +162,7 @@ body.admin-page {
     font: 500 0.92rem/1 Inter, system-ui, sans-serif;
     background: #fff;
     color: var(--ink);
+    box-sizing: border-box;
 }
 .admin-field input:focus,
 .admin-field select:focus {
@@ -171,6 +184,8 @@ body.admin-page {
     color: #5b21b6;
     font-size: 0.8rem;
     line-height: 1.45;
+    max-width: 100%;
+    overflow-wrap: anywhere;
 }
 .admin-chip {
     display: inline-flex;
@@ -210,13 +225,15 @@ body.admin-page {
 .admin-person {
     display: grid;
     grid-template-columns: 2.7rem minmax(0, 1fr) auto;
-    column-gap: 0.9rem;
-    row-gap: 0.7rem;
+    column-gap: 0.75rem;
+    row-gap: 0.65rem;
     align-items: start;
     padding: 0.95rem 1rem;
     border: 1px solid var(--line);
     border-radius: 16px;
     background: #fff;
+    min-width: 0;
+    max-width: 100%;
 }
 .admin-person.is-admin { border-color: #ddd6fe; }
 .admin-avatar {
@@ -234,23 +251,29 @@ body.admin-page {
 }
 .admin-person-copy {
     min-width: 0;
+    max-width: 100%;
     display: flex;
     flex-direction: column;
     gap: 0.22rem;
+    overflow: hidden;
 }
 .admin-person h3 {
     margin: 0;
     font-size: 0.98rem;
     font-weight: 700;
     line-height: 1.3;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .admin-person p {
     margin: 0;
     color: var(--muted);
     font-size: 0.8rem;
     line-height: 1.4;
-    overflow-wrap: anywhere;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 .admin-person p strong {
     color: var(--ink);
@@ -313,11 +336,12 @@ body.admin-page {
     gap: 0.4rem;
     justify-content: flex-end;
     align-self: start;
+    min-width: 0;
 }
 .admin-person-actions .admin-btn {
     width: auto;
-    min-width: 6.4rem;
-    padding: 0 0.85rem;
+    min-width: 0;
+    padding: 0 0.75rem;
     font-size: 0.8rem;
     white-space: nowrap;
 }
@@ -332,13 +356,13 @@ body.admin-page {
 .admin-shell input,
 .admin-shell select,
 .admin-shell textarea { font-size: 16px; }
+@media (max-width: 1100px) {
+    .admin-grid { grid-template-columns: 1fr; }
+}
 @media (max-width: 920px) {
-    .admin-grid,
     .admin-row { grid-template-columns: 1fr; }
     .admin-top { align-items: flex-start; flex-wrap: wrap; }
     .admin-shell { padding: 1rem 0.85rem 2rem; }
-}
-@media (max-width: 720px) {
     .admin-person {
         grid-template-columns: 2.7rem minmax(0, 1fr);
     }
@@ -352,6 +376,14 @@ body.admin-page {
         min-height: 2.75rem;
     }
 }
+@media (max-width: 720px) {
+    .admin-person h3,
+    .admin-person p {
+        white-space: normal;
+        overflow-wrap: break-word;
+        text-overflow: clip;
+    }
+}
 @media (max-width: 480px) {
     .admin-shell {
         padding: max(0.75rem, env(safe-area-inset-top, 0px))
@@ -361,4 +393,5 @@ body.admin-page {
     }
     .admin-top h1 { font-size: 1.2rem; }
     .admin-btn { min-height: 2.75rem; }
+    .admin-panel { padding: 1rem 0.85rem 1.1rem; }
 }

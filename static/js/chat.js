@@ -2281,9 +2281,9 @@ function onSubmit(e) {
 }
 
 function llmFailHtml(errText) {
-    var tip = 'Bir az sonra yenidən yazın və ya sualı daha konkret soruşun.';
-    if (/401|açar|Unauthorized|invalid.?api.?key/i.test(errText || '')) {
-        tip = 'Server AI açarı yoxlanmalıdır — admin .env-də OPENAI_API_KEY-i yeniləsin.';
+    var tip = 'Bir az sonra yenidən yazın və ya sualı daha konkret soruşun — məsələn «mənim işlərim».';
+    if (/401|açar rədd|Unauthorized|invalid.?api.?key|açar yoxdur|LLM açarı/i.test(errText || '')) {
+        tip = 'Süni intellekt xidməti müvəqqəti əlçatan deyil. «Mənim işlərim», sprint və ya qurum adı ilə soruşun.';
     } else if (/429|limit/i.test(errText || '')) {
         tip = 'AI limiti dolub; bir neçə dəqiqə sonra yenidən cəhd edin.';
     } else if (/timeout/i.test(errText || '')) {
@@ -2291,6 +2291,10 @@ function llmFailHtml(errText) {
     }
     return '<p class="dash-chat-lead">Hazırda ağıllı cavabı tam formalaşdıra bilmədim.</p>'
         + '<p class="dash-chat-sub">' + esc(tip) + '</p>';
+}
+
+function canUseLocalFallback(kind) {
+    return /^(greet|thanks|identity|help|about|report|empty)$/.test(String(kind || ''));
 }
 
 async function callChatApi(question, local, sendDraft, used) {
@@ -2320,11 +2324,11 @@ async function reply(question) {
     var html = local.html;
     var used = local.text || '';
     var localKind = (local.facts && local.facts.kind) || '';
-    // Hesabat UI və boş panel lokal qalsın; digər hər şey server AI açarı ilə
-    var skipLlm = /^(report|empty)$/.test(localKind);
+    // Hesabat / boş panel / salamlaşma lokal qalsın
+    var skipLlm = /^(report|empty|greet|thanks)$/.test(localKind);
     var sendDraft = !/^(open|greet|thanks|identity|help|about|)$/.test(localKind);
-    // Lokal open/şablon cavabı LLM olmadan göstərilməsin — məntiqsiz KPI tökülür
-    var preferLlmOnly = /^(open|greet|thanks|identity|help|about|overview|kpi|risk|people|person|qurum|directions|sprint|issue)$/.test(localKind);
+    // KPI şablonları LLM olmadan göstərilməsin; salam/kömək lokal qalsın
+    var preferLlmOnly = /^(open|overview|kpi|risk|people|person|qurum|directions|sprint|issue)$/.test(localKind);
     try {
         if (!chatLlm) {
             try {
@@ -2349,13 +2353,16 @@ async function reply(question) {
                     used = data.answer;
                 } else {
                     var errText = String((data && data.error) || '');
-                    if (/401|açar rədd|Unauthorized|invalid.?api.?key/i.test(errText) && !chatLlmWarned) {
+                    if (/401|açar rədd|Unauthorized|invalid.?api.?key|açar yoxdur|LLM açarı/i.test(errText) && !chatLlmWarned) {
                         chatLlmWarned = true;
                         if (typeof window.showToast === 'function') {
-                            window.showToast('AI açarı işləmir. Admin .env-də OPENAI_API_KEY yeniləsin.', 'error');
+                            window.showToast('AI xidməti müvəqqəti əlçatan deyil.', 'error');
                         }
                     }
-                    if (preferLlmOnly || localKind === 'open') {
+                    if (canUseLocalFallback(localKind) && local.html) {
+                        html = local.html;
+                        used = local.text || used;
+                    } else if (preferLlmOnly || localKind === 'open') {
                         html = llmFailHtml(errText);
                         used = stripHtml(html);
                     } else {
@@ -2364,7 +2371,10 @@ async function reply(question) {
                     }
                 }
             } catch (err) {
-                if (preferLlmOnly || localKind === 'open') {
+                if (canUseLocalFallback(localKind) && local.html) {
+                    html = local.html;
+                    used = local.text || used;
+                } else if (preferLlmOnly || localKind === 'open') {
                     html = llmFailHtml(String(err && err.message || ''));
                     used = stripHtml(html);
                 } else {
@@ -2375,6 +2385,9 @@ async function reply(question) {
         } else if (!skipLlm && !chatLlm && preferLlmOnly) {
             html = llmFailHtml('Açar yoxdur');
             used = stripHtml(html);
+        } else if (!skipLlm && !chatLlm && canUseLocalFallback(localKind) && local.html) {
+            html = local.html;
+            used = local.text || used;
         }
         chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
         if (chatHistory.length > 16) chatHistory = chatHistory.slice(-16);

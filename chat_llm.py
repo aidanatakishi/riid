@@ -188,21 +188,31 @@ def answer_chat(question, facts, draft, history=None, api_key=None):
         return None
     system, user = _build_messages(question, facts, draft, history)
     prefer = (os.environ.get('CHAT_LLM_PROVIDER') or '').strip().lower()
-    use_openai_first = prefer == 'openai' or (prefer != 'gemini' and bool(openai))
+    # Gemini varsa və prefer openai deyilsə — əvvəl Gemini (OpenAI 401/kvota riski az olsun)
+    use_openai_first = prefer == 'openai' or (prefer != 'gemini' and bool(openai) and not gemini)
 
     def try_once():
+        errors = []
         if use_openai_first and openai:
             text = _openai(openai, user, system=system)
             if text:
                 return text
+            if LAST_ERROR:
+                errors.append(LAST_ERROR)
         if gemini:
             text = _gemini_chat(gemini, system + '\n\n' + user)
             if text:
                 return text
+            if LAST_ERROR:
+                errors.append(LAST_ERROR)
         if (not use_openai_first) and openai:
             text = _openai(openai, user, system=system)
             if text:
                 return text
+            if LAST_ERROR:
+                errors.append(LAST_ERROR)
+        if errors:
+            LAST_ERROR = errors[-1]
         return None
 
     text = try_once()
