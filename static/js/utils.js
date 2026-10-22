@@ -38,7 +38,9 @@ export function animateValue(id, start, end, duration) {
     var step = function(timestamp) {
         if (!startTimestamp) startTimestamp = timestamp;
         var progress = Math.min((timestamp - startTimestamp) / duration, 1);
-        obj.innerText = Math.floor(progress * (end - start) + start);
+        /* easeOutCubic — sayımlar daha “oyunvari” hiss olunur */
+        var t = 1 - Math.pow(1 - progress, 3);
+        obj.innerText = Math.floor(t * (end - start) + start);
         if (progress < 1) {
             animFrames[id] = window.requestAnimationFrame(step);
         } else {
@@ -47,6 +49,153 @@ export function animateValue(id, start, end, duration) {
         }
     };
     animFrames[id] = window.requestAnimationFrame(step);
+}
+
+var LOAD_TIPS = [
+    { text: 'Salam! Panelı oyadıram…', mood: 'wave' },
+    { text: 'Tapşırıqları yığıram!', mood: 'think' },
+    { text: 'Sprintləri sıra-sıra düzürəm…', mood: 'think' },
+    { text: 'İstiqamətlər rəqs edir…', mood: 'happy' },
+    { text: 'Rəqəmlər oyanır — sevincli!', mood: 'cheer' },
+    { text: 'İş yükünü ölçürəm…', mood: 'think' },
+    { text: 'Bir az daha — demək olar ki, hazır!', mood: 'happy' }
+];
+var loadTipTimer = null;
+var loadTipIdx = 0;
+
+function tipText(item) {
+    if (!item) return 'AI Done işə düşür…';
+    return typeof item === 'string' ? item : (item.text || 'AI Done işə düşür…');
+}
+
+function tipMood(item) {
+    if (!item || typeof item === 'string') return 'think';
+    return item.mood || 'think';
+}
+
+function applyBootMood(mood) {
+    var api = window.DoneBot;
+    if (api && typeof api.setMood === 'function') api.setMood(mood || 'think');
+}
+
+export function setLoadingOverlayText(msg, mood) {
+    var p = document.getElementById('loadingOverlayMsg')
+        || document.querySelector('#loadingOverlay p.load-fun-msg')
+        || document.querySelector('#loadingOverlay p');
+    if (p) p.textContent = msg || tipText(LOAD_TIPS[0]);
+    if (mood) applyBootMood(mood);
+}
+
+export function startLoadingTips(seedMsg) {
+    stopLoadingTips();
+    loadTipIdx = 0;
+    if (seedMsg) setLoadingOverlayText(seedMsg, 'wave');
+    else {
+        setLoadingOverlayText(tipText(LOAD_TIPS[0]), tipMood(LOAD_TIPS[0]));
+    }
+    applyBootMood(seedMsg ? 'wave' : tipMood(LOAD_TIPS[0]));
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    loadTipTimer = setInterval(function() {
+        var p = document.getElementById('loadingOverlayMsg');
+        if (!p) return;
+        p.classList.add('is-swap');
+        setTimeout(function() {
+            loadTipIdx = (loadTipIdx + 1) % LOAD_TIPS.length;
+            var tip = LOAD_TIPS[loadTipIdx];
+            p.textContent = tipText(tip);
+            applyBootMood(tipMood(tip));
+            p.classList.remove('is-swap');
+        }, 220);
+    }, 1600);
+}
+
+export function stopLoadingTips() {
+    if (loadTipTimer) {
+        clearInterval(loadTipTimer);
+        loadTipTimer = null;
+    }
+    var p = document.getElementById('loadingOverlayMsg');
+    if (p) p.classList.remove('is-swap');
+}
+
+/**
+ * Overlay + maskot: paneli dərhal aç, maskot eyni anda küncə uçsun.
+ * (FLIP bitənə qədər gözləmək ağ ekran yaradırdı — is-booting panelı gizlədirdi.)
+ * @param {HTMLElement|null} overlay
+ * @param {{ reveal?: boolean }} opts
+ * @returns {Promise<void>}
+ */
+export function dismissLoadingOverlay(overlay, opts) {
+    opts = opts || {};
+    var reveal = opts.reveal !== false;
+    stopLoadingTips();
+    return new Promise(function(resolve) {
+        var root = document.getElementById('done-bot');
+        var api = window.DoneBot;
+        /* Panel dərhal görünsün — overlay/maskot üstündən keçir */
+        if (reveal) playDashboardReveal(true);
+        else markDashboardBooted();
+
+        function finishChrome() {
+            if (overlay) {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('is-fading');
+            }
+            document.body.classList.remove('is-loading');
+            resolve();
+        }
+
+        if (root && root.classList.contains('is-boot-hero') && api && typeof api.exitBootHero === 'function') {
+            if (overlay) overlay.classList.add('is-fading');
+            api.exitBootHero(finishChrome);
+            return;
+        }
+        finishChrome();
+    });
+}
+
+export function beginLoadingOverlay(overlay, bootMsg) {
+    document.body.classList.add('is-loading');
+    if (overlay) {
+        overlay.classList.remove('hidden', 'is-fading');
+    }
+    var api = window.DoneBot;
+    if (api && typeof api.enterBootHero === 'function') api.enterBootHero();
+    setLoadingOverlayText(bootMsg || tipText(LOAD_TIPS[0]), 'wave');
+    startLoadingTips(bootMsg || tipText(LOAD_TIPS[0]));
+}
+
+var revealDone = false;
+
+export function playDashboardReveal(force) {
+    var body = document.body;
+    if (!body) return;
+    var botRoot = document.getElementById('done-bot');
+    if (botRoot) botRoot.classList.remove('is-boot-pending');
+    if (revealDone && !force) {
+        body.classList.remove('is-booting', 'is-loading');
+        body.classList.add('is-ready');
+        return;
+    }
+    revealDone = true;
+    body.classList.remove('is-ready', 'is-loading');
+    body.classList.add('is-booting');
+    /* reflow — animasiyanı yenidən başlat */
+    void body.offsetWidth;
+    requestAnimationFrame(function() {
+        body.classList.remove('is-booting');
+        body.classList.add('is-ready');
+    });
+}
+
+export function markDashboardBooted() {
+    var body = document.body;
+    if (!body) return;
+    body.classList.remove('is-booting', 'is-loading');
+    body.classList.add('is-ready');
+    revealDone = true;
+    var botRoot = document.getElementById('done-bot');
+    if (botRoot) botRoot.classList.remove('is-boot-pending');
 }
 
 export function normalizeStr(str) {

@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
-import { normalizeStr, showToast, hideSettings } from './utils.js?v=idda7';
+import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda14';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda24';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda52';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda53';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -490,11 +490,6 @@ export async function fetchIssuesCreatedRange(baseUrl, pat, projectKey, startIso
     return data;
 }
 
-function setLoadingOverlayText(msg) {
-    var p = document.querySelector('#loadingOverlay p');
-    if (p) p.textContent = msg || 'Məlumatlar yüklənir...';
-}
-
 function setRefreshButtonSpinning(on) {
     var btn = document.getElementById('refreshDashboardBtn');
     if (!btn) return;
@@ -503,12 +498,15 @@ function setRefreshButtonSpinning(on) {
     else btn.removeAttribute('aria-busy');
 }
 
-function setDataLoadProgress(text) {
+function setDataLoadProgress(text, pct) {
     var el = document.getElementById('dataLoadProgress');
     if (!text) {
         if (el) {
             el.classList.add('hidden');
-            el.textContent = '';
+            el.style.removeProperty('--load-pct');
+            var label = el.querySelector('.app-data-progress-text');
+            if (label) label.textContent = '';
+            else el.textContent = '';
         }
         return;
     }
@@ -518,9 +516,18 @@ function setDataLoadProgress(text) {
         el.className = 'app-data-progress';
         el.setAttribute('role', 'status');
         el.setAttribute('aria-live', 'polite');
+        el.innerHTML = '<span class="app-data-progress-text"></span>';
         document.body.appendChild(el);
     }
-    el.textContent = text;
+    var label = el.querySelector('.app-data-progress-text');
+    if (!label) {
+        el.innerHTML = '<span class="app-data-progress-text"></span>';
+        label = el.querySelector('.app-data-progress-text');
+    }
+    label.textContent = text;
+    if (typeof pct === 'number' && !isNaN(pct)) {
+        el.style.setProperty('--load-pct', Math.max(8, Math.min(100, pct)) + '%');
+    }
     el.classList.remove('hidden');
 }
 
@@ -867,11 +874,12 @@ export async function fetchDashboardData(opts) {
      var overlay = document.getElementById('loadingOverlay');
      var endYear = new Date().getFullYear();
      var progressive = firstLoad && !silent;
+     var overlayDismissed = false;
      if (!silent) {
-         setLoadingOverlayText(progressive
-             ? ('Cari il yüklənir (' + endYear + ')…')
-             : 'Məlumatlar yüklənir...');
-         if (overlay) overlay.classList.remove('hidden');
+         var bootMsg = progressive
+             ? ('Cari ili oyadıram (' + endYear + ')…')
+             : 'Panelı təzələyirəm…';
+         beginLoadingOverlay(overlay, bootMsg);
          setRefreshButtonSpinning(true);
      }
      try {
@@ -881,9 +889,9 @@ export async function fetchDashboardData(opts) {
              /* İlk açılış: cari il → UI açılsın, qalan illər arxa planda */
              var firstChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
              applyDashboardPayload(firstChunk, { silent: silent });
-             if (overlay) overlay.classList.add('hidden');
              setRefreshButtonSpinning(false);
-             setLoadingOverlayText('Məlumatlar yüklənir...');
+             await dismissLoadingOverlay(overlay, { reveal: true });
+             overlayDismissed = true;
              if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
              if (!state.todayRefreshInterval) {
                  state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, TODAY_POLL_MS);
@@ -901,11 +909,14 @@ export async function fetchDashboardData(opts) {
              var y;
              for (y = endYear - 1; y >= ASSESS_DATA_START_YEAR; y--) olderYears.push(y);
              if (olderYears.length) {
-                 setDataLoadProgress('Əvvəlki illər yüklənir…');
+                 var doneYears = 0;
+                 setDataLoadProgress('Əvvəlki illər yüklənir…', 12);
                  await mapPool(olderYears, FETCH_YEAR_CONCURRENCY, async function(year) {
                      var older = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, year);
                      mergeFetchedIssues(older, { skipDashboardRefresh: true });
-                     setDataLoadProgress('Əvvəlki illər yüklənir: ' + year + '…');
+                     doneYears += 1;
+                     var pct = 12 + Math.round((doneYears / olderYears.length) * 88);
+                     setDataLoadProgress('Əvvəlki illər yüklənir: ' + year + '…', pct);
                  });
                  rebuildDashboardListsFromIndex();
                  bumpDataEpoch();
@@ -922,6 +933,8 @@ export async function fetchDashboardData(opts) {
              /* Manual Yenilə: paralel illər */
              var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);
              applyDashboardPayload(data, { silent: silent });
+             await dismissLoadingOverlay(overlay, { reveal: true });
+             overlayDismissed = true;
              showToast('Məlumatlar uğurla yeniləndi!', 'success');
              if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
              if (!state.todayRefreshInterval) {
@@ -940,12 +953,29 @@ export async function fetchDashboardData(opts) {
      } catch (error) {
          state.restoreQuiet = false;
          setDataLoadProgress('');
+         if (!overlayDismissed && !silent) {
+             await dismissLoadingOverlay(overlay, { reveal: false });
+             overlayDismissed = true;
+         } else {
+             stopLoadingTips();
+             markDashboardBooted();
+         }
          showToast(error.message, 'error');
      } finally {
          state.dashboardFetchBusy = false;
          setDataLoadProgress('');
-         setLoadingOverlayText('Məlumatlar yüklənir...');
-         if (overlay) overlay.classList.add('hidden');
+         stopLoadingTips();
+         setLoadingOverlayText('AI Done işə düşür…');
+         if (!overlayDismissed && overlay && !silent) {
+             overlay.classList.add('hidden');
+             overlay.classList.remove('is-fading');
+             document.body.classList.remove('is-loading');
+             var bootRoot = document.getElementById('done-bot');
+             if (bootRoot && bootRoot.classList.contains('is-boot-hero') && window.DoneBot && window.DoneBot.exitBootHero) {
+                 window.DoneBot.exitBootHero(function() {});
+             }
+         }
          setRefreshButtonSpinning(false);
+         if (!document.body.classList.contains('is-ready')) markDashboardBooted();
      }
 }

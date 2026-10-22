@@ -25,6 +25,10 @@ export function mountDoneBot(opts) {
   wrap.innerHTML = String(WIDGET_HTML).trim();
   var root = wrap.firstElementChild;
   root.setAttribute('data-user', opts.userName || '');
+  /* İlk boot: küncdə flaş olmasın — overlay gələnə qədər gizlə */
+  if (document.body && document.body.classList.contains('is-booting')) {
+    root.classList.add('is-boot-pending');
+  }
   document.body.appendChild(root);
   bindDoneBot(root, opts);
   return window.DoneBot;
@@ -73,7 +77,9 @@ function bindDoneBot(root, opts) {
   /* Closed only for this page lifetime — a full browser refresh shows the bot again */
   try { sessionStorage.removeItem('done-bot-closed'); sessionStorage.removeItem('done-bot-v'); } catch (e) {}
   setTimeout(function () {
-    if (!root.classList.contains('closed')) showBubble();
+    if (!root.classList.contains('closed') && !root.classList.contains('is-boot-hero') && !root.classList.contains('is-boot-landing')) {
+      showBubble();
+    }
   }, 1500);
   bot.addEventListener('mouseenter', function () {
     if (!bubble.classList.contains('show')) showBubble();
@@ -119,10 +125,95 @@ function bindDoneBot(root, opts) {
     root.dispatchEvent(new CustomEvent('done-bot:open', { bubbles: true }));
   });
 
+  function setMood(mood) {
+    bot.classList.remove('thinking', 'is-happy', 'is-waving');
+    if (mood === 'think') bot.classList.add('thinking');
+    else if (mood === 'happy') bot.classList.add('is-happy');
+    else if (mood === 'wave') {
+      bot.classList.add('is-waving', 'is-happy');
+    } else if (mood === 'cheer') {
+      bot.classList.add('is-happy', 'is-waving');
+    }
+  }
+
+  function enterBootHero() {
+    var host = document.getElementById('loadBotHost');
+    clearTimeout(typeT);
+    clearTimeout(hideT);
+    bubble.classList.remove('show');
+    root.classList.remove('closed', 'is-boot-landing', 'is-boot-pending');
+    if (host && root.parentNode !== host) host.appendChild(root);
+    root.classList.add('is-boot-hero');
+    bot.classList.remove('vanish', 'appear');
+    bot.style.transition = '';
+    bot.style.transform = '';
+    bot.style.transformOrigin = '';
+    setMood('wave');
+  }
+
+  function exitBootHero(cb) {
+    root.classList.remove('is-boot-pending');
+    if (!root.classList.contains('is-boot-hero')) {
+      if (typeof cb === 'function') cb();
+      return;
+    }
+    setMood(null);
+    var reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var first = bot.getBoundingClientRect();
+    if (root.parentNode !== document.body) document.body.appendChild(root);
+    root.classList.remove('is-boot-hero');
+    root.classList.add('is-boot-landing');
+    if (reduceMotion) {
+      root.classList.remove('is-boot-landing');
+      bot.style.transition = '';
+      bot.style.transform = '';
+      if (typeof cb === 'function') cb();
+      return;
+    }
+    var last = bot.getBoundingClientRect();
+    var dx = first.left - last.left;
+    var dy = first.top - last.top;
+    var sx = first.width / Math.max(last.width, 1);
+    var sy = first.height / Math.max(last.height, 1);
+    bot.style.transformOrigin = '50% 100%';
+    bot.style.transition = 'none';
+    bot.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(' + sx + ',' + sy + ')';
+    void bot.offsetWidth;
+    bot.style.transition = 'transform 0.85s cubic-bezier(.22,1,.36,1)';
+    bot.style.transform = 'none';
+    var finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      bot.style.transition = '';
+      bot.style.transform = '';
+      bot.style.transformOrigin = '';
+      root.classList.remove('is-boot-landing');
+      bot.classList.remove('appear');
+      void bot.offsetWidth;
+      bot.classList.add('appear');
+      setTimeout(function () { bot.classList.remove('appear'); }, 750);
+      setTimeout(function () {
+        if (!root.classList.contains('closed')) showBubble();
+      }, 400);
+      if (typeof cb === 'function') cb();
+    }
+    function onEnd(e) {
+      if (e && e.propertyName && e.propertyName !== 'transform') return;
+      bot.removeEventListener('transitionend', onEnd);
+      finish();
+    }
+    bot.addEventListener('transitionend', onEnd);
+    setTimeout(finish, 980);
+  }
+
   /* Public API for your app */
   window.DoneBot = {
     setThinking: function (v) { bot.classList.toggle('thinking', !!v); },
     setAlert: function (v) { bot.classList.toggle('alert', !!v); },
+    setMood: setMood,
+    enterBootHero: enterBootHero,
+    exitBootHero: exitBootHero,
     say: showBubble,
     setUserName: function (name) { root.setAttribute('data-user', name || ''); }
   };

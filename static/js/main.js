@@ -1,14 +1,14 @@
 import { state } from './state.js';
-import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown } from './utils.js?v=idda10';
+import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown, markDashboardBooted } from './utils.js?v=idda14';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda15';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda53';
-import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda52';
-import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda49';
-import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda16';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda56';
+import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda53';
+import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda51';
+import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda17';
 import { loadDocxLib, exportTasksToWord } from './report.js?v=idda39';
 import { renderAssessmentSections, paintAssessmentOverview, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda68';
 import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch } from './nk303.js?v=idda156';
-import { initChat } from './chat.js?v=idda70';
+import { initChat } from './chat.js?v=idda71';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda17';
 
 state.onSectionOpen = function(id) { renderLazySection(id, true); };
@@ -170,26 +170,28 @@ function placeNk303LaunchInHeader() {
     for (i = 0; i < extras.length; i++) {
         if (extras[i] !== link) extras[i].remove();
     }
+    var analyticsHtml = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>'
+        + '<span class="app-head-tool-label">Qiymətləndirmə analitikası</span>';
     if (!link) {
         link = document.createElement('a');
         link.href = '/diaqnostika';
         link.id = 'analyticsLaunchBtn';
-        link.className = 'app-head-tool nk303-launch';
+        link.className = 'app-head-tool app-head-tool--labeled nk303-launch';
         link.removeAttribute('title');
         link.setAttribute('data-tip', 'Qiymətləndirmə analitikası');
         link.setAttribute('aria-label', 'Qiymətləndirmə analitikası');
-        link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>';
+        link.innerHTML = analyticsHtml;
         link.addEventListener('click', function(ev) {
             ev.preventDefault();
             if (typeof window.openNk303 === 'function') window.openNk303();
         });
     } else {
-        link.className = 'app-head-tool nk303-launch';
+        link.className = 'app-head-tool app-head-tool--labeled nk303-launch';
         link.removeAttribute('title');
         link.setAttribute('data-tip', 'Qiymətləndirmə analitikası');
         link.setAttribute('aria-label', link.getAttribute('aria-label') || 'Qiymətləndirmə analitikası');
-        if (link.querySelector('.app-head-tool-label') || link.querySelector('.app-head-tool-ico') || link.querySelector('.app-head-tool-text') || !link.querySelector('svg')) {
-            link.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>';
+        if (!link.querySelector('.app-head-tool-label') || !link.querySelector('svg')) {
+            link.innerHTML = analyticsHtml;
         }
     }
     if (link.parentNode !== tools || tools.firstChild !== link) {
@@ -274,7 +276,12 @@ window.onload = async function() {
     // Token serverdədir (sessiya). hasToken bayrağı geciksə belə yükləməyə cəhd et —
     // əks halda səhv "token yoxdur" toast-ı və boş panel alınır.
     if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey)) {
-        fetchDashboardData().catch(function (err) { console.error(err); });
+        fetchDashboardData().catch(function (err) {
+            console.error(err);
+            markDashboardBooted();
+        });
+    } else {
+        markDashboardBooted();
     }
     try { paintAssessmentOverview(); } catch (e) {}
     try { syncNk303Route(); } catch (e) {}

@@ -1,7 +1,7 @@
 ﻿import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda14';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda52';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda53';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda16';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda4';
 
@@ -657,13 +657,13 @@ function drawAssigneeChart(tasks) {
     });
     html += '</div>';
     html += '<div class="workload-rows" role="list">';
-    labels.forEach(function(person) {
+    labels.forEach(function(person, rowIdx) {
         var total = peopleCounts[person];
         var rowActive = activePerson === person && !activePri;
-        html += '<div class="workload-row' + (rowActive ? ' is-active' : '') + '" role="listitem">';
+        html += '<div class="workload-row list-pop' + (rowActive ? ' is-active' : '') + '" role="listitem" style="--i:' + rowIdx + '">';
         html += '<button type="button" class="workload-name" data-workload-person="' + escapeWorkloadHtml(person) + '"'
             + ' title="Bütün tapşırıqlar">' + escapeWorkloadHtml(person) + '</button>';
-        html += '<div class="workload-bar-wrap"><div class="workload-bar" style="width:' + Math.max(10, Math.round((total / maxTotal) * 100)) + '%">';
+        html += '<div class="workload-bar-wrap"><div class="workload-bar" style="--i:' + rowIdx + ';width:' + Math.max(10, Math.round((total / maxTotal) * 100)) + '%">';
         priorities.forEach(function(pri) {
             var n = (byPersonPri[person] && byPersonPri[person][pri]) || 0;
             if (!n) return;
@@ -705,10 +705,10 @@ function drawAssigneeChart(tasks) {
                 else applyAssigneePriority(person, null);
                 return;
             }
-            // Seqment: şəxs + prioritet
+            // Seqment: yalnız şəxs (prioritet avtomatik tətbiq olunmasın)
             if (btn.classList.contains('workload-seg')) {
-                if (state.currentAssigneeFilter === person && state.currentPriorityFilter === pri) applyAssigneePriority(person, null);
-                else applyAssigneePriority(person, pri);
+                if (state.currentAssigneeFilter === person && !state.currentPriorityFilter) applyAssigneePriority(null, null);
+                else applyAssigneePriority(person, null);
             }
         });
     }
@@ -765,10 +765,11 @@ export function renderEpicChart(tasks) {
         var pct = Math.max(8, Math.round((counts[name] / max) * 100));
         var btn = document.createElement('button');
         btn.type = 'button';
-        btn.className = 'direction-row' + (isActive ? ' is-active' : '');
+        btn.className = 'direction-row list-pop' + (isActive ? ' is-active' : '');
+        btn.style.setProperty('--i', String(i));
         btn.innerHTML = '<span class="direction-dot" style="background-color:' + color + '"></span>'
             + '<span class="direction-name"></span>'
-            + '<span class="direction-track"><span class="direction-bar" style="width:' + pct + '%;background-color:' + color + '"></span></span>'
+            + '<span class="direction-track"><span class="direction-bar" style="--i:' + i + ';width:' + pct + '%;background-color:' + color + '"></span></span>'
             + '<span class="direction-count">' + counts[name] + '</span>';
         btn.querySelector('.direction-name').textContent = name;
         btn.addEventListener('click', function() {

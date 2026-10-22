@@ -50,10 +50,12 @@
 #done-bot .happy{display:none}
 #done-bot .bot:hover .eye{display:none}
 #done-bot .bot:hover .happy{display:block}
+#done-bot .bot.is-happy .eye{display:none}
+#done-bot .bot.is-happy .happy{display:block}
 #done-bot .tip{animation:donebot-tip 2s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
 #donebot-ant{transform-origin:100px 40px;animation:donebot-wobble 3s ease-in-out infinite}
 #done-bot .hand-r{transform-origin:150px 190px}
-#done-bot .bot:hover .hand-r{animation:donebot-wave .55s ease-in-out infinite}
+#done-bot .bot:hover .hand-r,#done-bot .bot.is-waving .hand-r{animation:donebot-wave .55s ease-in-out infinite}
 #done-bot .ring{display:none;transform-box:fill-box;transform-origin:center;animation:donebot-spin 1s linear infinite}
 #done-bot .bot.thinking .ring{display:block}
 #done-bot .bot.thinking .eye{animation:donebot-scan 1s ease-in-out infinite}
@@ -107,6 +109,25 @@
   42%{transform:scale(.9,1.2) translateY(-26px) rotate(-6deg)}
   100%{transform:scale(0) translateY(-50px) rotate(420deg);opacity:0;filter:blur(6px) brightness(1.8)}}
 @keyframes donebot-appear{from{transform:scale(0) rotate(-180deg);opacity:0}to{transform:none;opacity:1}}
+
+/* Boot hero: mərkəzdə canlı maskot */
+#done-bot.is-boot-hero{
+  position:relative;right:auto;bottom:auto;left:auto;top:auto;
+  z-index:1;margin:0 auto;justify-content:center;align-items:flex-end;
+  --bot-size:min(180px,42vw);pointer-events:none}
+#done-bot.is-boot-hero>*{pointer-events:none}
+#done-bot.is-boot-hero .close,
+#done-bot.is-boot-hero .reopen,
+#done-bot.is-boot-hero .bubble{display:none!important}
+#done-bot.is-boot-hero .bot{
+  filter:drop-shadow(0 18px 32px rgba(15,23,42,.45)) drop-shadow(0 0 18px color-mix(in srgb,var(--bot-glow) 35%,transparent))}
+#done-bot.is-boot-hero #donebot-float{animation-duration:1.85s}
+#done-bot.is-boot-hero #donebot-shadow{animation-duration:1.85s}
+#done-bot.is-boot-landing{
+  z-index:9000;pointer-events:none}
+#done-bot.is-boot-landing .close,
+#done-bot.is-boot-landing .reopen,
+#done-bot.is-boot-landing .bubble{display:none!important}
 
 /* Pause when tab hidden, respect reduced motion */
 #done-bot.paused *{animation-play-state:paused!important}

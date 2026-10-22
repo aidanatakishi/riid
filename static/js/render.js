@@ -1,7 +1,7 @@
 ﻿import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
 import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda14';
-import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda52';
+import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda53';
 import { duePeriodLabel } from './report.js?v=idda34';
 
 export function renderStats(tasks) {
@@ -12,7 +12,7 @@ export function renderStats(tasks) {
         return isTaskType(t) && getStatusGroup(t.fields.status.name || '') === 'rejected';
     }).length;
 
-    var kpiMs = state.isInitialLoad ? 200 : 0;
+    var kpiMs = state.isInitialLoad ? 780 : 0;
     animateValue('totalTasks', 0, total, kpiMs);
 
     var done = validTasks.filter(function(t) { return getStatusGroup(t.fields.status.name || '') === 'done'; }).length;
