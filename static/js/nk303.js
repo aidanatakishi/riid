@@ -30,7 +30,7 @@ import {
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda4';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { state } from './state.js';
-import { apiFetch, canSeeDiagnostics } from './session.js?v=idda15';
+import { apiFetch, canSeeDiagnostics } from './session.js?v=idda16';
 import { serviceDigitizationHtml, exqOrgStagesPanelHtml } from './service_digitization.js?v=idda18';
 
 var PAGE_ID = 'nk303Page';

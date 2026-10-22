@@ -1,8 +1,8 @@
 import { state } from './state.js';
-import { apiFetch, rememberCurrentProject } from './session.js?v=idda15';
+import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
 import { normalizeStr, showToast, hideSettings } from './utils.js?v=idda7';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda24';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda51';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda52';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -350,6 +350,31 @@ function pad2(n) {
 
 var JIRA_SEARCH_SOFT_CAP = 1000;
 var ASSESS_DATA_START_YEAR = 2023;
+var FETCH_YEAR_CONCURRENCY = 2;
+var FETCH_MONTH_CONCURRENCY = 3;
+var CHANGELOG_CHUNK_CONCURRENCY = 2;
+var CHANGELOG_MAX_KEYS_PER_PASS = 80;
+var TODAY_POLL_MS = 120000;
+var AUTO_REFRESH_MS = 900000;
+
+/** Run async workers over items with a concurrency cap (keeps UI responsive). */
+async function mapPool(items, limit, worker) {
+    var list = items || [];
+    var results = new Array(list.length);
+    var cursor = 0;
+    var n = Math.max(1, Math.min(limit || 2, list.length || 1));
+    async function runOne() {
+        while (cursor < list.length) {
+            var i = cursor++;
+            results[i] = await worker(list[i], i);
+        }
+    }
+    var runners = [];
+    var r;
+    for (r = 0; r < n; r++) runners.push(runOne());
+    await Promise.all(runners);
+    return results;
+}
 
 function mergeIssueBatch(byKey, names, data) {
     (data.issues || []).forEach(function(iss) {
@@ -391,15 +416,17 @@ async function fetchCreatedYear(baseUrl, pat, projectKey, year) {
 async function fetchCreatedYearByMonth(baseUrl, pat, projectKey, year) {
     var byKey = {};
     var names = {};
+    var months = [];
     var m;
-    for (m = 1; m <= 12; m++) {
-        var startIso = year + '-' + pad2(m) + '-01';
-        var endExclusiveIso = m === 12
+    for (m = 1; m <= 12; m++) months.push(m);
+    await mapPool(months, FETCH_MONTH_CONCURRENCY, async function(month) {
+        var startIso = year + '-' + pad2(month) + '-01';
+        var endExclusiveIso = month === 12
             ? ((year + 1) + '-01-01')
-            : (year + '-' + pad2(m + 1) + '-01');
+            : (year + '-' + pad2(month + 1) + '-01');
         var chunk = await fetchCreatedSpan(baseUrl, pat, projectKey, startIso, endExclusiveIso);
         mergeIssueBatch(byKey, names, chunk);
-    }
+    });
     var issues = Object.keys(byKey).map(function(k) { return byKey[k]; });
     return { issues: issues, total: issues.length, names: names };
 }
@@ -428,21 +455,23 @@ async function fetchCreatedRangeByMonth(baseUrl, pat, projectKey, startIso, endI
     var m = Number(startIso.slice(5, 7));
     var endY = Number(endIsoInclusive.slice(0, 4));
     var endM = Number(endIsoInclusive.slice(5, 7));
+    var spans = [];
     var guard = 0;
     while (y < endY || (y === endY && m <= endM)) {
         var spanStart = monthStartIso(y, m);
         if (spanStart < startIso) spanStart = startIso;
         var spanEndEx = nextMonthStartIso(y, m);
         if (spanEndEx > endExclusive) spanEndEx = endExclusive;
-        if (spanStart < spanEndEx) {
-            var chunk = await fetchCreatedSpan(baseUrl, pat, projectKey, spanStart, spanEndEx);
-            mergeIssueBatch(byKey, names, chunk);
-        }
+        if (spanStart < spanEndEx) spans.push({ start: spanStart, end: spanEndEx });
         m += 1;
         if (m > 12) { m = 1; y += 1; }
         guard += 1;
         if (guard > 240) break;
     }
+    await mapPool(spans, FETCH_MONTH_CONCURRENCY, async function(span) {
+        var chunk = await fetchCreatedSpan(baseUrl, pat, projectKey, span.start, span.end);
+        mergeIssueBatch(byKey, names, chunk);
+    });
     var issues = Object.keys(byKey).map(function(k) { return byKey[k]; });
     return { issues: issues, total: issues.length, names: names };
 }
@@ -499,11 +528,13 @@ async function fetchDashboardIssues(baseUrl, pat, projectKey) {
     var endYear = new Date().getFullYear();
     var byKey = {};
     var names = {};
+    var years = [];
     var y;
-    for (y = ASSESS_DATA_START_YEAR; y <= endYear; y++) {
-        var chunk = await fetchCreatedYear(baseUrl, pat, projectKey, y);
+    for (y = ASSESS_DATA_START_YEAR; y <= endYear; y++) years.push(y);
+    await mapPool(years, FETCH_YEAR_CONCURRENCY, async function(year) {
+        var chunk = await fetchCreatedYear(baseUrl, pat, projectKey, year);
         mergeIssueBatch(byKey, names, chunk);
-    }
+    });
     var issues = Object.keys(byKey).map(function(k) { return byKey[k]; });
     return { issues: issues, total: issues.length, names: names };
 }
@@ -513,20 +544,28 @@ export async function ensureChangelogs(tasks) {
         return t && t.key && !t.changelog && !changelogPending[t.key];
     });
     if (!missing.length) return false;
+    /* Cap per pass so opening Daily Activity does not stall the UI. */
+    if (missing.length > CHANGELOG_MAX_KEYS_PER_PASS) {
+        missing = missing.slice(0, CHANGELOG_MAX_KEYS_PER_PASS);
+    }
     missing.forEach(function(t) { changelogPending[t.key] = true; });
     try {
         var baseUrl = state.currentBaseUrl;
         var pat = readPat();
         var chunkSize = 40;
-        for (var i = 0; i < missing.length; i += chunkSize) {
-            var chunk = missing.slice(i, i + chunkSize);
+        var chunks = [];
+        var i;
+        for (i = 0; i < missing.length; i += chunkSize) {
+            chunks.push(missing.slice(i, i + chunkSize));
+        }
+        await mapPool(chunks, CHANGELOG_CHUNK_CONCURRENCY, async function(chunk) {
             var jql = 'key in (' + chunk.map(function(t) { return t.key; }).join(',') + ')';
             var data = await fetchJQL(baseUrl, pat, jql, true);
             (data.issues || []).forEach(function(fresh) {
                 var existing = state.issueIndex[fresh.key];
                 if (existing) existing.changelog = fresh.changelog || { histories: [] };
             });
-        }
+        });
         missing.forEach(function(t) {
             var existing = state.issueIndex[t.key];
             if (existing && !existing.changelog) existing.changelog = { histories: [] };
@@ -847,10 +886,10 @@ export async function fetchDashboardData(opts) {
              setLoadingOverlayText('Məlumatlar yüklənir...');
              if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
              if (!state.todayRefreshInterval) {
-                 state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+                 state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, TODAY_POLL_MS);
              }
              if (!state.autoRefreshInterval) {
-                 state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, 900000);
+                 state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, AUTO_REFRESH_MS);
              }
              afterFilterPaint(function() {
                  if (snap) restoreViewChrome(snap);
@@ -858,29 +897,38 @@ export async function fetchDashboardData(opts) {
                  state.restoreQuiet = false;
              });
              setTimeout(function() { state.restoreQuiet = false; }, 2000);
+             var olderYears = [];
              var y;
-             for (y = endYear - 1; y >= ASSESS_DATA_START_YEAR; y--) {
-                 setDataLoadProgress('Əvvəlki illər yüklənir: ' + y + '…');
-                 var older = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, y);
-                 mergeFetchedIssues(older, { skipDashboardRefresh: true });
+             for (y = endYear - 1; y >= ASSESS_DATA_START_YEAR; y--) olderYears.push(y);
+             if (olderYears.length) {
+                 setDataLoadProgress('Əvvəlki illər yüklənir…');
+                 await mapPool(olderYears, FETCH_YEAR_CONCURRENCY, async function(year) {
+                     var older = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, year);
+                     mergeFetchedIssues(older, { skipDashboardRefresh: true });
+                     setDataLoadProgress('Əvvəlki illər yüklənir: ' + year + '…');
+                 });
+                 rebuildDashboardListsFromIndex();
+                 bumpDataEpoch();
+                 populateSprintFilter();
+                 applyFilters();
              }
-             rebuildDashboardListsFromIndex();
-             bumpDataEpoch();
-             populateSprintFilter();
-             applyFilters();
              setDataLoadProgress('');
              if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
+         } else if (silent) {
+             /* Arxa plan: yalnız cari il — tam 2023…yenidən yükləmə UI-ni dondurmasın */
+             var silentChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
+             mergeFetchedIssues(silentChunk);
          } else {
-             /* Yeniləmə: bir dəfəlik tam yükləmə — UI flaş etməsin */
+             /* Manual Yenilə: paralel illər */
              var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);
              applyDashboardPayload(data, { silent: silent });
-             if (!silent) showToast('Məlumatlar uğurla yeniləndi!', 'success');
-             if (!silent && typeof window.syncNk303Route === 'function') window.syncNk303Route();
+             showToast('Məlumatlar uğurla yeniləndi!', 'success');
+             if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
              if (!state.todayRefreshInterval) {
-                 state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, 60000);
+                 state.todayRefreshInterval = setInterval(function() { fetchTodayChanges(); }, TODAY_POLL_MS);
              }
              if (!state.autoRefreshInterval) {
-                 state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, 900000);
+                 state.autoRefreshInterval = setInterval(function() { fetchDashboardData({ silent: true }); }, AUTO_REFRESH_MS);
              }
              afterFilterPaint(function() {
                  if (snap) restoreViewChrome(snap);

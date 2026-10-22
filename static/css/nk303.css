@@ -2,8 +2,8 @@
     text-decoration: none;
 }
 .app-head-tools .nk303-launch svg {
-    width: 1rem;
-    height: 1rem;
+    width: clamp(1.25rem, 1.5vw, 1.4rem);
+    height: clamp(1.25rem, 1.5vw, 1.4rem);
     flex-shrink: 0;
 }
 .assess-hub-card .nk303-launch,

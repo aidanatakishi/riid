@@ -294,6 +294,6 @@ if __name__ == '__main__':
             print('  ' + sys.executable + ' -m pip install waitress')
             raise SystemExit(1)
         print('Production (waitress): http://0.0.0.0:%s  — HTTPS reverse proxy arxasında saxlayın.' % port)
-        serve(app, host='0.0.0.0', port=port, threads=8, channel_timeout=180)
+        serve(app, host='0.0.0.0', port=port, threads=16, channel_timeout=180)
     else:
         app.run(host='0.0.0.0', port=port, debug=FLASK_DEBUG)

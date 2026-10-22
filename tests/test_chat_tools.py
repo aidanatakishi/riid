@@ -1,0 +1,135 @@
+"""Unit tests for snapshot chat tools."""
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from chat_tools import SnapshotTools, fold, fuzzy_person, number_check, normalize_snapshot
+
+
+SAMPLE = {
+    'meta': {'user': 'Sabina Mammadova', 'today': '2026-10-22', 'sprint': 'Sprint 12', 'week': 'Sprint 12'},
+    'overview': {
+        'total': 100, 'done': 40, 'open': 60, 'late': 16, 'blocked': 3,
+        'progress': 20, 'planned': 5, 'due': 12, 'dueDone': 4, 'rate': 33,
+        'completionPct': 40,
+    },
+    'tasks': [
+        'DGD-100|İcradadır|Sabina Mammadova|High|2026-10-01|İnteqrasiya|Sprint 12|0|1',
+        'DGD-101|Bloklanıb|Sabina Mammadova|Highest||İnteqrasiya|Sprint 12|1|0',
+        'DGD-102|Yekunlaşıb|Ali Vəliyev|Low||EXQ|Sprint 11|0|0',
+        'DGD-103|İcradadır|Ali Veliyev|Medium|2026-10-20|EXQ|Sprint 12|0|1',
+        'DGD-104|Planlaşdırılıb|Nigar|Low||Diaqnostika|Sprint 12|0|0',
+        'DGD-999|İcradadır|Orxan|High||Digər|Sprint 12|0|0',
+    ],
+}
+
+
+def test_fold_az_latin():
+    assert fold('Şəbnəm') == 'sebnem'
+    assert fold('Sebnem') == 'sebnem'
+    # ə → e (Az qatlama); latın «a» eyni deyil — fuzzy overlap ilə tutulur
+    assert fold('Məmmədova') == 'memmedova'
+    a, _ = fuzzy_person('mammadova', ['Sabina Məmmədova', 'Ali'])
+    assert a == 'Sabina Məmmədova'
+
+
+def test_fuzzy_sabina_variants():
+    names = ['Sabina Mammadova', 'Ali Vəliyev', 'Nigar']
+    a, _ = fuzzy_person('Sabina', names)
+    b, _ = fuzzy_person('sabina mammadova', names)
+    assert a == b == 'Sabina Mammadova'
+
+
+def test_fuzzy_not_found():
+    match, suggestions = fuzzy_person('XYZ Unknown', ['Ali', 'Nigar'])
+    assert match is None
+    assert isinstance(suggestions, list)
+
+
+def test_get_overview_uses_panel_numbers():
+    tools = SnapshotTools(SAMPLE)
+    ov = tools.get_overview()['overview']
+    assert ov['late'] == 16
+    assert ov['blocked'] == 3
+    assert ov['total'] == 100
+
+
+def test_get_risks():
+    tools = SnapshotTools(SAMPLE)
+    risks = tools.get_risks()
+    assert risks['lateCount'] == 16
+    assert risks['blockedCount'] == 3
+    assert len(risks['overdueTasks']) >= 1
+
+
+def test_person_workload():
+    tools = SnapshotTools(SAMPLE)
+    a = tools.get_person_workload('Sabina')
+    b = tools.get_person_workload('sabina mammadova')
+    assert a.get('error') is None
+    assert a['name'] == b['name']
+    assert a['total'] == b['total'] == 2
+    assert a['overdue'] >= 1
+
+
+def test_person_not_found():
+    tools = SnapshotTools(SAMPLE)
+    r = tools.get_person_workload('Qeyri-mövcud Şəxs')
+    assert r.get('error') == 'not_found'
+    assert 'suggestions' in r
+
+
+def test_search_limit_and_filters():
+    tools = SnapshotTools(SAMPLE)
+    r = tools.search_tasks(overdue=True, limit=1)
+    assert r['limit'] == 1
+    assert len(r['items']) <= 1
+    assert r['count'] >= 1
+    blocked = tools.search_tasks(blocked=True)
+    assert blocked['count'] >= 1
+    empty = tools.search_tasks(text='zzzz-no-match-zzzz')
+    assert empty['count'] == 0
+    assert empty['items'] == []
+
+
+def test_get_task_found_and_missing():
+    tools = SnapshotTools(SAMPLE)
+    ok = tools.get_task('DGD-100')
+    assert ok.get('task', {}).get('key') == 'DGD-100'
+    miss = tools.get_task('DGD-0000')
+    assert miss.get('error') == 'not_found'
+
+
+def test_compare_sprints():
+    tools = SnapshotTools(SAMPLE)
+    cmp_ = tools.compare_sprints('Sprint 12', 'Sprint 11')
+    assert cmp_['a']['name']
+    assert cmp_['b']['total'] >= 1
+
+
+def test_get_my_tasks():
+    tools = SnapshotTools(SAMPLE)
+    mine = tools.get_my_tasks()
+    assert mine.get('count', 0) >= 1
+
+
+def test_normalize_dict_tasks():
+    snap = normalize_snapshot({
+        'tasks': [{'key': 'DGD-1', 'status': 'Open', 'assignee': 'A', 'blocked': True, 'overdue': False}],
+        'overview': {},
+        'meta': {},
+    })
+    assert snap['tasks'][0]['blocked'] is True
+
+
+def test_number_check():
+    assert number_check('Gecikən **16** iş var', [{'lateCount': 16}]) == 'ok'
+    assert number_check('Gecikən **99** iş var', [{'lateCount': 16}]) == 'warn'
+    assert number_check('Salam', []) == 'ok'
+
+
+def test_kpi_direction():
+    tools = SnapshotTools(SAMPLE)
+    kpi = tools.get_kpi('İnteqrasiya')
+    assert kpi['total'] == 2

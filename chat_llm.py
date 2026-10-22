@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import time
+from typing import Any, Dict, Generator, List, Optional, Tuple
 
 import requests
 import urllib3
@@ -8,11 +10,24 @@ import urllib3
 # Ensure .env keys are loaded even if chat_llm is imported first.
 import config  # noqa: F401
 from chat_gold import examples_for, format_examples
+from chat_tools import (
+    SOFT_FAIL,
+    TOOL_LABELS,
+    SnapshotTools,
+    gemini_function_declarations,
+    number_check,
+    openai_tools,
+    run_tool,
+    snapshot_hash,
+)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 LAST_MODEL = ''
 LAST_ERROR = ''
+LAST_META: Dict[str, Any] = {}
+MAX_STEPS = 4
+HISTORY_LIMIT = 12
 
 # Ən güclü mövcud model əvvəldə; açar/kvota buraxmasa növbətiyə düşür.
 GEMINI_STRONG = 'gemini-3.1-pro-preview'
@@ -176,189 +191,481 @@ def polish_monthly_report(period, draft, sample_style=None, api_key=None):
     return data
 
 
-def answer_chat(question, facts, draft, history=None, api_key=None):
-    global LAST_MODEL, LAST_ERROR
+def _system_prompt(user_name: str, today: str, sprint: str) -> str:
+    return (
+        'Sən "AI Done"-san — Rəqəmsal İdarəetmə Departamentinin panel köməkçisisən.\n'
+        'İstifadəçi: {user_name}. Bu gün: {today}. Aktiv sprint: {sprint}.\n'
+        '\n'
+        'Rolun: ChatGPT/Claude səviyyəsində ağıllı, səmimi həmsöhbət + platformanın data analitiki.\n'
+        '\n'
+        'QAYDALAR\n'
+        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI) haqqında sual olarsa — YALNIZ alətlərdən gələn məlumata əsaslan. Rəqəmi heç vaxt təxmin etmə və uydurma.\n'
+        '2. Ümumi sual olarsa (idarəetmə, texnologiya, yazı, hesablama, məsləhət, izah) — öz biliyinlə sərbəst və dolğun cavab ver. Panel mövzusuna məcbur etmə.\n'
+        '3. Qarışıq suallarda əvvəl faktı göstər, sonra təhlil və konkret təklif ver.\n'
+        '4. Cavabı bilmirsənsə və ya data yoxdursa: bunu açıq və səmimi de; nəyi bildiyini və nəyi bilmədiyini ayır; 1–2 faydalı alternativ təklif et. Heç vaxt uydurma.\n'
+        '5. Cavabı istifadəçinin dilində ver (default: Azərbaycan dili). Təbii, canlı, insan kimi yaz; robot şablonu və təkrar giriş cümlələri olmasın.\n'
+        '6. Format: qısa sual → 1–3 cümlə. Təhlil → qısa başlıq + siyahı. Markdown istifadə et, rəqəmləri **qalın** yaz. Uzatma.\n'
+        '7. Uyğun olduqda sonda 1 davam sualı təklif et.\n'
+        '8. Şəxsi/həssas məlumat və ya icazəsiz əməliyyat istənərsə, nəzakətlə imtina et.\n'
+    ).format(
+        user_name=user_name or 'istifadəçi',
+        today=today or '',
+        sprint=sprint or '—',
+    )
+
+
+def _hint_intent(facts: Optional[dict], question: str) -> str:
+    if isinstance(facts, dict):
+        hint = str(facts.get('hint') or facts.get('intent') or facts.get('kind') or facts.get('localKind') or '')
+        if hint:
+            return hint[:60]
+    q = str(question or '').lower()
+    if re.search(r'gecik', q):
+        return 'late'
+    if re.search(r'blok|çətinlik|cetinlik', q):
+        return 'blocked'
+    if re.search(r'mənim|menim|öz iş', q):
+        return 'mine'
+    if re.search(r'risk', q):
+        return 'risk'
+    if re.search(r'DGD-\d+', question or '', re.I):
+        return 'issue'
+    return 'open'
+
+
+def _history_blocks(history: Optional[list]) -> Tuple[List[dict], str]:
+    """Keep last HISTORY_LIMIT messages; summarize older ones briefly."""
+    items = [x for x in list(history or []) if isinstance(x, dict)]
+    summary = ''
+    if len(items) > HISTORY_LIMIT:
+        older = items[:-HISTORY_LIMIT]
+        bits = []
+        for it in older[-8:]:
+            role = 'U' if it.get('role') == 'user' else 'A'
+            text = str(it.get('content') or '').strip().replace('\n', ' ')
+            if text:
+                bits.append(role + ': ' + text[:120])
+        if bits:
+            summary = 'Əvvəlki söhbət xülasəsi:\n' + '\n'.join(bits)
+        items = items[-HISTORY_LIMIT:]
+    return items, summary
+
+
+def _default_suggestions(question: str, tools_used: List[str]) -> List[str]:
+    q = str(question or '').lower()
+    if 'get_risks' in tools_used or 'gecik' in q or 'risk' in q:
+        return ['Mənim gecikənlərim', 'Bloklanan işlər', 'İcraçılar üzrə yük']
+    if 'get_person_workload' in tools_used or 'get_my_tasks' in tools_used:
+        return ['Onun gecikənləri', 'Cari həftə risklər', 'Ümumi vəziyyət']
+    if 'get_overview' in tools_used or 'get_kpi' in tools_used:
+        return ['Gecikən tapşırıqlar', 'Mənim işlərim', 'Sprint müqayisəsi']
+    return ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']
+
+
+def answer_chat(question, facts, draft, history=None, api_key=None, snapshot=None):
+    """Non-stream entry (replay / stream=0). Returns answer text or None."""
+    global LAST_ERROR
+    result = None
+    tokens: List[str] = []
+    for ev in answer_chat_events(question, facts, draft, history, api_key, snapshot):
+        if ev.get('type') == 'done':
+            result = ev.get('answer') or result
+        elif ev.get('type') == 'token':
+            tokens.append(str(ev.get('text') or ''))
+        elif ev.get('type') == 'error' and not result:
+            LAST_ERROR = str(ev.get('error') or LAST_ERROR)
+    if not result and tokens:
+        result = ''.join(tokens).strip() or None
+    return result
+
+
+def polish_chat_answer(question, facts, draft, history=None, api_key=None, snapshot=None):
+    return answer_chat(question, facts, draft, history, api_key, snapshot)
+
+
+def answer_chat_events(
+    question,
+    facts=None,
+    draft=None,
+    history=None,
+    api_key=None,
+    snapshot=None,
+) -> Generator[dict, None, None]:
+    """Yield SSE-ready events: status, token, suggestions, done, error."""
+    global LAST_MODEL, LAST_ERROR, LAST_META
     LAST_MODEL = ''
     LAST_ERROR = ''
-    if not str(question or '').strip():
-        return None
+    LAST_META = {}
+    started = time.time()
+    q = str(question or '').strip()
+    if not q:
+        yield {'type': 'error', 'error': 'Sual boşdur'}
+        return
+
+    facts = facts if isinstance(facts, dict) else {}
+    snapshot = snapshot if isinstance(snapshot, dict) else (facts.get('snapshot') if isinstance(facts.get('snapshot'), dict) else {})
+    tools_ctx = SnapshotTools(snapshot)
+    meta = tools_ctx.meta
+    user_name = (
+        meta.get('user')
+        or (facts.get('viewer') or {}).get('firstName')
+        or (facts.get('viewer') or {}).get('displayName')
+        or ''
+    )
+    system = _system_prompt(user_name, meta.get('today') or '', meta.get('sprint') or '')
+    hint = _hint_intent(facts, q)
+    gold = format_examples(examples_for(hint, q, limit=2))
+    hist_items, hist_summary = _history_blocks(history)
+
+    user_parts = []
+    if hist_summary:
+        user_parts.append(hist_summary)
+    if hint and hint not in ('open', ''):
+        user_parts.append('İpucu (məcburi deyil): ' + hint)
+    draft_text = str(draft or '').strip()
+    if draft_text:
+        user_parts.append('Lokal ipucu (məhdudlaşdırmır):\n' + draft_text[:800])
+    if gold:
+        user_parts.append(gold)
+    if tools_ctx.truncated:
+        user_parts.append('Qeyd: snapshot kəsilib (truncated=true); tam siyahı olmaya bilər.')
+    user_parts.append('Sual:\n' + q[:2000])
+    user_message = '\n\n'.join(user_parts)
+
     gemini, openai = _keys(api_key)
     if not gemini and not openai:
         LAST_ERROR = 'Açar yoxdur'
-        return None
-    system, user = _build_messages(question, facts, draft, history)
+        yield {'type': 'error', 'error': LAST_ERROR, 'soft_fail': SOFT_FAIL}
+        return
+
     prefer = (os.environ.get('CHAT_LLM_PROVIDER') or '').strip().lower()
-    # Gemini varsa və prefer openai deyilsə — əvvəl Gemini (OpenAI 401/kvota riski az olsun)
     use_openai_first = prefer == 'openai' or (prefer != 'gemini' and bool(openai) and not gemini)
 
-    def try_once():
-        errors = []
-        if use_openai_first and openai:
-            text = _openai(openai, user, system=system)
-            if text:
-                return text
-            if LAST_ERROR:
-                errors.append(LAST_ERROR)
-        if gemini:
-            text = _gemini_chat(gemini, system + '\n\n' + user)
-            if text:
-                return text
-            if LAST_ERROR:
-                errors.append(LAST_ERROR)
-        if (not use_openai_first) and openai:
-            text = _openai(openai, user, system=system)
-            if text:
-                return text
-            if LAST_ERROR:
-                errors.append(LAST_ERROR)
-        if errors:
-            LAST_ERROR = errors[-1]
-        return None
+    providers = []
+    if use_openai_first and openai:
+        providers.append(('openai', openai))
+    if gemini:
+        providers.append(('gemini', gemini))
+    if (not use_openai_first) and openai:
+        providers.append(('openai', openai))
 
-    text = try_once()
-    # Bir dəfə yenidən cəhd — digər cihazlarda ara-sıra timeout/429 olur
-    if not text and LAST_ERROR and ('timeout' in LAST_ERROR.lower() or '429' in LAST_ERROR or 'SSL' in LAST_ERROR):
-        text = try_once()
-    return text
-
-
-def polish_chat_answer(question, facts, draft, history=None, api_key=None):
-    return answer_chat(question, facts, draft, history, api_key)
-
-
-def _compact_facts(facts):
-    """Drop noise so the model stays on the question."""
-    if not isinstance(facts, dict):
-        return {}
-    keep = {
-        'kind', 'localKind', 'intent', 'question', 'scope', 'board', 'viewer',
-        'mine', 'numbers', 'people', 'directions', 'qurums', 'late', 'blocked',
-        'dueOpen', 'dueDone', 'matchedTasks', 'compare', 'sprints', 'focus',
-        'person', 'qurum', 'key', 'guidance',
-    }
-    out = {k: facts[k] for k in keep if k in facts and facts[k] not in (None, '', [], {})}
-    # Cap list sizes again server-side
-    for key, lim in (
-        ('people', 12), ('directions', 10), ('qurums', 10),
-        ('late', 8), ('blocked', 8), ('dueOpen', 8), ('dueDone', 6),
-        ('matchedTasks', 10), ('sprints', 8),
-    ):
-        if isinstance(out.get(key), list):
-            out[key] = out[key][:lim]
-    # Viewer: alone names matter
-    viewer = out.get('viewer')
-    if isinstance(viewer, dict):
-        out['viewer'] = {
-            k: viewer.get(k)
-            for k in ('firstName', 'displayName', 'jiraDisplayName')
-            if viewer.get(k)
-        }
-    return out
-
-
-def _build_messages(question, facts, draft, history):
-    hist = []
-    for item in list(history or [])[-6:]:
-        if not isinstance(item, dict):
+    last_err = ''
+    for pname, key in providers:
+        try:
+            if pname == 'gemini':
+                gen = _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx)
+            else:
+                gen = _tool_loop_openai(key, system, user_message, hist_items, tools_ctx)
+            answer_parts: List[str] = []
+            tools_used: List[str] = []
+            tool_payloads: List[Any] = []
+            steps = 0
+            suggestions: List[str] = []
+            for ev in gen:
+                et = ev.get('type')
+                if et == 'status':
+                    yield ev
+                elif et == 'token':
+                    answer_parts.append(str(ev.get('text') or ''))
+                    yield ev
+                elif et == 'meta':
+                    tools_used = list(ev.get('tools_used') or tools_used)
+                    tool_payloads = list(ev.get('tool_payloads') or tool_payloads)
+                    steps = int(ev.get('steps') or steps)
+                    if ev.get('model'):
+                        LAST_MODEL = str(ev.get('model'))
+                elif et == 'suggestions':
+                    suggestions = list(ev.get('items') or [])
+                    yield ev
+                elif et == 'error':
+                    last_err = str(ev.get('error') or '')
+                    LAST_ERROR = last_err
+            answer = ''.join(answer_parts).strip()
+            if answer:
+                if not suggestions:
+                    suggestions = _default_suggestions(q, tools_used)
+                    yield {'type': 'suggestions', 'items': suggestions[:3]}
+                ncheck = number_check(answer, tool_payloads)
+                if ncheck == 'warn':
+                    print('chat_llm number_check warn', flush=True)
+                duration_ms = int((time.time() - started) * 1000)
+                LAST_META = {
+                    'tools_used': tools_used,
+                    'steps': steps,
+                    'snapshot_hash': snapshot_hash(snapshot),
+                    'number_check': ncheck,
+                    'model': LAST_MODEL,
+                    'duration_ms': duration_ms,
+                    'suggestions': suggestions[:3],
+                }
+                yield {
+                    'type': 'done',
+                    'answer': answer,
+                    'tools_used': tools_used,
+                    'steps': steps,
+                    'model': LAST_MODEL,
+                    'duration_ms': duration_ms,
+                    'snapshot_hash': LAST_META['snapshot_hash'],
+                    'number_check': ncheck,
+                }
+                return
+        except Exception as err:
+            last_err = type(err).__name__ + ': ' + str(err)[:180]
+            LAST_ERROR = last_err
+            print('chat_llm provider fail', pname, LAST_ERROR, flush=True)
             continue
-        role = 'İstifadəçi' if item.get('role') == 'user' else 'AI Done'
-        text = str(item.get('content') or '').strip()
-        if text:
-            hist.append(role + ': ' + text[:500])
-    hist_block = '\n'.join(hist) if hist else '(yoxdur)'
 
-    kind = ''
-    viewer = None
-    board = None
-    intent = ''
-    if isinstance(facts, dict):
-        kind = str(facts.get('kind') or facts.get('localKind') or '')
-        intent = str(facts.get('intent') or '')
-        viewer = facts.get('viewer') if isinstance(facts.get('viewer'), dict) else None
-        board = facts.get('board') if isinstance(facts.get('board'), dict) else None
+    LAST_ERROR = last_err or LAST_ERROR or 'cavab alınmadı'
+    yield {'type': 'error', 'error': LAST_ERROR, 'soft_fail': SOFT_FAIL}
 
-    viewer_name = ''
-    jira_name = ''
-    if viewer:
-        viewer_name = str(viewer.get('firstName') or viewer.get('displayName') or '').strip()
-        jira_name = str(viewer.get('jiraDisplayName') or viewer.get('displayName') or '').strip()
 
-    system = (
-        'Sən AI Done-san — DGD Rəqəmsal İdarəetmə Panelinin canlı analitik köməkçisisən.\n'
-        'Real insan kimi danış: təbii, isti, ağıllı və konkret. Şablon/robot cümlələri yazma.\n'
-        'Yalnız Azərbaycan dilində yaz. «Dashboard» demə — «idarəetmə paneli» / «board» de.\n'
-        '\n'
-        'DÜŞÜNMƏ ADDIMLARI (cavabda yazma, yalnız tətbiq et):\n'
-        'A) Sual nə istəyir? (bir cümlə ilə özünə)\n'
-        'B) Hansı faktlar buna aiddir?\n'
-        'C) Aid olmayan KPI/siyahını at.\n'
-        'D) Qısa, suala uyğun cavab yaz.\n'
-        '\n'
-        'ƏSAS QAYDA — SUALA CAVAB VER:\n'
-        '1) Cavab birbaşa həmin suala aid olmalıdır.\n'
-        '2) Sualın soruşmadığı KPI, istiqamət, qurum, sprint xülasəsini yazma.\n'
-        '3) Ümumi «panel vəziyyəti» yazma, əgər sual açıqca icmal/vəziyyət istəmirsə.\n'
-        '4) Yalnız verilmiş JSON faktlardan rəqəm/ad/açar götür. Uydurma.\n'
-        '5) Fakt suala cavab vermirsə: dürüst de, yaxın mövcud faktı göstər, uydurma.\n'
-        '6) HTML yazma. Qısa tireli siyahı olar.\n'
-        '7) Eyni açılış cümləsini təkrarlama.\n'
-        '8) Lokal hesablama mətni varsa — rəqəmləri götür, mətni kopyalama.\n'
-        '\n'
-        'FORMA:\n'
-        '- Birbaşa cavab (1–2 cümlə)\n'
-        '- Lazımdırsa 2–5 sübut (ad / DGD-açar / rəqəm)\n'
-        '- Əlavə ümumiləşdirmə yazma\n'
-        '\n'
-        'SÖHBƏT (salam/təşəkkür/kimlik/kömək): 1–3 qısa cümlə, rəqəm tökme; özünü AI Done kimi təqdim et.\n'
-        'MƏNİM İŞLƏRİM: facts.mine. Başqa icraçı üçün üçüncü şəxs.\n'
-    )
-    if viewer_name:
-        system += (
-            'Söhbət edən: ' + viewer_name
-            + ((' (Jira: «' + jira_name + '»)') if jira_name else '')
-            + '. İkinci şəxsdə müraciət et.\n'
-        )
-    route = intent or kind or 'open'
-    if kind in ('greet', 'thanks', 'identity') or route in ('greet', 'thanks', 'identity'):
-        system += 'Qısa söhbət: 1–2 cümlə, rəqəm tökme.\n'
-    elif kind in ('help', 'about') or route in ('help', 'about'):
-        system += 'Qısa izah: panel funksiyası; uzun KPI siyahısı yazma.\n'
-    elif route == 'mine':
-        system += 'Yalnız facts.mine / istifadəçinin öz işləri. Ümumi panel KPI yazma.\n'
-    elif route in ('late', 'blocked'):
-        system += 'Yalnız həmin risk kəsiyi: say + qısa siyahı. Digər KPI əlavə etmə.\n'
-    elif route == 'issue':
-        system += 'Yalnız soruşulan DGD açarı. Başqa işlərə keçmə.\n'
-    elif route == 'people':
-        system += 'İcraçı müqayisəsi: top 3–5. Qurum/istiqamət xülasəsi yazma.\n'
-    else:
-        system += 'Analiz: maksimum 6–10 cümlə və ya qısa siyahı. Sualı tam ört, artıq yazma.\n'
+def _chunk_tokens(text: str, size: int = 12) -> List[str]:
+    text = str(text or '')
+    if not text:
+        return []
+    chunks = []
+    i = 0
+    n = len(text)
+    while i < n:
+        chunks.append(text[i:i + size])
+        i += size
+    return chunks
 
-    compact = _compact_facts(facts)
-    gold = format_examples(examples_for(route, question, limit=2))
-    user_parts = [
-        'Sual:\n' + str(question)[:2000],
-        'Əvvəlki söhbət:\n' + hist_block,
-    ]
-    if intent:
-        user_parts.append('Aşkarlanan niyyət: ' + intent)
-    if kind:
-        user_parts.append('Lokal təsnifat: ' + kind)
-    if board:
-        user_parts.append('Aktiv filterlər: ' + json.dumps(board, ensure_ascii=False)[:600])
-    if gold:
-        user_parts.append(gold)
-    # Draft yalnız konkret təsnifatda — open şablonu cavabı çirkləndirir
-    draft_text = str(draft or '').strip()
-    if draft_text and kind and kind not in ('open', 'greet', 'thanks', 'identity', ''):
-        user_parts.append(
-            'Lokal hesablama (rəqəm istinadı; mətni kopyalama):\n' + draft_text[:1200]
-        )
-    user_parts.append('Faktlar (JSON):\n' + json.dumps(compact, ensure_ascii=False)[:12000])
-    user_parts.append(
-        'Xatırlatma: yalnız suala aid cavab yaz. Sualda olmayan ümumi KPI xülasəsi yazma.'
-    )
-    return system, '\n\n'.join(user_parts)
+
+def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: SnapshotTools):
+    global LAST_MODEL, LAST_ERROR
+    base = (os.environ.get('OPENAI_BASE_URL') or 'https://api.openai.com/v1').rstrip('/')
+    model = os.environ.get('OPENAI_MODEL') or 'gpt-4o'
+    messages: List[dict] = [{'role': 'system', 'content': system}]
+    for item in hist_items:
+        role = 'user' if item.get('role') == 'user' else 'assistant'
+        content = str(item.get('content') or '').strip()
+        if content:
+            messages.append({'role': role, 'content': content[:1500]})
+    messages.append({'role': 'user', 'content': user_message})
+
+    tools_used: List[str] = []
+    tool_payloads: List[Any] = []
+    steps = 0
+
+    for step in range(MAX_STEPS):
+        steps = step + 1
+        try:
+            res = _http().post(base + '/chat/completions', headers={
+                'Authorization': 'Bearer ' + key,
+                'Content-Type': 'application/json',
+            }, json={
+                'model': model,
+                'temperature': 0.35,
+                'max_tokens': 1800,
+                'tools': openai_tools(),
+                'tool_choice': 'auto',
+                'messages': messages,
+            }, timeout=90)
+        except requests.exceptions.Timeout:
+            LAST_ERROR = model + ' timeout'
+            yield {'type': 'error', 'error': LAST_ERROR}
+            return
+        except Exception as err:
+            LAST_ERROR = model + ' ' + type(err).__name__
+            yield {'type': 'error', 'error': LAST_ERROR}
+            return
+
+        if res.status_code != 200:
+            LAST_ERROR = _openai_http_error(res, model)
+            yield {'type': 'error', 'error': LAST_ERROR}
+            return
+
+        data = res.json()
+        choice = (data.get('choices') or [{}])[0]
+        msg = choice.get('message') or {}
+        tool_calls = msg.get('tool_calls') or []
+        if tool_calls:
+            messages.append(msg)
+            for call in tool_calls:
+                fn = (call.get('function') or {})
+                name = str(fn.get('name') or '')
+                raw_args = fn.get('arguments') or '{}'
+                try:
+                    args = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                except Exception:
+                    args = {}
+                if name:
+                    tools_used.append(name)
+                    yield {
+                        'type': 'status',
+                        'tool': name,
+                        'label': TOOL_LABELS.get(name, 'Düşünürəm…'),
+                    }
+                    result = run_tool(name, args, tools_ctx)
+                    tool_payloads.append(result)
+                    messages.append({
+                        'role': 'tool',
+                        'tool_call_id': call.get('id') or name,
+                        'content': json.dumps(result, ensure_ascii=False)[:12000],
+                    })
+            continue
+
+        text = str(msg.get('content') or '').strip()
+        LAST_MODEL = model
+        yield {
+            'type': 'meta',
+            'tools_used': tools_used,
+            'tool_payloads': tool_payloads,
+            'steps': steps,
+            'model': model,
+        }
+        for chunk in _chunk_tokens(text):
+            yield {'type': 'token', 'text': chunk}
+        return
+
+    # Max steps — force a closing answer without tools
+    try:
+        res = _http().post(base + '/chat/completions', headers={
+            'Authorization': 'Bearer ' + key,
+            'Content-Type': 'application/json',
+        }, json={
+            'model': model,
+            'temperature': 0.3,
+            'max_tokens': 1200,
+            'messages': messages + [{
+                'role': 'user',
+                'content': 'Alət çağırışını dayandır və indiyə qədərki məlumatla cavab ver.',
+            }],
+        }, timeout=60)
+        if res.status_code == 200:
+            data = res.json()
+            text = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
+            LAST_MODEL = model
+            yield {
+                'type': 'meta',
+                'tools_used': tools_used,
+                'tool_payloads': tool_payloads,
+                'steps': steps,
+                'model': model,
+            }
+            for chunk in _chunk_tokens(text):
+                yield {'type': 'token', 'text': chunk}
+            return
+    except Exception:
+        pass
+    yield {'type': 'error', 'error': 'max_steps'}
+
+
+def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: SnapshotTools):
+    global LAST_MODEL, LAST_ERROR
+    decls = gemini_function_declarations()
+    contents: List[dict] = []
+    for item in hist_items:
+        role = 'user' if item.get('role') == 'user' else 'model'
+        content = str(item.get('content') or '').strip()
+        if content:
+            contents.append({'role': role, 'parts': [{'text': content[:1500]}]})
+    contents.append({'role': 'user', 'parts': [{'text': user_message}]})
+
+    tools_used: List[str] = []
+    tool_payloads: List[Any] = []
+    steps = 0
+    last_local_err = ''
+
+    for model in _gemini_chat_models():
+        local_contents = [dict(c) for c in contents]
+        for step in range(MAX_STEPS):
+            steps = step + 1
+            url = (
+                'https://generativelanguage.googleapis.com/v1beta/models/'
+                + model
+                + ':generateContent?key='
+                + key
+            )
+            gen: Dict[str, Any] = {'maxOutputTokens': 2048, 'temperature': 0.35}
+            if _model_supports_thinking(model):
+                gen['thinkingConfig'] = {'thinkingLevel': 'MEDIUM'}
+            body = {
+                'systemInstruction': {'parts': [{'text': system}]},
+                'contents': local_contents,
+                'tools': [{'functionDeclarations': decls}],
+                'generationConfig': gen,
+            }
+            timeout = 80 if _model_supports_thinking(model) else 60
+            try:
+                res = _http().post(url, json=body, timeout=timeout)
+            except requests.exceptions.SSLError:
+                LAST_ERROR = model + ' SSLError'
+                last_local_err = LAST_ERROR
+                break
+            except Exception as err:
+                LAST_ERROR = model + ' ' + type(err).__name__
+                last_local_err = LAST_ERROR
+                break
+
+            if res.status_code != 200:
+                LAST_ERROR = model + ' HTTP ' + str(res.status_code)
+                last_local_err = LAST_ERROR
+                print('chat_llm Gemini fail', LAST_ERROR, flush=True)
+                break
+
+            data = res.json()
+            cand = (data.get('candidates') or [{}])[0]
+            parts = ((cand.get('content') or {}).get('parts') or [])
+            fn_calls = []
+            texts = []
+            for part in parts:
+                if part.get('thought'):
+                    continue
+                if part.get('functionCall'):
+                    fn_calls.append(part['functionCall'])
+                elif part.get('text'):
+                    texts.append(part['text'])
+
+            if fn_calls:
+                # model turn with function calls
+                local_contents.append({'role': 'model', 'parts': parts})
+                response_parts = []
+                for fc in fn_calls:
+                    name = str(fc.get('name') or '')
+                    args = fc.get('args') if isinstance(fc.get('args'), dict) else {}
+                    if not name:
+                        continue
+                    tools_used.append(name)
+                    yield {
+                        'type': 'status',
+                        'tool': name,
+                        'label': TOOL_LABELS.get(name, 'Düşünürəm…'),
+                    }
+                    result = run_tool(name, args, tools_ctx)
+                    tool_payloads.append(result)
+                    response_parts.append({
+                        'functionResponse': {
+                            'name': name,
+                            'response': result if isinstance(result, dict) else {'result': result},
+                        }
+                    })
+                if response_parts:
+                    local_contents.append({'role': 'user', 'parts': response_parts})
+                continue
+
+            text = '\n'.join(texts).strip()
+            if text:
+                LAST_MODEL = model
+                print('chat_llm Gemini ok', model, flush=True)
+                yield {
+                    'type': 'meta',
+                    'tools_used': tools_used,
+                    'tool_payloads': tool_payloads,
+                    'steps': steps,
+                    'model': model,
+                }
+                for chunk in _chunk_tokens(text):
+                    yield {'type': 'token', 'text': chunk}
+                return
+            LAST_ERROR = model + ' boş cavab'
+            last_local_err = LAST_ERROR
+            break
+        if LAST_ERROR.endswith('SSLError'):
+            break
+
+    yield {'type': 'error', 'error': last_local_err or LAST_ERROR or 'gemini fail'}
 
 
 def _gemini_models():

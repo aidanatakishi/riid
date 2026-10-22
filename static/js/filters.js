@@ -1,13 +1,15 @@
 ﻿import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, boardListUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskDueDate, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isResolvedInDateRange, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda15';
-import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda48';
+import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda49';
 import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda16';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda34';
 import { renderAssessmentSections, paintAssessmentOverview } from './assessments.js?v=idda68';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
+var filterPaintTimer = 0;
+var FILTER_PAINT_DEBOUNCE_MS = 160;
 var AZ_MONTHS = ['Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun', 'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'];
 var CHART_STATUS_NAMES = {
     done: 'İcra edilib', progress: 'İcradadır', review: 'Rəy gözlənilir', esd: 'ESD',
@@ -753,26 +755,76 @@ export function applyFilters() {
         });
     }
 
-    state.filteredTasks = datedTasks.filter(function(t) { return matchesDashContextFilters(t); });
-    state.epicChartTasks = countableWorkUnits(datedTasks.filter(function(t) {
-        return matchesDashContextFilters(t, { direction: true });
-    }));
-    state.qurumChartTasks = countableWorkUnits(datedTasks.filter(function(t) {
-        return matchesDashContextFilters(t, { qurum: true });
-    }));
-    state.statusChartTasks = datedTasks.filter(function(t) {
-        if (getStatusGroup(t.fields && t.fields.status && t.fields.status.name) === 'paused') return false;
-        return matchesDashContextFilters(t, { status: true });
+    /* Single pass: compute each filter check once per task */
+    var needDir = !!state.currentDirectionFilter;
+    var needQurum = !!state.currentQurumFilter;
+    var needAssignee = !!state.currentAssigneeFilter;
+    var needPriority = !!state.currentPriorityFilter;
+    var needStatus = !!state.currentStatusFilter;
+    var needLabel = !!state.activeLabelFilter;
+    var filteredTasks = [];
+    var epicRaw = [];
+    var qurumRaw = [];
+    var statusChartTasks = [];
+    var labelChartTasks = [];
+    var assigneeChartTasks = [];
+    var priorityChartTasks = [];
+    datedTasks.forEach(function(t) {
+        if (!t || !t.fields) return;
+        var dirOk = true;
+        if (needDir) {
+            var dir = resolveDirection(t);
+            dirOk = !!(dir && dir.key === state.currentDirectionFilter);
+        }
+        var qurumOk = true;
+        if (needQurum) {
+            var qName = getQurumName(t) || 'Təyin edilməyib';
+            qurumOk = sameQurum(qName, state.currentQurumFilter);
+        }
+        var assigneeOk = true;
+        if (needAssignee) {
+            assigneeOk = !!(t.fields.assignee && t.fields.assignee.displayName === state.currentAssigneeFilter);
+        }
+        var priorityOk = true;
+        if (needPriority) {
+            priorityOk = getTaskPriorityName(t) === state.currentPriorityFilter;
+        }
+        var statusOk = true;
+        if (needStatus) {
+            var g = getStatusGroup(t.fields.status && t.fields.status.name);
+            statusOk = g === state.currentStatusFilter;
+            if (statusOk && state.currentStatusFilter === 'esd' && state.currentEsdInnerFilter) {
+                var inner = getEsdInnerStatus(t);
+                statusOk = !!(inner && inner.id === state.currentEsdInnerFilter);
+            }
+            if (statusOk && state.currentStatusFilter === 'review' && state.currentReviewPartyFilter) {
+                var party = getReviewParty(t);
+                statusOk = !!(party && party.id === state.currentReviewPartyFilter);
+            }
+        }
+        var labelOk = true;
+        if (needLabel) {
+            labelOk = matchesDashContextFilters(t, {
+                direction: true, qurum: true, assignee: true, priority: true, status: true
+            });
+        }
+        if (dirOk && qurumOk && assigneeOk && priorityOk && statusOk && labelOk) filteredTasks.push(t);
+        if (qurumOk && assigneeOk && priorityOk && statusOk && labelOk) epicRaw.push(t);
+        if (dirOk && assigneeOk && priorityOk && statusOk && labelOk) qurumRaw.push(t);
+        if (dirOk && qurumOk && assigneeOk && priorityOk && labelOk) {
+            if (getStatusGroup(t.fields.status && t.fields.status.name) !== 'paused') statusChartTasks.push(t);
+        }
+        if (dirOk && qurumOk && assigneeOk && priorityOk && statusOk) labelChartTasks.push(t);
+        if (dirOk && qurumOk && statusOk && labelOk) assigneeChartTasks.push(t);
+        if (dirOk && qurumOk && assigneeOk && statusOk && labelOk) priorityChartTasks.push(t);
     });
-    state.labelChartTasks = datedTasks.filter(function(t) {
-        return matchesDashContextFilters(t, { label: true });
-    });
-    state.assigneeChartTasks = datedTasks.filter(function(t) {
-        return matchesDashContextFilters(t, { assignee: true, priority: true });
-    });
-    state.priorityChartTasks = datedTasks.filter(function(t) {
-        return matchesDashContextFilters(t, { priority: true });
-    });
+    state.filteredTasks = filteredTasks;
+    state.epicChartTasks = countableWorkUnits(epicRaw);
+    state.qurumChartTasks = countableWorkUnits(qurumRaw);
+    state.statusChartTasks = statusChartTasks;
+    state.labelChartTasks = labelChartTasks;
+    state.assigneeChartTasks = assigneeChartTasks;
+    state.priorityChartTasks = priorityChartTasks;
 
     if (state.currentDirectionFilter) {
         var b = document.getElementById('directionFilterBadge');
@@ -1054,23 +1106,27 @@ function flushPaintWaiters() {
 }
 
 function scheduleFilterPaint() {
-    if (filterPaintRaf) cancelAnimationFrame(filterPaintRaf);
-    filterPaintRaf = requestAnimationFrame(function() {
-        filterPaintRaf = 0;
-        renderStatusChart(state.statusChartTasks || state.filteredTasks);
-        renderEsdStatusBreakdown(state.statusChartTasks || state.filteredTasks);
-        renderReviewPartyBreakdown(state.statusChartTasks || state.filteredTasks);
-        renderAssigneeChart(state.assigneeChartTasks || state.filteredTasks);
-        renderPriorityChart(state.priorityChartTasks || state.filteredTasks);
-        renderEpicChart(state.epicChartTasks);
-        var runLazy = function() {
-            renderVisibleLazySections();
-            flushPaintWaiters();
-            state.deferredDirty = false;
-        };
-        if (typeof requestIdleCallback === 'function') requestIdleCallback(runLazy, { timeout: 180 });
-        else requestAnimationFrame(runLazy);
-    });
+    if (filterPaintTimer) clearTimeout(filterPaintTimer);
+    filterPaintTimer = setTimeout(function() {
+        filterPaintTimer = 0;
+        if (filterPaintRaf) cancelAnimationFrame(filterPaintRaf);
+        filterPaintRaf = requestAnimationFrame(function() {
+            filterPaintRaf = 0;
+            renderStatusChart(state.statusChartTasks || state.filteredTasks);
+            renderEsdStatusBreakdown(state.statusChartTasks || state.filteredTasks);
+            renderReviewPartyBreakdown(state.statusChartTasks || state.filteredTasks);
+            renderAssigneeChart(state.assigneeChartTasks || state.filteredTasks);
+            renderPriorityChart(state.priorityChartTasks || state.filteredTasks);
+            renderEpicChart(state.epicChartTasks);
+            var runLazy = function() {
+                renderVisibleLazySections();
+                flushPaintWaiters();
+                state.deferredDirty = false;
+            };
+            if (typeof requestIdleCallback === 'function') requestIdleCallback(runLazy, { timeout: 280 });
+            else setTimeout(runLazy, 0);
+        });
+    }, FILTER_PAINT_DEBOUNCE_MS);
 }
 
 function isSectionOpen(id) {
@@ -1133,9 +1189,11 @@ export function renderVisibleLazySections() {
 
 export function renderLazySection(id, force) {
     if (id === 'dailyActivityContent') {
+        /* Paint immediately; changelog backfill runs in background */
+        renderDailyProgress();
         var tasks = state.filteredTasks.concat(state.todayTasks || []);
-        Promise.resolve(state.ensureChangelogs && state.ensureChangelogs(tasks)).then(function() {
-            renderDailyProgress();
+        Promise.resolve(state.ensureChangelogs && state.ensureChangelogs(tasks)).then(function(changed) {
+            if (changed) renderDailyProgress();
         });
         return;
     }

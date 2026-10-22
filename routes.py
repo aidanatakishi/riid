@@ -12,9 +12,10 @@ from werkzeug.utils import secure_filename
 from urllib.parse import quote
 
 from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_KEY, ADMIN_PASSWORD
-from chat_llm import answer_chat, chat_llm_ready, polish_monthly_report
+from chat_llm import answer_chat, answer_chat_events, chat_llm_ready, polish_monthly_report
 import chat_llm
 from chat_log import append_chat, list_chat, chat_stats, set_feedback, get_chat
+from chat_tools import SOFT_FAIL
 from diag_excel import parse_diag_excel
 from rehber_excel import TABS, TAB_LABELS, parse_tab, build_template, template_filename
 from report_pptx import parse_report_file, normalize_report_kind
@@ -766,15 +767,24 @@ def api_chat():
     draft = str(data.get('draft') or '')
     facts = data.get('facts') if isinstance(data.get('facts'), dict) else {}
     history = data.get('history') if isinstance(data.get('history'), list) else []
+    snapshot = data.get('snapshot') if isinstance(data.get('snapshot'), dict) else None
+    if snapshot is None and isinstance(facts.get('snapshot'), dict):
+        snapshot = facts.get('snapshot')
     viewer = session_viewer()
     if viewer:
         facts['viewer'] = viewer
     if not question:
         return jsonify({'error': 'Sual boşdur'}), 400
     user = find_user_by_id(session_user_id())
-    kind = str(facts.get('kind') or facts.get('localKind') or '')[:60]
+    kind = str(facts.get('hint') or facts.get('kind') or facts.get('localKind') or '')[:60]
     intent = str(facts.get('intent') or kind or '')[:60]
     started = time.time()
+    # stream=1 default; ?stream=0 keeps legacy JSON response
+    stream_flag = request.args.get('stream')
+    if stream_flag is None:
+        stream_flag = str(data.get('stream') if data.get('stream') is not None else '1')
+    want_stream = str(stream_flag).strip() not in ('0', 'false', 'False', 'no')
+
     log_base = {
         'userId': (user or {}).get('id') or session_user_id() or '',
         'username': (user or {}).get('username') or '',
@@ -789,23 +799,116 @@ def api_chat():
         'intent': intent,
         'facts': facts,
         'draft': draft[:1200],
+        'snapshot': snapshot,
     }
     if not chat_llm_ready():
         chat_id = append_chat(dict(
             log_base,
-            answer='',
+            answer=SOFT_FAIL,
             source='error',
             error='Açar yoxdur',
             durationMs=int((time.time() - started) * 1000),
         ))
+        if want_stream:
+            def err_gen():
+                yield _sse({'type': 'error', 'error': 'LLM açarı yoxdur', 'soft_fail': SOFT_FAIL})
+                yield _sse({'type': 'token', 'text': SOFT_FAIL})
+                yield _sse({
+                    'type': 'done',
+                    'id': chat_id,
+                    'tools_used': [],
+                    'model': '',
+                    'duration_ms': int((time.time() - started) * 1000),
+                })
+            return Response(err_gen(), mimetype='text/event-stream', headers={
+                'Cache-Control': 'no-cache',
+                'X-Accel-Buffering': 'no',
+            })
         return jsonify({
-            'answer': '',
+            'answer': SOFT_FAIL,
             'source': 'error',
             'error': 'LLM açarı yoxdur',
+            'soft_fail': SOFT_FAIL,
             'chatId': chat_id,
         })
-    text = answer_chat(question, facts, draft, history)
+
+    if want_stream:
+        def event_stream():
+            answer_parts = []
+            tools_used = []
+            steps = 0
+            model = ''
+            ncheck = 'ok'
+            snap_hash = ''
+            soft = ''
+            err = ''
+            for ev in answer_chat_events(question, facts, draft, history, snapshot=snapshot):
+                et = ev.get('type')
+                if et == 'status':
+                    yield _sse({'type': 'status', 'tool': ev.get('tool'), 'label': ev.get('label')})
+                elif et == 'token':
+                    answer_parts.append(str(ev.get('text') or ''))
+                    yield _sse({'type': 'token', 'text': ev.get('text') or ''})
+                elif et == 'suggestions':
+                    yield _sse({'type': 'suggestions', 'items': ev.get('items') or []})
+                elif et == 'done':
+                    tools_used = list(ev.get('tools_used') or [])
+                    steps = int(ev.get('steps') or 0)
+                    model = str(ev.get('model') or '')
+                    ncheck = str(ev.get('number_check') or 'ok')
+                    snap_hash = str(ev.get('snapshot_hash') or '')
+                    if ev.get('answer'):
+                        answer_parts = [str(ev.get('answer'))]
+                elif et == 'error':
+                    err = str(ev.get('error') or '')
+                    soft = str(ev.get('soft_fail') or SOFT_FAIL)
+                    yield _sse({'type': 'error', 'error': err, 'soft_fail': soft})
+                    if soft:
+                        answer_parts = [soft]
+                        yield _sse({'type': 'token', 'text': soft})
+            answer = ''.join(answer_parts).strip()
+            duration_ms = int((time.time() - started) * 1000)
+            meta = getattr(chat_llm, 'LAST_META', None) or {}
+            if not tools_used:
+                tools_used = list(meta.get('tools_used') or [])
+            if not steps:
+                steps = int(meta.get('steps') or 0)
+            if not model:
+                model = str(meta.get('model') or chat_llm.LAST_MODEL or '')
+            if meta.get('number_check'):
+                ncheck = str(meta.get('number_check'))
+            if meta.get('snapshot_hash'):
+                snap_hash = str(meta.get('snapshot_hash'))
+            chat_id = append_chat(dict(
+                log_base,
+                answer=answer,
+                source='error' if (err and not answer) else ('llm' if answer else 'error'),
+                model=model,
+                error=err,
+                durationMs=duration_ms,
+                tools_used=tools_used,
+                steps=steps,
+                snapshot_hash=snap_hash,
+                number_check=ncheck,
+            ))
+            yield _sse({
+                'type': 'done',
+                'id': chat_id,
+                'tools_used': tools_used,
+                'model': model,
+                'duration_ms': duration_ms,
+                'number_check': ncheck,
+            })
+
+        return Response(event_stream(), mimetype='text/event-stream', headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no',
+        })
+
+    # Legacy non-stream JSON
+    text = answer_chat(question, facts, draft, history, snapshot=snapshot)
     duration_ms = int((time.time() - started) * 1000)
+    meta = getattr(chat_llm, 'LAST_META', None) or {}
     if text:
         chat_id = append_chat(dict(
             log_base,
@@ -813,6 +916,10 @@ def api_chat():
             source='llm',
             model=chat_llm.LAST_MODEL or '',
             durationMs=duration_ms,
+            tools_used=meta.get('tools_used') or [],
+            steps=meta.get('steps'),
+            snapshot_hash=meta.get('snapshot_hash') or '',
+            number_check=meta.get('number_check') or 'ok',
         ))
         return jsonify({
             'answer': text,
@@ -820,22 +927,33 @@ def api_chat():
             'model': chat_llm.LAST_MODEL,
             'chatId': chat_id,
             'durationMs': duration_ms,
+            'tools_used': meta.get('tools_used') or [],
+            'number_check': meta.get('number_check') or 'ok',
         })
     err = chat_llm.LAST_ERROR or 'cavab alınmadı'
     chat_id = append_chat(dict(
         log_base,
-        answer='',
+        answer=SOFT_FAIL,
         source='error',
         error=err,
         durationMs=duration_ms,
+        tools_used=meta.get('tools_used') or [],
+        steps=meta.get('steps'),
+        snapshot_hash=meta.get('snapshot_hash') or '',
+        number_check=meta.get('number_check') or '',
     ))
     return jsonify({
-        'answer': '',
+        'answer': SOFT_FAIL,
         'source': 'error',
         'error': err,
+        'soft_fail': SOFT_FAIL,
         'chatId': chat_id,
         'durationMs': duration_ms,
     })
+
+
+def _sse(payload):
+    return 'data: ' + json.dumps(payload, ensure_ascii=False) + '\n\n'
 
 
 @api.route('/api/chat/feedback', methods=['POST', 'OPTIONS'])
@@ -905,13 +1023,15 @@ def api_chat_replay():
     question = str(item.get('question') or '').strip()
     facts = item.get('facts') if isinstance(item.get('facts'), dict) else {}
     draft = str(item.get('draft') or '')
+    snapshot = item.get('snapshot') if isinstance(item.get('snapshot'), dict) else None
     viewer = session_viewer()
     if viewer:
         facts = dict(facts)
         facts['viewer'] = viewer
     started = time.time()
-    text = answer_chat(question, facts, draft, [])
+    text = answer_chat(question, facts, draft, [], snapshot=snapshot)
     duration_ms = int((time.time() - started) * 1000)
+    meta = getattr(chat_llm, 'LAST_META', None) or {}
     if not text:
         return jsonify({
             'error': chat_llm.LAST_ERROR or 'cavab alınmadı',
@@ -927,6 +1047,11 @@ def api_chat_replay():
         'model': chat_llm.LAST_MODEL or '',
         'kind': item.get('kind') or '',
         'intent': item.get('intent') or '',
+        'tools_used': meta.get('tools_used') or [],
+        'steps': meta.get('steps'),
+        'snapshot_hash': meta.get('snapshot_hash') or '',
+        'number_check': meta.get('number_check') or 'ok',
+        'snapshot': snapshot,
         'durationMs': duration_ms,
         'facts': facts,
         'draft': draft,

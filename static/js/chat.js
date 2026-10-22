@@ -79,6 +79,9 @@ var chatLlmWarned = false;
 var chatOpen = false;
 var chatBusy = false;
 var chatHistory = [];
+var SOFT_FAIL = 'Bu sualı indi tam cavablandıra bilmədim, bir az sonra yenidən yoxlayım? Bu arada «Mənim işlərim» və ya «Cari həftə risklər» kimi suallara dərhal cavab verə bilərəm.';
+var MAX_SNAPSHOT_TASKS = 450;
+var MAX_SNAPSHOT_CHARS = 45000;
 
 function fold(str) {
     return normalizeStr(str)
@@ -602,6 +605,23 @@ function isGreetingOnly(qFold) {
 
 function isThanks(qFold) {
     return /tesekkur|sagolun|sag olun|tesekkurler|sagol$/.test(qFold) && qFold.split(' ').length <= 8 && !looksLikeDashQuestion(qFold);
+}
+
+function isFarewell(qFold) {
+    if (looksLikeDashQuestion(qFold)) return false;
+    if (qFold.split(' ').length > 8) return false;
+    return /^(sagol|sag olun|sagolun|bye|goodbye|goruserik|gorusenek|xudahafiz|hosh|hos|elvida)\b/.test(qFold)
+        || /(?:^| )(goruserik|gorusenek|xudahafiz|bye)(?: |$)/.test(qFold);
+}
+
+function formatFarewell() {
+    var opts = [
+        'Görüşənədək! Lazım olanda buradayam.',
+        'Sağ olun. Uğurlar — panelə qayıdanda yazın.',
+        'Xudahafiz. Yenə yazsanız, kömək edərəm.'
+    ];
+    greetTick += 1;
+    return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>' + pLead(opts[greetTick % opts.length]);
 }
 
 function isIdentity(qFold) {
@@ -2085,6 +2105,7 @@ function welcomeHtml() {
 function onChatAction(e) {
     var showBtn = e.target.closest('[data-chat-report="show"]');
     var dlBtn = e.target.closest('[data-chat-report="download"]');
+    var retryBtn = e.target.closest('[data-retry-q]');
     if (showBtn) {
         e.preventDefault();
         openReportPreview();
@@ -2092,6 +2113,13 @@ function onChatAction(e) {
     if (dlBtn && !dlBtn.disabled) {
         e.preventDefault();
         downloadChatReport();
+    }
+    if (retryBtn && !chatBusy) {
+        e.preventDefault();
+        var rq = retryBtn.getAttribute('data-retry-q');
+        if (!rq) return;
+        document.getElementById('dashChatInput').value = rq;
+        document.getElementById('dashChatForm').requestSubmit();
     }
 }
 
@@ -2280,37 +2308,301 @@ function onSubmit(e) {
     reply(q);
 }
 
-function llmFailHtml(errText) {
-    var tip = 'Bir az sonra yenidən yazın və ya sualı daha konkret soruşun — məsələn «mənim işlərim».';
-    if (/401|açar rədd|Unauthorized|invalid.?api.?key|açar yoxdur|LLM açarı/i.test(errText || '')) {
-        tip = 'Süni intellekt xidməti müvəqqəti əlçatan deyil. «Mənim işlərim», sprint və ya qurum adı ilə soruşun.';
-    } else if (/429|limit/i.test(errText || '')) {
-        tip = 'AI limiti dolub; bir neçə dəqiqə sonra yenidən cəhd edin.';
-    } else if (/timeout/i.test(errText || '')) {
-        tip = 'Cavab gecikdi; eyni sualı bir daha göndərin.';
+function softFailHtml(question) {
+    return '<p class="dash-chat-lead">' + esc(SOFT_FAIL) + '</p>'
+        + '<button type="button" class="dash-chat-retry" data-retry-q="' + esc(question) + '">Yenidən cəhd et</button>';
+}
+
+function renderMarkdownSafe(text) {
+    var raw = String(text || '');
+    try {
+        if (typeof marked !== 'undefined' && marked && typeof marked.parse === 'function') {
+            raw = marked.parse(raw, { breaks: true, gfm: true });
+        } else {
+            raw = renderMarkdownish(text);
+        }
+    } catch (e) {
+        raw = renderMarkdownish(text);
     }
-    return '<p class="dash-chat-lead">Hazırda ağıllı cavabı tam formalaşdıra bilmədim.</p>'
-        + '<p class="dash-chat-sub">' + esc(tip) + '</p>';
+    try {
+        if (typeof DOMPurify !== 'undefined' && DOMPurify && typeof DOMPurify.sanitize === 'function') {
+            return DOMPurify.sanitize(raw, {
+                USE_PROFILES: { html: true },
+                ADD_ATTR: ['class']
+            });
+        }
+    } catch (e2) {}
+    return renderMarkdownish(text);
 }
 
-function canUseLocalFallback(kind) {
-    return /^(greet|thanks|identity|help|about|report|empty)$/.test(String(kind || ''));
+function buildSnapshot() {
+    var truncated = false;
+    var sprint = '';
+    try { sprint = getSelectedSprintName() || currentSprintName() || ''; } catch (e) { sprint = ''; }
+    var week = '';
+    var prevWeek = '';
+    try {
+        var names = sprintList();
+        var cur = resolveCurrentSprint(names);
+        week = cur || sprint || '';
+        var idx = names.indexOf(cur);
+        if (idx >= 0 && names[idx + 1]) prevWeek = names[idx + 1];
+    } catch (e2) {}
+    var overview = {};
+    try {
+        if (hasData()) {
+            var k = liveKpis();
+            overview = {
+                total: k.total,
+                done: k.done,
+                open: k.open,
+                blocked: k.blocked,
+                progress: k.progress,
+                planned: k.planned,
+                late: k.late,
+                rejected: k.rejected,
+                backlog: k.backlog,
+                due: k.due,
+                dueDone: k.dueDone,
+                rate: k.rate,
+                completionPct: pct(k.done, k.total),
+                sprint: k.sprint,
+                direction: k.direction || '',
+                qurum: k.qurum || '',
+                assignee: k.assignee || ''
+            };
+        }
+    } catch (e3) { overview = {}; }
+
+    var tasks = [];
+    var source = state.allTasks || [];
+    var i;
+    for (i = 0; i < source.length; i++) {
+        var t = source[i];
+        if (!t || !t.key) continue;
+        try {
+            if (!isTaskOrSubtaskType(t) && !isTaskType(t)) continue;
+        } catch (e4) {}
+        var f = t.fields || {};
+        var statusName = (f.status && f.status.name) || '';
+        var asg = f.assignee ? (f.assignee.displayName || '') : '';
+        var pri = f.priority ? (f.priority.name || '') : '';
+        var due = '';
+        try {
+            var dd = getTaskDueDate(t);
+            if (dd) due = formatDateObj(dd) || '';
+        } catch (e5) { due = ''; }
+        var dir = '';
+        try { dir = resolveDirection(t) || ''; } catch (e6) { dir = ''; }
+        var sp = '';
+        try {
+            var sn = getSprintNames(t);
+            sp = (sn && sn[0]) || '';
+        } catch (e7) { sp = ''; }
+        var blocked = 0;
+        var overdue = 0;
+        try { if (isBlockedUnit(t)) blocked = 1; } catch (e8) {}
+        try { if (getDateStatus(t) === 'late') overdue = 1; } catch (e9) {}
+        var row = [
+            String(t.key),
+            statusName,
+            asg,
+            pri,
+            due,
+            dir,
+            sp,
+            String(blocked),
+            String(overdue)
+        ].join('|');
+        tasks.push(row);
+        if (tasks.length >= MAX_SNAPSHOT_TASKS) {
+            truncated = true;
+            break;
+        }
+    }
+
+    var snap = {
+        meta: {
+            user: viewerAssigneeName() || viewerFirstName() || '',
+            today: formatDateObj(new Date()) || '',
+            sprint: sprint || week || '',
+            week: week || '',
+            prevWeek: prevWeek || ''
+        },
+        overview: overview,
+        tasks: tasks,
+        truncated: truncated
+    };
+    try {
+        var blob = JSON.stringify(snap);
+        while (blob.length > MAX_SNAPSHOT_CHARS && snap.tasks.length > 40) {
+            snap.tasks = snap.tasks.slice(0, Math.floor(snap.tasks.length * 0.7));
+            snap.truncated = true;
+            blob = JSON.stringify(snap);
+        }
+    } catch (e10) {}
+    return snap;
 }
 
-async function callChatApi(question, local, sendDraft, used) {
+function detectHint(question) {
+    var q = fold(question || '');
+    if (/gecik/.test(q)) return 'late';
+    if (/blok|cetinlik/.test(q)) return 'blocked';
+    if (/menim|oz islerim/.test(q)) return 'mine';
+    if (/risk/.test(q)) return 'risk';
+    if (/is yuku|icraci/.test(q)) return 'people';
+    if (/kpi|faiz|tamamlan/.test(q)) return 'kpi';
+    if (/dgd-\d+/i.test(question || '')) return 'issue';
+    if (/veziyyet|icmal|xulase/.test(q)) return 'overview';
+    return 'open';
+}
+
+function routeLocal(question) {
+    var qFold = fold(question);
+    if (isGreetingOnly(qFold)) {
+        return { kind: 'greet', html: formatGreeting(), text: stripHtml(formatGreeting()) };
+    }
+    if (isThanks(qFold)) {
+        return { kind: 'thanks', html: formatThanks(), text: stripHtml(formatThanks()) };
+    }
+    if (isFarewell(qFold)) {
+        return { kind: 'farewell', html: formatFarewell(), text: stripHtml(formatFarewell()) };
+    }
+    return null;
+}
+
+function setStatusLine(row, label) {
+    if (!row) return;
+    var bubble = row.querySelector('.dash-chat-bubble');
+    if (!bubble) return;
+    var status = bubble.querySelector('.dash-chat-wait');
+    if (!status) {
+        status = document.createElement('p');
+        status.className = 'dash-chat-wait';
+        bubble.insertBefore(status, bubble.firstChild);
+    }
+    status.textContent = label || 'Düşünürəm…';
+}
+
+function clearStatusLine(row) {
+    if (!row) return;
+    var status = row.querySelector('.dash-chat-wait');
+    if (status) status.remove();
+}
+
+function attachSuggestions(row, items) {
+    if (!row || !items || !items.length) return;
+    var old = row.querySelector('.dash-chat-suggest');
+    if (old) old.remove();
+    var box = document.createElement('div');
+    box.className = 'dash-chat-suggest';
+    box.innerHTML = items.slice(0, 3).map(function(s) {
+        return '<button type="button" class="dash-chat-hint" data-q="' + esc(s) + '">' + esc(s) + '</button>';
+    }).join('');
+    box.onclick = function(e) {
+        var btn = e.target.closest('[data-q]');
+        if (!btn || chatBusy) return;
+        var q = btn.getAttribute('data-q');
+        if (!q) return;
+        document.getElementById('dashChatInput').value = q;
+        document.getElementById('dashChatForm').requestSubmit();
+    };
+    row.appendChild(box);
+}
+
+async function askServer(question, pending) {
+    var hint = detectHint(question);
+    var snapshot = buildSnapshot();
     var res = await fetch('/api/chat', {
         credentials: 'same-origin',
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
         body: JSON.stringify({
             question: question,
-            draft: sendDraft ? used : '',
-            facts: packChatFacts(local),
-            history: chatHistory.slice(0, -1).slice(-6)
+            draft: '',
+            facts: { hint: hint, intent: hint, viewer: viewerFact() },
+            snapshot: snapshot,
+            history: chatHistory.slice(0, -1).slice(-12),
+            stream: 1
         })
     });
-    if (!res.ok) return { ok: false, error: 'HTTP ' + res.status };
-    return await res.json();
+    if (!res.ok) {
+        throw new Error('HTTP ' + res.status);
+    }
+    var ctype = String(res.headers.get('content-type') || '');
+    if (ctype.indexOf('text/event-stream') === -1) {
+        var data = await res.json();
+        var ans = (data && data.answer) || (data && data.soft_fail) || SOFT_FAIL;
+        return {
+            answer: ans,
+            chatId: (data && data.chatId) || '',
+            suggestions: [],
+            error: data && data.source === 'error' ? (data.error || '') : ''
+        };
+    }
+
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    var answer = '';
+    var chatId = '';
+    var suggestions = [];
+    var bubble = pending.querySelector('.dash-chat-bubble');
+    var mdTarget = document.createElement('div');
+    mdTarget.className = 'dash-chat-md';
+    bubble.appendChild(mdTarget);
+
+    function paint() {
+        mdTarget.innerHTML = renderMarkdownSafe(answer);
+        var log = document.getElementById('dashChatLog');
+        if (log) log.scrollTop = log.scrollHeight;
+    }
+
+    while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        var pi;
+        for (pi = 0; pi < parts.length; pi++) {
+            var block = parts[pi].trim();
+            if (!block) continue;
+            var lines = block.split('\n');
+            var dataLine = '';
+            var li;
+            for (li = 0; li < lines.length; li++) {
+                if (lines[li].indexOf('data:') === 0) {
+                    dataLine += lines[li].slice(5).trim();
+                }
+            }
+            if (!dataLine) continue;
+            var ev;
+            try { ev = JSON.parse(dataLine); } catch (parseErr) { continue; }
+            if (!ev || !ev.type) continue;
+            if (ev.type === 'status') {
+                setStatusLine(pending, ev.label || 'Düşünürəm…');
+            } else if (ev.type === 'token') {
+                clearStatusLine(pending);
+                answer += String(ev.text || '');
+                paint();
+            } else if (ev.type === 'suggestions') {
+                suggestions = ev.items || [];
+            } else if (ev.type === 'done') {
+                chatId = ev.id || chatId;
+                if (!answer && ev.answer) answer = String(ev.answer);
+            } else if (ev.type === 'error') {
+                if (!answer) {
+                    answer = String(ev.soft_fail || SOFT_FAIL);
+                    paint();
+                }
+            }
+        }
+    }
+    clearStatusLine(pending);
+    if (!answer) answer = SOFT_FAIL;
+    paint();
+    return { answer: answer, chatId: chatId, suggestions: suggestions };
 }
 
 async function reply(question) {
@@ -2319,17 +2611,18 @@ async function reply(question) {
     if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(true);
     chatHistory.push({ role: 'user', content: question });
     renderHints();
-    var pending = addBot('<p class="dash-chat-wait">Düşünürəm…</p>', true);
-    var local = answerQuestion(question);
-    var html = local.html;
-    var used = local.text || '';
-    var localKind = (local.facts && local.facts.kind) || '';
-    // Hesabat / boş panel / salamlaşma lokal qalsın
-    var skipLlm = /^(report|empty|greet|thanks)$/.test(localKind);
-    var sendDraft = !/^(open|greet|thanks|identity|help|about|)$/.test(localKind);
-    // KPI şablonları LLM olmadan göstərilməsin; salam/kömək lokal qalsın
-    var preferLlmOnly = /^(open|overview|kpi|risk|people|person|qurum|directions|sprint|issue)$/.test(localKind);
+    var local = routeLocal(question);
+    var pending = addBot(local ? local.html : '<p class="dash-chat-wait">Düşünürəm…</p>', !local);
+    var used = local ? local.text : '';
+    var chatId = '';
     try {
+        if (local) {
+            pending.classList.remove('is-pending');
+            chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
+            if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+            renderHints();
+            return;
+        }
         if (!chatLlm) {
             try {
                 var cfgRes = await fetch('/api/config', { credentials: 'same-origin' });
@@ -2339,63 +2632,32 @@ async function reply(question) {
                 }
             } catch (cfgErr) {}
         }
-        var chatId = '';
-        if (!skipLlm && chatLlm) {
-            try {
-                var data = await callChatApi(question, local, sendDraft, used);
-                if (!(data && data.answer && data.source === 'llm')) {
-                    data = await callChatApi(question, local, sendDraft, used);
-                }
-                chatId = (data && data.chatId) || '';
-                if (data && data.answer && data.source === 'llm') {
-                    chatLlmWarned = false;
-                    html = renderMarkdownish(data.answer);
-                    used = data.answer;
-                } else {
-                    var errText = String((data && data.error) || '');
-                    if (/401|açar rədd|Unauthorized|invalid.?api.?key|açar yoxdur|LLM açarı/i.test(errText) && !chatLlmWarned) {
-                        chatLlmWarned = true;
-                        if (typeof window.showToast === 'function') {
-                            window.showToast('AI xidməti müvəqqəti əlçatan deyil.', 'error');
-                        }
-                    }
-                    if (canUseLocalFallback(localKind) && local.html) {
-                        html = local.html;
-                        used = local.text || used;
-                    } else if (preferLlmOnly || localKind === 'open') {
-                        html = llmFailHtml(errText);
-                        used = stripHtml(html);
-                    } else {
-                        html = local.html;
-                        used = local.text || used;
-                    }
-                }
-            } catch (err) {
-                if (canUseLocalFallback(localKind) && local.html) {
-                    html = local.html;
-                    used = local.text || used;
-                } else if (preferLlmOnly || localKind === 'open') {
-                    html = llmFailHtml(String(err && err.message || ''));
-                    used = stripHtml(html);
-                } else {
-                    html = local.html;
-                    used = local.text || used;
-                }
-            }
-        } else if (!skipLlm && !chatLlm && preferLlmOnly) {
-            html = llmFailHtml('Açar yoxdur');
-            used = stripHtml(html);
-        } else if (!skipLlm && !chatLlm && canUseLocalFallback(localKind) && local.html) {
-            html = local.html;
-            used = local.text || used;
-        }
-        chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
-        if (chatHistory.length > 16) chatHistory = chatHistory.slice(-16);
+        var result = await askServer(question, pending);
+        used = result.answer || SOFT_FAIL;
+        chatId = result.chatId || '';
         pending.classList.remove('is-pending');
-        pending.querySelector('.dash-chat-bubble').innerHTML = html;
+        pending.querySelector('.dash-chat-bubble').innerHTML = renderMarkdownSafe(used);
+        if (result.suggestions && result.suggestions.length) {
+            attachSuggestions(pending, result.suggestions);
+        } else {
+            attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
+        }
         if (chatId) attachFeedback(pending, chatId);
+        chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
+        if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
         document.getElementById('dashChatLog').scrollTop = document.getElementById('dashChatLog').scrollHeight;
         renderHints();
+    } catch (err) {
+        pending.classList.remove('is-pending');
+        pending.querySelector('.dash-chat-bubble').innerHTML = softFailHtml(question);
+        used = SOFT_FAIL;
+        chatHistory.push({ role: 'assistant', content: used });
+        if (!chatLlmWarned) {
+            chatLlmWarned = true;
+            if (typeof window.showToast === 'function') {
+                window.showToast('AI xidməti müvəqqəti əlçatan deyil.', 'error');
+            }
+        }
     } finally {
         chatBusy = false;
         var doneApi = getDoneBot() || window.DoneBot;

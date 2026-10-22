@@ -140,8 +140,32 @@ function bindSettingsPlace() {
 }
 
 export function getInitials(name) {
-    if (!name || name === 'Təyin edilməyib') return '?';
-    return name.split(' ').map(function(p) { return p[0]; }).join('').toUpperCase().substring(0, 2);
+    if (!name || name === 'Təyin edilməyib' || name === '—') return '?';
+    var parts = String(name).trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    if (parts.length === 1) {
+        return parts[0].slice(0, 2).toLocaleUpperCase('az');
+    }
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toLocaleUpperCase('az');
+}
+
+/** Stable purple-family gradient for initials avatars */
+export function avatarGradient(name) {
+    /* Daha açıq yuxarı ton — baş hərflər ağ fonda daha aydın oxunsun */
+    var tones = [
+        ['#c4b5fd', '#8b5cf6', '#6d28d9'],
+        ['#ddd6fe', '#a78bfa', '#7c3aed'],
+        ['#c4b5fd', '#7c3aed', '#5b21b6'],
+        ['#a5b4fc', '#818cf8', '#6366f1'],
+        ['#ddd6fe', '#8b5cf6', '#5b21b6'],
+        ['#e9d5ff', '#c084fc', '#7c3aed']
+    ];
+    var s = String(name || '');
+    var h = 0;
+    var i;
+    for (i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    var t = tones[h % tones.length];
+    return 'linear-gradient(145deg, ' + t[0] + ' 0%, ' + t[1] + ' 52%, ' + t[2] + ' 100%)';
 }
 
 export function getIssueTypeIcon(typeName) {

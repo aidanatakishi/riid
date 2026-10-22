@@ -333,20 +333,14 @@ export function updateReportButtonLabel() {
     var endEl = document.getElementById('endDate');
     var startIso = startEl && startEl.value;
     var endIso = endEl && endEl.value;
-    var full = 'Hesabat';
-    var short = 'Hesabat';
-    if (getMonthRangeInfo(startIso, endIso)) {
-        full = 'Aylıq hesabat';
-        short = 'Aylıq';
-    } else if (isSprintWeekMode() || getWeekRangeInfo(startIso, endIso)) {
-        full = 'Həftəlik hesabat';
-        short = 'Həftəlik';
-    }
-    if (el) el.textContent = short;
+    var tip = 'Hesabatı yüklə';
+    if (getMonthRangeInfo(startIso, endIso)) tip = 'Aylıq hesabatı yüklə';
+    else if (isSprintWeekMode() || getWeekRangeInfo(startIso, endIso)) tip = 'Həftəlik hesabatı yüklə';
+    if (el) el.textContent = tip;
     if (btn) {
         btn.removeAttribute('title');
-        btn.setAttribute('data-tip', full);
-        btn.setAttribute('aria-label', full);
+        btn.setAttribute('data-tip', tip);
+        btn.setAttribute('aria-label', tip);
     }
 }
 

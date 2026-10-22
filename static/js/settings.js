@@ -20,9 +20,25 @@
     }
     function initials(name) {
         var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-        if (!parts.length) return 'U';
-        if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        if (!parts.length) return '?';
+        if (parts.length === 1) return parts[0].slice(0, 2).toLocaleUpperCase('az');
+        return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toLocaleUpperCase('az');
+    }
+    function avatarGradient(name) {
+        var tones = [
+            ['#c4b5fd', '#8b5cf6', '#6d28d9'],
+            ['#ddd6fe', '#a78bfa', '#7c3aed'],
+            ['#c4b5fd', '#7c3aed', '#5b21b6'],
+            ['#a5b4fc', '#818cf8', '#6366f1'],
+            ['#ddd6fe', '#8b5cf6', '#5b21b6'],
+            ['#e9d5ff', '#c084fc', '#7c3aed']
+        ];
+        var s = String(name || '');
+        var h = 0;
+        var i;
+        for (i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+        var t = tones[h % tones.length];
+        return 'linear-gradient(145deg, ' + t[0] + ' 0%, ' + t[1] + ' 52%, ' + t[2] + ' 100%)';
     }
     function api(url, opts) {
         opts = opts || {};
@@ -410,7 +426,7 @@
             var roleText = roleLabel(user);
             var teamText = teamLabel(user);
             row.innerHTML =
-                '<span class="admin-avatar">' + esc(initials(name)) + '</span>' +
+                '<span class="admin-avatar" style="background:' + avatarGradient(name) + '" title="' + esc(initials(name)) + '">' + esc(initials(name)) + '</span>' +
                 '<div class="admin-person-copy">' +
                 '<h3>' + esc(name) + '</h3>' +
                 '<div class="admin-meta">' +

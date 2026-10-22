@@ -1,5 +1,5 @@
 import { state } from './state.js';
-import { apiFetch } from './session.js?v=idda15';
+import { apiFetch } from './session.js?v=idda16';
 import {
     collectActivityDirectionFieldIds,
     collectSelfDisplayFieldIds

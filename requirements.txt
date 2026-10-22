@@ -6,3 +6,4 @@ waitress
 openpyxl
 python-pptx
 pypdf
+pytest

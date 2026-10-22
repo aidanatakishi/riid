@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { currentTeamId, normalizeTeamId } from './model.js?v=idda10';
+import { getInitials, avatarGradient } from './utils.js?v=idda10';
 
 export function loginPath() {
     return '/login';
@@ -92,11 +93,21 @@ export function applySessionChrome(cfg) {
     var user = state.currentUser;
     var nameEl = document.getElementById('appUserName');
     var roleEl = document.getElementById('appUserRole');
+    var avatarEl = document.getElementById('appUserAvatar');
     var adminLink = document.getElementById('adminUsersLink');
     var tech = canManageTech(user);
     var manage = canManageUsers(user);
-    if (nameEl) nameEl.textContent = (user && (user.displayName || user.username)) || '—';
+    var displayName = (user && (user.displayName || user.username)) || '—';
+    if (nameEl) nameEl.textContent = displayName;
     if (roleEl) roleEl.textContent = roleLabel(user && user.role);
+    if (avatarEl) {
+        var initials = getInitials(displayName === '—' ? '' : displayName) || '?';
+        avatarEl.textContent = initials;
+        avatarEl.setAttribute('aria-hidden', 'false');
+        avatarEl.setAttribute('aria-label', displayName === '—' ? 'Profil' : (displayName + ' — ' + initials));
+        avatarEl.title = initials;
+        avatarEl.style.background = avatarGradient(displayName === '—' ? initials : displayName);
+    }
     var jiraEl = document.getElementById('appUserJira');
     if (jiraEl) {
         if (user && user.jiraDisplayName) {

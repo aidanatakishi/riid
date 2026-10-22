@@ -35,6 +35,8 @@ def _flags_for(entry):
         flags.append('too_short')
     if answer and len(answer) > 2200:
         flags.append('too_long')
+    if str(entry.get('number_check') or '') == 'warn':
+        flags.append('number_warn')
     duration = entry.get('durationMs')
     try:
         if duration is not None and int(duration) > 20000:
@@ -56,6 +58,10 @@ def append_chat(entry):
     if not isinstance(entry, dict):
         return ''
     chat_id = str(entry.get('id') or uuid.uuid4())
+    tools_used = entry.get('tools_used')
+    if not isinstance(tools_used, list):
+        tools_used = []
+    tools_used = [str(t)[:60] for t in tools_used[:12]]
     row = {
         'id': chat_id,
         'ts': entry.get('ts') or _now(),
@@ -73,7 +79,33 @@ def append_chat(entry):
         'feedback': entry.get('feedback') if isinstance(entry.get('feedback'), dict) else None,
         'facts': entry.get('facts') if isinstance(entry.get('facts'), dict) else None,
         'draft': str(entry.get('draft') or '')[:1200],
+        'tools_used': tools_used,
+        'steps': entry.get('steps'),
+        'snapshot_hash': str(entry.get('snapshot_hash') or '')[:64],
+        'number_check': str(entry.get('number_check') or '')[:20],
     }
+    # Keep compact snapshot meta for replay (not full task list)
+    snap = entry.get('snapshot') if isinstance(entry.get('snapshot'), dict) else None
+    if snap:
+        try:
+            slim_snap = {
+                'meta': snap.get('meta') if isinstance(snap.get('meta'), dict) else {},
+                'overview': snap.get('overview') if isinstance(snap.get('overview'), dict) else {},
+                'truncated': bool(snap.get('truncated')),
+                'tasks': (snap.get('tasks') or [])[:80] if isinstance(snap.get('tasks'), list) else [],
+            }
+            blob = json.dumps(slim_snap, ensure_ascii=False)
+            if len(blob) > 12000:
+                slim_snap['tasks'] = slim_snap['tasks'][:20]
+                slim_snap['truncated'] = True
+            row['snapshot'] = slim_snap
+        except Exception:
+            row['snapshot'] = None
+    try:
+        if row['steps'] is not None:
+            row['steps'] = int(row['steps'])
+    except Exception:
+        row['steps'] = None
     try:
         if row['durationMs'] is not None:
             row['durationMs'] = int(row['durationMs'])

@@ -1,21 +1,27 @@
 ﻿import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
 import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda14';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda47';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda52';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda16';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda4';
 
 var chartRebuildRaf = {};
 var chartRebuildFn = {};
+var chartRebuildTimer = {};
+var CHART_REBUILD_DEBOUNCE_MS = 120;
 function debounceChartRebuild(name, fn) {
     chartRebuildFn[name] = fn;
-    if (chartRebuildRaf[name]) return;
-    chartRebuildRaf[name] = requestAnimationFrame(function() {
-        chartRebuildRaf[name] = 0;
-        var run = chartRebuildFn[name];
-        chartRebuildFn[name] = null;
-        if (run) run();
-    });
+    if (chartRebuildTimer[name]) clearTimeout(chartRebuildTimer[name]);
+    chartRebuildTimer[name] = setTimeout(function() {
+        chartRebuildTimer[name] = 0;
+        if (chartRebuildRaf[name]) cancelAnimationFrame(chartRebuildRaf[name]);
+        chartRebuildRaf[name] = requestAnimationFrame(function() {
+            chartRebuildRaf[name] = 0;
+            var run = chartRebuildFn[name];
+            chartRebuildFn[name] = null;
+            if (run) run();
+        });
+    }, CHART_REBUILD_DEBOUNCE_MS);
 }
 
 function taskLabelNames(t) {
@@ -1060,7 +1066,28 @@ export function drawChart(id, type, labels, data, colors, onClickCB, legendCB, i
     var canvas = document.getElementById(id);
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
-    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    var ex = Chart.getChart(ctx);
+    if (ex && ex.config && ex.config.type === type) {
+        try {
+            if (isHorizontal) fitChartHeight(id, (labels || []).length, true);
+            else fitChartHeight(id, 0, false);
+            ex.data.labels = labels || [];
+            ex.data.datasets[0].data = data || [];
+            ex.data.datasets[0].backgroundColor = colors;
+            ex.options.onClick = onClickCB;
+            if (ex.options.plugins && ex.options.plugins.legend) {
+                ex.options.plugins.legend.onClick = legendCB;
+            }
+            ex.update('none');
+            rememberChart(id, ex);
+            scheduleChartFill(ex);
+            return ex;
+        } catch (err) {
+            try { ex.destroy(); } catch (e2) {}
+        }
+    } else if (ex) {
+        try { ex.destroy(); } catch (e3) {}
+    }
     if (isHorizontal) fitChartHeight(id, (labels || []).length, true);
     else fitChartHeight(id, 0, false);
     var chart = new Chart(ctx, {
@@ -1147,7 +1174,33 @@ export function drawStackedChart(id, type, labels, datasets, onClickCB, isHorizo
     var canvas = document.getElementById(id);
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
-    var ex = Chart.getChart(ctx); if (ex) ex.destroy();
+    var ex = Chart.getChart(ctx);
+    if (ex && ex.config && ex.config.type === type
+        && (ex.data.datasets || []).length === (datasets || []).length) {
+        try {
+            if (isHorizontal) fitChartHeight(id, (labels || []).length, true);
+            else fitChartHeight(id, 0, false);
+            ex.data.labels = labels || [];
+            (datasets || []).forEach(function(ds, i) {
+                if (!ex.data.datasets[i]) return;
+                ex.data.datasets[i].data = ds.data;
+                ex.data.datasets[i].backgroundColor = ds.backgroundColor;
+                ex.data.datasets[i].label = ds.label;
+            });
+            ex.options.onClick = onClickCB;
+            if (ex.options.plugins && ex.options.plugins.legend) {
+                ex.options.plugins.legend.onClick = legendCB;
+            }
+            ex.update('none');
+            rememberChart(id, ex);
+            scheduleChartFill(ex);
+            return ex;
+        } catch (err) {
+            try { ex.destroy(); } catch (e2) {}
+        }
+    } else if (ex) {
+        try { ex.destroy(); } catch (e3) {}
+    }
     if (isHorizontal) fitChartHeight(id, (labels || []).length, true);
     else fitChartHeight(id, 0, false);
     var chart = new Chart(ctx, {
