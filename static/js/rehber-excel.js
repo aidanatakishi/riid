@@ -1,4 +1,4 @@
-import { apiFetch } from './session.js?v=idda16';
+import { apiFetch } from './session.js?v=idda17';
 
 var NA = 'Məlumat mövcud deyil';
 var TABS = ['roadmaps', 'services', 'budget', 'arch', 'difficulties'];

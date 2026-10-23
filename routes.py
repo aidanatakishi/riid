@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -77,6 +78,17 @@ def options_ok():
 
 def request_json():
     return request.json or {}
+
+
+_ISSUE_KEY_RE = re.compile(r'^[A-Z][A-Z0-9]+-\d+$')
+
+
+def normalize_issue_key(raw):
+    """Return a safe Jira issue key or empty string (blocks JQL injection)."""
+    key = str(raw or '').strip().upper()
+    if not _ISSUE_KEY_RE.match(key):
+        return ''
+    return key
 
 
 def home_project_key():
@@ -882,7 +894,8 @@ def api_chat():
             chat_id = append_chat(dict(
                 log_base,
                 answer=answer,
-                source='error' if (err and not answer) else ('llm' if answer else 'error'),
+                # Soft-fail mətni olsa belə axın xətası → error (admin jurnalı şişməsin)
+                source='error' if err else ('llm' if answer else 'error'),
                 model=model,
                 error=err,
                 durationMs=duration_ms,
@@ -1254,10 +1267,11 @@ def api_jira_attachment_file(att_id):
 
 
 def build_hierarchy(base_url, pat, parent_key, date_filter, exclude_done=True):
+    parent_key = normalize_issue_key(parent_key)
     if not all([base_url, pat, parent_key]):
         return None, {"error": "Əksik məlumat: baseUrl, pat, parentKey lazımdır"}, 400
 
-    jql = f'parent = {parent_key}'
+    jql = f'parent = "{parent_key}"'
     if exclude_done:
         jql += ' AND statusCategory != Done'
     jql += build_date_filter_jql(date_filter, 'duedate')
@@ -1539,10 +1553,12 @@ def validate_date_filter():
 
     data = request_json()
     base_url, pat = resolve_credentials(data)
-    parent_key = data.get('parentKey')
+    parent_key = normalize_issue_key(data.get('parentKey'))
+    if not parent_key:
+        return jsonify({"error": "Keçərli parentKey lazımdır (məs. DGD-123)"}), 400
 
-    jql_open = f'parent = {parent_key} AND statusCategory != Done'
-    jql_done = f'parent = {parent_key} AND statusCategory = Done'
+    jql_open = f'parent = "{parent_key}" AND statusCategory != Done'
+    jql_done = f'parent = "{parent_key}" AND statusCategory = Done'
 
     results = {"open": 0, "done": 0, "total": 0}
 

@@ -133,3 +133,52 @@ def test_kpi_direction():
     tools = SnapshotTools(SAMPLE)
     kpi = tools.get_kpi('İnteqrasiya')
     assert kpi['total'] == 2
+
+
+def test_undone_is_not_done():
+    from chat_tools import _is_done
+    assert _is_done({'status': 'Undone'}) is False
+    assert _is_done({'status': 'Done'}) is True
+    assert _is_done({'status': 'Yekunlaşıb'}) is True
+    assert _is_done({'status': 'Closed'}) is True
+
+
+def test_status_filter_token_not_substring():
+    tools = SnapshotTools({
+        'meta': SAMPLE['meta'],
+        'overview': SAMPLE['overview'],
+        'tasks': [
+            'DGD-1|Undone|A|High||X|Sprint 12|0|0',
+            'DGD-2|Done|A|Low||X|Sprint 12|0|0',
+            'DGD-3|Reopened|A|Low||X|Sprint 12|0|0',
+            'DGD-4|Open|A|Low||X|Sprint 12|0|0',
+        ],
+    })
+    done = tools.search_tasks(status='Done')
+    assert done['count'] == 1
+    assert done['items'][0]['key'] == 'DGD-2'
+    opened = tools.search_tasks(status='Open')
+    keys = {x['key'] for x in opened['items']}
+    assert keys == {'DGD-4'}
+    assert 'DGD-3' not in keys
+
+
+def test_sprint_filter_not_substring():
+    tools = SnapshotTools({
+        'meta': SAMPLE['meta'],
+        'overview': {},
+        'tasks': [
+            'DGD-1|İcradadır|A|High||X|Sprint 12|0|0',
+            'DGD-2|İcradadır|A|High||X|Sprint 120|0|0',
+            'DGD-3|İcradadır|A|High||X|Sprint 11|0|0',
+        ],
+    })
+    cmp_ = tools.compare_sprints('Sprint 12', 'Sprint 11')
+    assert cmp_['a']['total'] == 1
+    assert cmp_['b']['total'] == 1
+    found = tools.search_tasks(sprint='Sprint 12')
+    assert found['count'] == 1
+    assert found['items'][0]['key'] == 'DGD-1'
+    short = tools.search_tasks(sprint='12')
+    assert short['count'] == 1
+    assert short['items'][0]['key'] == 'DGD-1'

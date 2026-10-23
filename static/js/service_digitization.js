@@ -3,7 +3,7 @@
  * Data Jira EXQ sətirlərindən (buildExqServiceDigitization) gəlir.
  */
 
-import { exqStarFromPercent, exqStarLabel, EXQ_DIGIT_STAGES } from './model.js?v=idda19';
+import { exqStarFromPercent, exqStarLabel, EXQ_DIGIT_STAGES } from './model.js?v=idda26';
 
 
 function esc(s) {

@@ -1,5 +1,5 @@
 ﻿import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js?v=idda7';
+import { normalizeStr, showToast } from './utils.js?v=idda15';
 import {
     classifyAssessmentCategory,
     formatAssessmentFieldText,
@@ -49,7 +49,7 @@ import {
     belongsToDept,
     isTaskOrSubtaskType,
     isDiagOverallLabel
-} from './model.js?v=idda19';
+} from './model.js?v=idda26';
 import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda4';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];

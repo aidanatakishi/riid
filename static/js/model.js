@@ -1,5 +1,5 @@
 ﻿import { state } from './state.js';
-import { normalizeStr } from './utils.js?v=idda7';
+import { normalizeStr } from './utils.js?v=idda15';
 
 function getIssueTypeName(t) {
     if (!t || !t.fields || !t.fields.issuetype) return '';

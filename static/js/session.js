@@ -1,6 +1,6 @@
 import { state } from './state.js';
-import { currentTeamId, normalizeTeamId } from './model.js?v=idda10';
-import { getInitials, avatarGradient } from './utils.js?v=idda10';
+import { currentTeamId, normalizeTeamId } from './model.js?v=idda26';
+import { getInitials, avatarGradient } from './utils.js?v=idda15';
 
 export function loginPath() {
     return '/login';

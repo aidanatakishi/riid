@@ -1,10 +1,20 @@
 ﻿import { state } from './state.js';
-import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getEsdKind, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda25';
-import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda54';
+import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda15';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getEsdKind, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda26';
+import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda55';
 import { duePeriodLabel } from './report.js?v=idda34';
 
+function isDashboardDataPending() {
+    return !!(state.dashboardPartialLoad || state.dashboardBgHydrateBusy
+        || (state.dashboardFetchBusy && !state.hasLoadedDashboard));
+}
+
 export function renderStats(tasks) {
+    var hero = document.querySelector('.dash-hero');
+    if (hero) {
+        hero.classList.toggle('is-data-pending', isDashboardDataPending());
+        hero.setAttribute('data-pending-label', isDashboardDataPending() ? 'Tam məlumat yüklənir…' : '');
+    }
     var allUnits = countableWorkUnits(tasks);
     var validTasks = jiraBoardWorkUnits(tasks);
     var total = validTasks.length;

@@ -1,9 +1,9 @@
 import { state } from './state.js';
-import { apiFetch } from './session.js?v=idda16';
+import { apiFetch } from './session.js?v=idda17';
 import {
     collectActivityDirectionFieldIds,
     collectSelfDisplayFieldIds
-} from './model.js?v=idda10';
+} from './model.js?v=idda26';
 import { getRehberEvalSnapshot } from './assessments.js?v=idda49';
 
 var NA = 'Məlumat mövcud deyil';
