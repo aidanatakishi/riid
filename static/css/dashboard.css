@@ -5851,6 +5851,30 @@ body.settings-open { overflow: hidden; }
     padding: clamp(0.95rem, 1.5vw, 1.25rem) clamp(1rem, 1.6vw, 1.4rem);
     margin-bottom: 0.75rem;
 }
+.dash-hero.is-data-pending {
+    position: relative;
+}
+.dash-hero.is-data-pending::after {
+    content: attr(data-pending-label);
+    position: absolute;
+    right: clamp(0.85rem, 1.4vw, 1.2rem);
+    top: 0.55rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: #64748b;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    pointer-events: none;
+}
+.dash-hero.is-data-pending .val {
+    opacity: 0.55;
+}
+.icra-status-card.is-data-pending .icra-status-chart {
+    opacity: 0.45;
+}
 .dash-hero-inner {
     display: flex;
     flex-wrap: wrap;

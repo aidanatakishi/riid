@@ -138,9 +138,53 @@ def _status_fold(t: dict) -> str:
     return fold(t.get('status'))
 
 
+def _token_field_matches(needle: str, value: str) -> bool:
+    """Exact fold match, or every needle token appears as a whole token in value."""
+    nf = fold(needle)
+    vf = fold(value)
+    if not nf:
+        return True
+    if not vf:
+        return False
+    if nf == vf:
+        return True
+    n_tokens = nf.split()
+    v_tokens = vf.split()
+    return bool(n_tokens) and all(tok in v_tokens for tok in n_tokens)
+
+
+def _sprint_matches(needle: str, sprint: str) -> bool:
+    """Sprint names match by tokens, never substring ('12' ≠ '120')."""
+    return _token_field_matches(needle, sprint)
+
+
+def _status_matches(needle: str, status: str) -> bool:
+    return _token_field_matches(needle, status)
+
+
 def _is_done(t: dict) -> bool:
     s = _status_fold(t)
-    return any(x in s for x in ('done', 'yekun', 'tamam', 'closed', 'resolved', 'bitib'))
+    if not s:
+        return False
+    tokens = s.split()
+    # 'Undone' contains the letters of 'done' — exclude it explicitly.
+    if 'undone' in tokens:
+        return False
+    if any(tok in ('done', 'closed', 'resolved') for tok in tokens):
+        return True
+    # Phrase cues (multi-char) — avoid bare 'yekun'/'tamam' (false positives).
+    return any(
+        p in s
+        for p in (
+            'yekunlas',
+            'tamamlan',
+            'icra edil',
+            'bitib',
+            'bagli',
+            'baglanib',
+            'hell ol',
+        )
+    )
 
 
 def _match_text(t: dict, needle: str) -> bool:
@@ -311,7 +355,7 @@ class SnapshotTools:
 
         out = []
         for t in self.tasks:
-            if status and fold(status) not in _status_fold(t):
+            if status and not _status_matches(status, t.get('status') or ''):
                 continue
             if assignee_match and fold(t.get('assignee')) != fold(assignee_match):
                 continue
@@ -319,7 +363,7 @@ class SnapshotTools:
                 continue
             if direction and fold(direction) not in fold(t.get('direction')):
                 continue
-            if sprint and fold(sprint) not in fold(t.get('sprint')):
+            if sprint and not _sprint_matches(sprint, t.get('sprint') or ''):
                 continue
             if overdue is not None and overdue != '' and bool(t.get('overdue')) != _truthy(overdue):
                 continue
@@ -357,13 +401,13 @@ class SnapshotTools:
             return {'error': 'not_found', 'suggestions': sprints[:8], 'field': 'sprint_b', 'a': a}
 
         def pack(name: str) -> dict:
-            rows = [t for t in self.tasks if fold(t.get('sprint')) == fold(name) or fold(name) in fold(t.get('sprint'))]
-            # fuzzy name resolve
+            rows = [t for t in self.tasks if _sprint_matches(name, t.get('sprint') or '')]
+            # fuzzy name resolve (person helper works on any string list)
             if not rows:
                 match, _ = fuzzy_person(name, sprints)
                 if match:
                     name = match
-                    rows = [t for t in self.tasks if fold(t.get('sprint')) == fold(name)]
+                    rows = [t for t in self.tasks if _sprint_matches(name, t.get('sprint') or '')]
             total = len(rows)
             done = sum(1 for t in rows if _is_done(t))
             return {

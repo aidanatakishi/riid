@@ -1,8 +1,8 @@
 ﻿import { state } from './state.js';
-import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, getEsdKind, ESD_KIND_OPTIONS, esdKindById, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda25';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda54';
-import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda18';
+import { getInitials, normalizeStr, showToast } from './utils.js?v=idda15';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, getEsdKind, ESD_KIND_OPTIONS, esdKindById, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda26';
+import { applyFilters, filterQurumByStatus, filterQurumList, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda55';
+import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda19';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda4';
 
 var chartRebuildRaf = {};
@@ -204,14 +204,15 @@ function openReviewPartyPopup() {
 
 function showReviewTasksAndPopup() {
     closeEsdStagePopup();
-    var secondClick = state.currentStatusFilter === 'review';
     reviewPopupWanted = true;
-    onReviewStatusClicked();
-    renderReviewPartyBreakdown(state.statusChartTasks || state.filteredTasks, true);
+    var pool = state.statusChartTasks || state.filteredTasks;
+    // Legend klikı qlobal filter tətbiq etmir — popup tərəf seçimi filterReviewParty ilə edir.
+    renderReviewPartyBreakdown(pool, true);
     openReviewPartyPopup();
-    if (!secondClick) return;
-    var list = countableWorkUnits(state.filteredTasks);
-    rememberListAction({ kind: 'reviewParty', partyId: state.currentReviewPartyFilter || 'all' });
+    var list = countableWorkUnits(pool).filter(function(t) {
+        return getStatusGroup(t.fields && t.fields.status && t.fields.status.name) === 'review';
+    });
+    rememberListAction({ kind: 'chartStatus', group: 'review' });
     renderTaskList(list, 'Rəy gözlənilir - Tapşırıqları', { keepNested: true });
     openTaskListSection();
 }
@@ -252,11 +253,21 @@ function bindEsdPopupDismiss() {
 
 function openStatusGroup(k, ev) {
     if (!k) return;
+    var pool = state.statusChartTasks || state.filteredTasks;
     if (k === 'esd') {
         if (ev && ev.stopPropagation) ev.stopPropagation();
         closeReviewPartyPopup();
-        onEsdStatusClicked();
-        toggleEsdStagePopup();
+        // Legend klikı paneli daraltmasın — popup + siyahı (digər dilimlər kimi).
+        // Kind/mərhələ seçimi filterEsdKind / filterEsdInnerStatus ilə filter tətbiq edir.
+        renderEsdStatusBreakdown(pool);
+        var esdList = countableWorkUnits(pool).filter(function(t) {
+            return getStatusGroup(t.fields && t.fields.status && t.fields.status.name) === 'esd';
+        });
+        rememberListAction({ kind: 'chartStatus', group: 'esd' });
+        renderTaskList(esdList, 'ESD - Tapşırıqları', { keepNested: true });
+        openTaskListSection();
+        if (!esdPopupOpen) toggleEsdStagePopup();
+        else openEsdStagePopup();
         return;
     }
     if (k === 'review') {
@@ -278,7 +289,6 @@ function openStatusGroup(k, ev) {
         showDifficulties();
         return;
     }
-    var pool = state.statusChartTasks || state.filteredTasks;
     var list = k === 'other'
         ? collectOtherDashboardUnits()
         : countableWorkUnits(pool).filter(function(t) { return getStatusGroup(t.fields.status.name) === k; });
@@ -478,6 +488,18 @@ function drawStatusChart(tasks) {
     var gN = STATUS_GROUP_NAMES;
     var gC = STATUS_GROUP_COLORS;
     var order = STATUS_CHART_ORDER;
+    var canvas = document.getElementById('statusChart');
+    var legend = document.getElementById('statusChartLegend');
+    var card = canvas && canvas.closest ? canvas.closest('.icra-status-card') : null;
+    if (card) card.classList.toggle('is-data-pending', isDashboardDataPending());
+    if (isDashboardDataPending() && !(tasks && tasks.length)) {
+        if (canvas) {
+            var busyCtx = canvas.getContext('2d');
+            var busyEx = Chart.getChart(busyCtx); if (busyEx) busyEx.destroy();
+        }
+        if (legend) legend.innerHTML = dashChartLoadingHtml('İcra statusu yüklənir…');
+        return;
+    }
     var counts = {};
     var units = countableWorkUnits(tasks).filter(function(t) {
         return getStatusGroup(t.fields && t.fields.status && t.fields.status.name) !== 'paused';
@@ -492,7 +514,6 @@ function drawStatusChart(tasks) {
     var labels = keys.map(function(k) { return gN[k]; });
     var data = keys.map(function(k) { return counts[k]; });
     var colors = keys.map(function(k) { return gC[k]; });
-    var canvas = document.getElementById('statusChart');
     if (!canvas) return;
     var ctx = canvas.getContext('2d');
     var ex = Chart.getChart(ctx); if (ex) ex.destroy();

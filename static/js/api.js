@@ -1,8 +1,8 @@
 import { state } from './state.js';
-import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
-import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda14';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda25';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda54';
+import { apiFetch, rememberCurrentProject } from './session.js?v=idda17';
+import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda15';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda26';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda55';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -514,6 +514,15 @@ function cancelBackgroundHydration() {
 
 function markPartialLoadDone() {
     state.dashboardPartialLoad = false;
+}
+
+/** Son N gün yenilənən işlər — köhnə illərin status/sprint dəyişikliyini tutur. */
+async function fetchRecentlyUpdated(baseUrl, pat, projectKey, days) {
+    var n = Math.max(1, Math.min(days || 14, 60));
+    var jql = 'project = ' + projectKey
+        + ' AND updated >= -' + n + 'd'
+        + ' ORDER BY updated DESC';
+    return fetchJQL(baseUrl, pat, jql);
 }
 
 async function fetchCreatedYear(baseUrl, pat, projectKey, year) {
@@ -1030,9 +1039,20 @@ export async function fetchDashboardData(opts) {
                  state.currentBaseUrl, pat, projectKey, endYear, firstPaint.source
              );
          } else if (silent) {
-             /* Arxa plan: yalnız cari il — tam 2023…yenidən yükləmə UI-ni dondurmasın */
+             /* Arxa plan: cari il + son 14 gün yenilənənlər (köhnə illər də yenilənsin) */
              var silentChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
              mergeFetchedIssues(silentChunk);
+             try {
+                 var recentUpd = await fetchRecentlyUpdated(
+                     state.currentBaseUrl, pat, projectKey, 14
+                 );
+                 mergeFetchedIssues(recentUpd);
+             } catch (eSilentUpd) {
+                 if (typeof console !== 'undefined' && console.warn) {
+                     console.warn('Silent updated refresh:', eSilentUpd && eSilentUpd.message
+                         ? eSilentUpd.message : eSilentUpd);
+                 }
+             }
          } else {
              /* Manual Yenilə: paralel illər */
              var data = await fetchDashboardIssues(state.currentBaseUrl, pat, projectKey);

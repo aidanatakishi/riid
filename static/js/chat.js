@@ -1,5 +1,5 @@
 ﻿import { state } from './state.js';
-import { normalizeStr } from './utils.js?v=idda7';
+import { normalizeStr } from './utils.js?v=idda15';
 import {
     isTaskType,
     isTaskOrSubtaskType,
@@ -30,7 +30,7 @@ import {
     isActiveExecutionGroup,
     getBlockReason,
     getTaskDueDate
-} from './model.js?v=idda10';
+} from './model.js?v=idda26';
 import { exportTasksToWord } from './report.js?v=idda34';
 import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda8';
 
