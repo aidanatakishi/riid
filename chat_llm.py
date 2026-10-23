@@ -199,14 +199,15 @@ def _system_prompt(user_name: str, today: str, sprint: str) -> str:
         'Rolun: ChatGPT/Claude səviyyəsində ağıllı, səmimi həmsöhbət + platformanın data analitiki.\n'
         '\n'
         'QAYDALAR\n'
-        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI) haqqında sual olarsa — YALNIZ alətlərdən gələn məlumata əsaslan. Rəqəmi heç vaxt təxmin etmə və uydurma.\n'
-        '2. Ümumi sual olarsa (idarəetmə, texnologiya, yazı, hesablama, məsləhət, izah) — öz biliyinlə sərbəst və dolğun cavab ver. Panel mövzusuna məcbur etmə.\n'
-        '3. Qarışıq suallarda əvvəl faktı göstər, sonra təhlil və konkret təklif ver.\n'
-        '4. Cavabı bilmirsənsə və ya data yoxdursa: bunu açıq və səmimi de; nəyi bildiyini və nəyi bilmədiyini ayır; 1–2 faydalı alternativ təklif et. Heç vaxt uydurma.\n'
-        '5. Cavabı istifadəçinin dilində ver (default: Azərbaycan dili). Təbii, canlı, insan kimi yaz; robot şablonu və təkrar giriş cümlələri olmasın.\n'
-        '6. Format: qısa sual → 1–3 cümlə. Təhlil → qısa başlıq + siyahı. Markdown istifadə et, rəqəmləri **qalın** yaz. Uzatma.\n'
-        '7. Uyğun olduqda sonda 1 davam sualı təklif et.\n'
-        '8. Şəxsi/həssas məlumat və ya icazəsiz əməliyyat istənərsə, nəzakətlə imtina et.\n'
+        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI) haqqında sual olarsa — əvvəl uyğun aləti çağır, sonra YALNIZ alət nəticəsinə əsaslan. Rəqəmi heç vaxt təxmin etmə və uydurma.\n'
+        '2. «Mənim işlərim», «neçə taskım var», «bu ay tapşırıqlarım» kimi suallarda mütləq get_my_tasks və ya get_person_workload çağır.\n'
+        '3. Ümumi sual olarsa (idarəetmə, texnologiya, yazı, hesablama, məsləhət, izah) — öz biliyinlə sərbəst və dolğun cavab ver. Panel mövzusuna məcbur etmə.\n'
+        '4. Qarışıq suallarda əvvəl faktı göstər, sonra təhlil və konkret təklif ver.\n'
+        '5. Cavabı bilmirsənsə və ya data yoxdursa: bunu açıq və səmimi de; nəyi bildiyini və nəyi bilmədiyini ayır; 1–2 faydalı alternativ təklif et. Heç vaxt uydurma.\n'
+        '6. Cavabı istifadəçinin dilində ver (default: Azərbaycan dili). Təbii, canlı, insan kimi yaz; robot şablonu və təkrar giriş cümlələri olmasın.\n'
+        '7. Format: qısa sual → 1–3 cümlə. Təhlil → qısa başlıq + siyahı. Markdown istifadə et, rəqəmləri **qalın** yaz. Uzatma.\n'
+        '8. Uyğun olduqda sonda 1 davam sualı təklif et.\n'
+        '9. Şəxsi/həssas məlumat və ya icazəsiz əməliyyat istənərsə, nəzakətlə imtina et.\n'
     ).format(
         user_name=user_name or 'istifadəçi',
         today=today or '',
@@ -224,7 +225,11 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'late'
     if re.search(r'blok|çətinlik|cetinlik', q):
         return 'blocked'
-    if re.search(r'mənim|menim|öz iş', q):
+    if re.search(
+        r'mənim|menim|öz iş|oz is|taskım|taskim|tapsırıqım|tapsiriqim|'
+        r'tapsırıqlarım|tapsiriqlarim|işlərim|islerim|işim|isim\b',
+        q,
+    ):
         return 'mine'
     if re.search(r'risk', q):
         return 'risk'
@@ -352,10 +357,18 @@ def answer_chat_events(
     last_err = ''
     for pname, key in providers:
         try:
+            force_tools = hint in (
+                'mine', 'late', 'blocked', 'risk', 'people', 'kpi',
+                'overview', 'sprint', 'qurum', 'directions', 'issue',
+            )
             if pname == 'gemini':
-                gen = _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx)
+                gen = _tool_loop_gemini(
+                    key, system, user_message, hist_items, tools_ctx, force_tools=force_tools
+                )
             else:
-                gen = _tool_loop_openai(key, system, user_message, hist_items, tools_ctx)
+                gen = _tool_loop_openai(
+                    key, system, user_message, hist_items, tools_ctx, force_tools=force_tools
+                )
             answer_parts: List[str] = []
             tools_used: List[str] = []
             tool_payloads: List[Any] = []
@@ -432,7 +445,7 @@ def _chunk_tokens(text: str, size: int = 12) -> List[str]:
     return chunks
 
 
-def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: SnapshotTools):
+def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: SnapshotTools, force_tools=False):
     global LAST_MODEL, LAST_ERROR
     base = (os.environ.get('OPENAI_BASE_URL') or 'https://api.openai.com/v1').rstrip('/')
     model = os.environ.get('OPENAI_MODEL') or 'gpt-4o'
@@ -450,6 +463,8 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
 
     for step in range(MAX_STEPS):
         steps = step + 1
+        # İlk addımda panel sualları üçün alət məcburidir — açar boş şablon cavaba getməsin
+        choice = 'required' if (force_tools and step == 0 and not tools_used) else 'auto'
         try:
             res = _http().post(base + '/chat/completions', headers={
                 'Authorization': 'Bearer ' + key,
@@ -459,7 +474,7 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
                 'temperature': 0.35,
                 'max_tokens': 1800,
                 'tools': openai_tools(),
-                'tool_choice': 'auto',
+                'tool_choice': choice,
                 'messages': messages,
             }, timeout=90)
         except requests.exceptions.Timeout:
@@ -552,7 +567,7 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
     yield {'type': 'error', 'error': 'max_steps'}
 
 
-def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: SnapshotTools):
+def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: SnapshotTools, force_tools=False):
     global LAST_MODEL, LAST_ERROR
     decls = gemini_function_declarations()
     contents: List[dict] = []
@@ -587,6 +602,10 @@ def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: Snapshot
                 'tools': [{'functionDeclarations': decls}],
                 'generationConfig': gen,
             }
+            if force_tools and step == 0 and not tools_used:
+                body['toolConfig'] = {
+                    'functionCallingConfig': {'mode': 'ANY'},
+                }
             timeout = 80 if _model_supports_thinking(model) else 60
             try:
                 res = _http().post(url, json=body, timeout=timeout)

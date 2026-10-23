@@ -2586,6 +2586,7 @@ function localAnswerOrNull(question) {
 
 function routeLocal(question) {
     var qFold = fold(question);
+    // Yalnız salam/təşəkkür/vidalaşma lokal — digər suallar LLM + tools (server açarı)
     if (isGreetingOnly(qFold)) {
         return { kind: 'greet', html: formatGreeting(), text: stripHtml(formatGreeting()) };
     }
@@ -2595,8 +2596,7 @@ function routeLocal(question) {
     if (isFarewell(qFold)) {
         return { kind: 'farewell', html: formatFarewell(), text: stripHtml(formatFarewell()) };
     }
-    // Panel sualları lokal cavablanır — LLM olmasa da hər kəs üçün işləyir
-    return localAnswerOrNull(question);
+    return null;
 }
 
 function isSoftFailText(text) {
