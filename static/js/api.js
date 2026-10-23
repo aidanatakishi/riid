@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
 import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda14';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda24';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda53';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda25';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda54';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -25,6 +25,7 @@ var SEARCH_FIELDS = [
     'customfield_17511', 'customfield_17512',
     'customfield_17634', 'customfield_17635', 'customfield_17636', 'customfield_17637',
     'customfield_17638', 'customfield_17639',
+    'customfield_17439', 'customfield_17632', 'customfield_17706',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ].join(',');
 
@@ -162,6 +163,7 @@ function searchFieldsList() {
         .concat(collectMeqsedDisplayFieldIds())
         .concat(collectSelfDisplayFieldIds())
         .concat(collectIsqDisplayFieldIds())
+        .concat(collectEsdKindFieldIds())
         .concat(collectEsdStatusFieldIds())
         .concat(collectEsdSentLetterFieldIds())
         .concat(collectReviewPartyFieldIds())
@@ -394,8 +396,124 @@ function createdSpanJql(projectKey, startIso, endExclusiveIso) {
         + ' ORDER BY created ASC';
 }
 
+function openSprintJql(projectKey) {
+    return 'project = ' + projectKey
+        + ' AND sprint in openSprints()'
+        + ' ORDER BY updated DESC';
+}
+
 async function fetchCreatedSpan(baseUrl, pat, projectKey, startIso, endExclusiveIso) {
     return fetchJQL(baseUrl, pat, createdSpanJql(projectKey, startIso, endExclusiveIso));
+}
+
+/** Cari (aktiv) sprint — panelı tez açmaq üçün kiçik ilk paket. */
+async function fetchOpenSprintIssues(baseUrl, pat, projectKey) {
+    return fetchJQL(baseUrl, pat, openSprintJql(projectKey));
+}
+
+async function fetchRecentMonthsIssues(baseUrl, pat, projectKey, monthCount) {
+    var n = Math.max(1, monthCount || 2);
+    var now = new Date();
+    var endY = now.getFullYear();
+    var endM = now.getMonth() + 1;
+    var start = new Date(endY, endM - n, 1);
+    var startIso = start.getFullYear() + '-' + pad2(start.getMonth() + 1) + '-01';
+    var endIso = endY + '-' + pad2(endM) + '-' + pad2(now.getDate());
+    return fetchIssuesCreatedRange(baseUrl, pat, projectKey, startIso, endIso);
+}
+
+/** İlk boyama: openSprints; boş/xəta olsa son 2 ay. */
+async function fetchFirstPaintIssues(baseUrl, pat, projectKey) {
+    try {
+        var sprintChunk = await fetchOpenSprintIssues(baseUrl, pat, projectKey);
+        if ((sprintChunk.issues || []).length) return { data: sprintChunk, source: 'sprint' };
+    } catch (err) { /* fallback aşağıda */ }
+    try {
+        var recent = await fetchRecentMonthsIssues(baseUrl, pat, projectKey, 2);
+        if ((recent.issues || []).length) return { data: recent, source: 'recent' };
+    } catch (err2) { /* fallback cari il */ }
+    var yearChunk = await fetchCreatedYear(baseUrl, pat, projectKey, new Date().getFullYear());
+    return { data: yearChunk, source: 'year' };
+}
+
+var bgHydrateGen = 0;
+
+/**
+ * Cari sprint göstərildikdən sonra qalan illəri səssiz yüklə.
+ * Progress bar / overlay yox — istifadəçi hiss etməsin.
+ */
+function scheduleBackgroundHydration(baseUrl, pat, projectKey, endYear, firstSource) {
+    var gen = ++bgHydrateGen;
+    state.dashboardBgHydrateBusy = true;
+    var bgYears = [];
+    var y;
+    if (firstSource !== 'year') bgYears.push(endYear);
+    for (y = endYear - 1; y >= ASSESS_DATA_START_YEAR; y--) bgYears.push(y);
+    if (!bgYears.length) {
+        state.dashboardBgHydrateBusy = false;
+        markPartialLoadDone();
+        return;
+    }
+    setTimeout(function() {
+        (async function() {
+            var selectedBefore = '';
+            try {
+                var sf = document.getElementById('sprintFilter');
+                selectedBefore = sf ? String(sf.value || '') : '';
+            } catch (eSel) { selectedBefore = ''; }
+            try {
+                await mapPool(bgYears, FETCH_YEAR_CONCURRENCY, async function(year) {
+                    if (gen !== bgHydrateGen) return;
+                    var chunk = await fetchCreatedYear(baseUrl, pat, projectKey, year);
+                    if (gen !== bgHydrateGen) return;
+                    mergeFetchedIssues(chunk, { skipDashboardRefresh: true });
+                });
+                if (gen !== bgHydrateGen) return;
+                var snap = null;
+                try { snap = captureViewState(); } catch (eSnap) { snap = null; }
+                state.restoreQuiet = true;
+                rebuildDashboardListsFromIndex();
+                bumpDataEpoch();
+                populateSprintFilter();
+                if (selectedBefore) {
+                    try {
+                        var sprintEl = document.getElementById('sprintFilter');
+                        if (sprintEl && Array.from(sprintEl.options).some(function(o) { return o.value === selectedBefore; })) {
+                            sprintEl.value = selectedBefore;
+                        }
+                    } catch (eKeep) {}
+                }
+                markPartialLoadDone();
+                applyFilters();
+                afterFilterPaint(function() {
+                    if (snap) restoreViewChrome(snap);
+                    state.restoreQuiet = false;
+                });
+                setTimeout(function() { state.restoreQuiet = false; }, 1500);
+                if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
+            } catch (err) {
+                state.restoreQuiet = false;
+                if (gen === bgHydrateGen) markPartialLoadDone();
+                if (typeof console !== 'undefined' && console.warn) {
+                    console.warn('Background hydrate:', err && err.message ? err.message : err);
+                }
+            } finally {
+                if (gen === bgHydrateGen) {
+                    state.dashboardBgHydrateBusy = false;
+                    markPartialLoadDone();
+                }
+            }
+        })();
+    }, 0);
+}
+
+function cancelBackgroundHydration() {
+    bgHydrateGen += 1;
+    state.dashboardBgHydrateBusy = false;
+}
+
+function markPartialLoadDone() {
+    state.dashboardPartialLoad = false;
 }
 
 async function fetchCreatedYear(baseUrl, pat, projectKey, year) {
@@ -860,6 +978,7 @@ export async function fetchDashboardData(opts) {
      saveClientCredentials(baseUrl, pat, projectKey);
      await rememberCurrentProject();
      state.currentBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+     cancelBackgroundHydration();
      state.dashboardFetchBusy = true;
      var firstLoad = !state.hasLoadedDashboard;
      var snap = firstLoad ? null : captureViewState();
@@ -877,7 +996,7 @@ export async function fetchDashboardData(opts) {
      var overlayDismissed = false;
      if (!silent) {
          var bootMsg = progressive
-             ? ('Cari ili oyadıram (' + endYear + ')…')
+             ? 'Cari sprint yüklənir…'
              : 'Panelı təzələyirəm…';
          beginLoadingOverlay(overlay, bootMsg);
          setRefreshButtonSpinning(true);
@@ -886,9 +1005,10 @@ export async function fetchDashboardData(opts) {
          lastJqlCache.key = '';
          lastJqlCache.data = null;
          if (progressive) {
-             /* İlk açılış: cari il → UI açılsın, qalan illər arxa planda */
-             var firstChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
-             applyDashboardPayload(firstChunk, { silent: silent });
+             /* İlk açılış: cari sprint → UI açılsın; qalanı istifadəçi görmədən arxa planda */
+             state.dashboardPartialLoad = true;
+             var firstPaint = await fetchFirstPaintIssues(state.currentBaseUrl, pat, projectKey);
+             applyDashboardPayload(firstPaint.data, { silent: silent });
              setRefreshButtonSpinning(false);
              await dismissLoadingOverlay(overlay, { reveal: true });
              overlayDismissed = true;
@@ -905,26 +1025,10 @@ export async function fetchDashboardData(opts) {
                  state.restoreQuiet = false;
              });
              setTimeout(function() { state.restoreQuiet = false; }, 2000);
-             var olderYears = [];
-             var y;
-             for (y = endYear - 1; y >= ASSESS_DATA_START_YEAR; y--) olderYears.push(y);
-             if (olderYears.length) {
-                 var doneYears = 0;
-                 setDataLoadProgress('Əvvəlki illər yüklənir…', 12);
-                 await mapPool(olderYears, FETCH_YEAR_CONCURRENCY, async function(year) {
-                     var older = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, year);
-                     mergeFetchedIssues(older, { skipDashboardRefresh: true });
-                     doneYears += 1;
-                     var pct = 12 + Math.round((doneYears / olderYears.length) * 88);
-                     setDataLoadProgress('Əvvəlki illər yüklənir: ' + year + '…', pct);
-                 });
-                 rebuildDashboardListsFromIndex();
-                 bumpDataEpoch();
-                 populateSprintFilter();
-                 applyFilters();
-             }
-             setDataLoadProgress('');
-             if (typeof window.syncNk303Route === 'function') window.syncNk303Route();
+             /* Qalan illər — overlay/progress olmadan arxa planda */
+             scheduleBackgroundHydration(
+                 state.currentBaseUrl, pat, projectKey, endYear, firstPaint.source
+             );
          } else if (silent) {
              /* Arxa plan: yalnız cari il — tam 2023…yenidən yükləmə UI-ni dondurmasın */
              var silentChunk = await fetchCreatedYear(state.currentBaseUrl, pat, projectKey, endYear);
@@ -952,6 +1056,7 @@ export async function fetchDashboardData(opts) {
          }
      } catch (error) {
          state.restoreQuiet = false;
+         markPartialLoadDone();
          setDataLoadProgress('');
          if (!overlayDismissed && !silent) {
              await dismissLoadingOverlay(overlay, { reveal: false });

@@ -147,7 +147,69 @@ function isViewerPerson(name) {
 
 function isFirstPerson(qFold) {
     return /(?:^| )(menim|mene|menimki|oz islerim|menim is|menim tapsiriq|menim veziyyet|menim sprint|menim gecik|menim blok)(?: |$)/.test(qFold)
-        || /^(menim|mene|ozum)\b/.test(qFold);
+        || /^(menim|mene|ozum)\b/.test(qFold)
+        || /\b(taskim|tasklarim|tapsiriqim|tapsiriqlarim|islerim|isim|islerimi|taskimi)\b/.test(qFold)
+        || /\b(mende|uzerimde|uzərimdə)\b/.test(qFold);
+}
+
+function wantsThisMonth(qFold) {
+    return /\b(bu ay|cari ay|bu ayin|bu ayda|ayliq|bu ay ucun)\b/.test(qFold || '');
+}
+
+function dateInCurrentMonth(d) {
+    if (!d || isNaN(d.getTime())) return false;
+    var now = new Date();
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
+function taskInCurrentMonth(t) {
+    if (!t) return false;
+    try {
+        var due = getTaskDueDate(t);
+        if (due && dateInCurrentMonth(due)) return true;
+    } catch (e) {}
+    var f = t.fields || {};
+    var created = f.created ? new Date(f.created) : null;
+    if (created && dateInCurrentMonth(created)) return true;
+    var updated = f.updated ? new Date(f.updated) : null;
+    if (updated && dateInCurrentMonth(updated)) return true;
+    try {
+        var names = getSprintNames(t) || [];
+        var i;
+        for (i = 0; i < names.length; i++) {
+            var range = getSprintDateRange(names[i]);
+            if (!range || !range.start) continue;
+            var start = range.start instanceof Date ? range.start : new Date(range.start);
+            var end = range.end instanceof Date ? range.end : (range.end ? new Date(range.end) : start);
+            if (dateInCurrentMonth(start) || dateInCurrentMonth(end)) return true;
+            var now = new Date();
+            if (start <= now && end >= now && now.getMonth() === start.getMonth()) return true;
+        }
+    } catch (e2) {}
+    return false;
+}
+
+function countMyTasksThisMonth(personName) {
+    var name = personName || viewerAssigneeName() || '';
+    if (!name) return { total: 0, done: 0, open: 0, items: [] };
+    var source = state.allTasks || [];
+    var items = [];
+    var done = 0;
+    var i;
+    for (i = 0; i < source.length; i++) {
+        var t = source[i];
+        if (!t || !t.key) continue;
+        try {
+            if (!isTaskOrSubtaskType(t) && !isTaskType(t)) continue;
+        } catch (e) { continue; }
+        var asg = t.fields && t.fields.assignee ? t.fields.assignee.displayName : '';
+        if (!samePerson(asg, name)) continue;
+        if (!taskInCurrentMonth(t)) continue;
+        var brief = taskBrief(t);
+        if (brief.group === 'done') done += 1;
+        items.push(brief);
+    }
+    return { total: items.length, done: done, open: items.length - done, items: items };
 }
 
 function viewerFact() {
@@ -538,8 +600,21 @@ function parseQuestion(raw) {
             names: names
         };
     }
-    if (who) {
-        return { kind: 'person', person: who, sprint: allScope ? '' : current, names: names };
+    if (who || isFirstPerson(qFold)) {
+        var askedSelf = isFirstPerson(qFold);
+        var selfPerson = who
+            || viewerAssigneeName()
+            || (viewerUser() && (viewerUser().jiraDisplayName || viewerUser().displayName))
+            || viewerFirstName()
+            || (askedSelf ? 'Siz' : '');
+        return {
+            kind: 'person',
+            person: selfPerson,
+            sprint: allScope ? '' : current,
+            names: names,
+            monthScope: wantsThisMonth(qFold),
+            selfAsked: askedSelf
+        };
     }
     if (/kimde|icraci|is yuku|en cox tapsiriq|kim daha|yuk ve gecik/.test(qFold)) {
         return { kind: 'people', sprint: allScope ? '' : current, names: names };
@@ -1405,8 +1480,9 @@ function writeKpiAttn(kpis, focus, n, ev) {
     return '';
 }
 
-function formatPeople(kpis, person, ev) {
+function formatPeople(kpis, person, ev, opts) {
     ev = ev || collectEvidence();
+    opts = opts || {};
     if (person) {
         var canon = person;
         (ev.people || []).forEach(function(p) {
@@ -1421,7 +1497,11 @@ function formatPeople(kpis, person, ev) {
                 }
             });
         }
-        var self = isViewerPerson(canon);
+        var self = isViewerPerson(canon) || !!opts.selfAsked || canon === 'Siz';
+        var month = null;
+        if (opts.monthScope) {
+            month = countMyTasksThisMonth(canon === 'Siz' ? (viewerAssigneeName() || '') : canon);
+        }
         var mine = [].concat(ev.late, ev.blocked, ev.dueOpen).filter(function(it) { return samePerson(it.who, canon); });
         var seen = {};
         mine = mine.filter(function(it) {
@@ -1429,9 +1509,24 @@ function formatPeople(kpis, person, ev) {
             seen[it.key] = true;
             return true;
         });
-        var title = self ? 'Sizin işləriniz' : canon;
+        if (month && month.items && month.items.length) {
+            mine = month.items.slice(0, 8);
+        }
+        var title = self ? (opts.monthScope ? 'Bu ay sizin işləriniz' : 'Sizin işləriniz') : canon;
         var lead;
-        if (d.total) {
+        if (month) {
+            if (month.total) {
+                lead = self
+                    ? ('Bu ay üzərinizdə ' + month.total + ' tapşırıq var — ' + month.done + ' yekunlaşıb, ' + month.open + ' açıq qalıb.')
+                    : (canon + ' bu ay ' + month.total + ' tapşırıq daşıyır — ' + month.done + ' yekunlaşıb, ' + month.open + ' açıqdır.');
+            } else if (self && !(viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName))) {
+                lead = 'Sizi panel hesabı kimi tanıyıram, amma Jira şəxsi hələ bağlanmayıb. Admin İstifadəçilər səhifəsindən sizi Jira-dakı adınızla bağlasın — sonra «mənim işlərim»ə baxa bilərəm.';
+            } else {
+                lead = self
+                    ? 'Bu ay üzərinizdə bitmə tarixi, yaradılma və ya sprinti cari aya düşən tapşırıq tapılmadı.'
+                    : (canon + ' üçün bu ay uyğun tapşırıq tapılmadı.');
+            }
+        } else if (d.total) {
             lead = self
                 ? ('Bu kəsikdə sizin üzərinizdə ' + d.total + ' iş var — ümumi həcmin ' + pct(d.total, kpis.view.total) + '%-i. Yekunlaşma ' + pct(d.done, d.total) + '%-dir, aktiv icrada ' + d.progress + ' işiniz qalır.'
                     + (d.late || d.blocked ? ' Risk: ' + (d.late ? d.late + ' işiniz gecikir' : '') + (d.late && d.blocked ? ', ' : '') + (d.blocked ? d.blocked + ' blokdadır' : '') + '.' : ''))
@@ -1444,8 +1539,14 @@ function formatPeople(kpis, person, ev) {
                 + ' Sprint və ya istiqamət filterini yoxlayın.';
         }
         var html = '<p class="dash-chat-kicker">Cavab</p><h4>' + esc(title) + '</h4>' + pLead(lead);
-        if (mine.length) html += '<p class="dash-chat-sub">' + (self ? 'Açıq/riskli işləriniz' : 'Onun açıq/riskli işləri') + '</p>' + itemList(mine.slice(0, 6));
-        html += pAttn(d.late || d.blocked ? (self ? 'Sizin üzərinizdə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.' : 'Bu icraçı üzrə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.') : '');
+        if (mine.length) {
+            html += '<p class="dash-chat-sub">'
+                + (opts.monthScope
+                    ? (self ? 'Bu ayın tapşırıqları' : 'Bu ayın tapşırıqları')
+                    : (self ? 'Açıq/riskli işləriniz' : 'Onun açıq/riskli işləri'))
+                + '</p>' + itemList(mine.slice(0, 6));
+        }
+        html += pAttn(!opts.monthScope && (d.late || d.blocked) ? (self ? 'Sizin üzərinizdə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.' : 'Bu icraçı üzrə açıq risk var; siyahını icraçı filteri ilə aça bilərsiniz.') : '');
         return html;
     }
     var people = ev.people.length ? ev.people : peopleRank(kpis.view.people, 8);
@@ -1732,9 +1833,17 @@ function answerQuestion(raw) {
         return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
     if (parsed.kind === 'people' || parsed.kind === 'person') {
-        html = formatPeople(kpis, parsed.person, ev);
+        html = formatPeople(kpis, parsed.person, ev, {
+            monthScope: !!parsed.monthScope,
+            selfAsked: !!parsed.selfAsked
+        });
         text = stripHtml(html);
-        facts = { kind: parsed.kind, person: parsed.person || '', kpis: compactKpis(kpis) };
+        facts = {
+            kind: parsed.kind,
+            person: parsed.person || '',
+            monthScope: !!parsed.monthScope,
+            kpis: compactKpis(kpis)
+        };
         html = withGreeting(html, raw);
         return { html: html, text: stripHtml(html), facts: facts, evidence: ev, question: raw };
     }
@@ -1828,7 +1937,7 @@ function detectChatIntent(question, kind) {
     if (/salam|hello|necesen|sabahiniz|axsaminiz/.test(q)) return 'greet';
     if (/tesekkur|sagol|sag olun/.test(q)) return 'thanks';
     if (/sen kimsen|kimsen|ai done|ne ede bilersen|komek/.test(q)) return /komek|ne ede/.test(q) ? 'help' : 'identity';
-    if (/menim|oz islerim|oz tapsiriq|menim islerim/.test(q)) return 'mine';
+    if (/menim|oz islerim|oz tapsiriq|menim islerim|taskim|tapsiriqim|tapsiriqlarim|islerim\b/.test(q)) return 'mine';
     if (/gecik/.test(q)) return 'late';
     if (/blok|cetinlik/.test(q)) return 'blocked';
     if (/is yuku|icraci|kimde|kim ustunde/.test(q)) return 'people';
@@ -2310,6 +2419,7 @@ function onSubmit(e) {
 
 function softFailHtml(question) {
     return '<p class="dash-chat-lead">' + esc(SOFT_FAIL) + '</p>'
+        + '<p class="dash-chat-note">«Mənim işlərim», sprint və ya qurum adı ilə də soruşa bilərsiniz.</p>'
         + '<button type="button" class="dash-chat-retry" data-retry-q="' + esc(question) + '">Yenidən cəhd et</button>';
 }
 
@@ -2448,13 +2558,30 @@ function detectHint(question) {
     var q = fold(question || '');
     if (/gecik/.test(q)) return 'late';
     if (/blok|cetinlik/.test(q)) return 'blocked';
-    if (/menim|oz islerim/.test(q)) return 'mine';
+    if (/menim|oz islerim|taskim|tapsiriqim|tapsiriqlarim|islerim\b/.test(q)) return 'mine';
     if (/risk/.test(q)) return 'risk';
     if (/is yuku|icraci/.test(q)) return 'people';
     if (/kpi|faiz|tamamlan/.test(q)) return 'kpi';
     if (/dgd-\d+/i.test(question || '')) return 'issue';
     if (/veziyyet|icmal|xulase/.test(q)) return 'overview';
     return 'open';
+}
+
+function localAnswerOrNull(question) {
+    try {
+        var local = answerQuestion(question);
+        if (!local || !local.html) return null;
+        var kind = (local.facts && local.facts.kind) || '';
+        if (!kind || kind === 'open') return null;
+        return {
+            kind: kind,
+            html: local.html,
+            text: local.text || stripHtml(local.html),
+            local: local
+        };
+    } catch (e) {
+        return null;
+    }
 }
 
 function routeLocal(question) {
@@ -2468,7 +2595,15 @@ function routeLocal(question) {
     if (isFarewell(qFold)) {
         return { kind: 'farewell', html: formatFarewell(), text: stripHtml(formatFarewell()) };
     }
-    return null;
+    // Panel sualları lokal cavablanır — LLM olmasa da hər kəs üçün işləyir
+    return localAnswerOrNull(question);
+}
+
+function isSoftFailText(text) {
+    var t = String(text || '');
+    if (!t) return true;
+    return t === SOFT_FAIL
+        || /ağıllı cavabı tam formalaşdıra|süni intellekt xidməti müvəqqəti|tam cavablandıra bilmədim/i.test(t);
 }
 
 function setStatusLine(row, label) {
@@ -2605,6 +2740,38 @@ async function askServer(question, pending) {
     return { answer: answer, chatId: chatId, suggestions: suggestions };
 }
 
+function paintLocalFallback(pending, question) {
+    var fallback = localAnswerOrNull(question);
+    if (!fallback) {
+        try {
+            var openLocal = answerQuestion(question);
+            if (openLocal && openLocal.html && (openLocal.facts || {}).kind !== 'open') {
+                fallback = {
+                    kind: (openLocal.facts || {}).kind || 'local',
+                    html: openLocal.html,
+                    text: openLocal.text || stripHtml(openLocal.html)
+                };
+            } else if (openLocal && openLocal.html && hasData()) {
+                // open analiz də lokal ehtiyat kimi göstərilsin — boş soft-fail olmasın
+                fallback = {
+                    kind: 'open',
+                    html: openLocal.html,
+                    text: openLocal.text || stripHtml(openLocal.html)
+                };
+            }
+        } catch (e) {}
+    }
+    if (fallback && fallback.html) {
+        pending.classList.remove('is-pending');
+        pending.querySelector('.dash-chat-bubble').innerHTML = fallback.html;
+        attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
+        return fallback.text || stripHtml(fallback.html);
+    }
+    pending.classList.remove('is-pending');
+    pending.querySelector('.dash-chat-bubble').innerHTML = softFailHtml(question);
+    return SOFT_FAIL;
+}
+
 async function reply(question) {
     chatBusy = true;
     var thinkingApi = getDoneBot() || window.DoneBot;
@@ -2618,6 +2785,7 @@ async function reply(question) {
     try {
         if (local) {
             pending.classList.remove('is-pending');
+            attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
             chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
             if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
             renderHints();
@@ -2632,30 +2800,39 @@ async function reply(question) {
                 }
             } catch (cfgErr) {}
         }
-        var result = await askServer(question, pending);
-        used = result.answer || SOFT_FAIL;
-        chatId = result.chatId || '';
-        pending.classList.remove('is-pending');
-        pending.querySelector('.dash-chat-bubble').innerHTML = renderMarkdownSafe(used);
-        if (result.suggestions && result.suggestions.length) {
-            attachSuggestions(pending, result.suggestions);
-        } else {
-            attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
+        if (!chatLlm) {
+            used = paintLocalFallback(pending, question);
+            chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
+            if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+            renderHints();
+            return;
         }
-        if (chatId) attachFeedback(pending, chatId);
+        var result = await askServer(question, pending);
+        used = result.answer || '';
+        chatId = result.chatId || '';
+        if (!used || isSoftFailText(used) || result.error) {
+            used = paintLocalFallback(pending, question);
+        } else {
+            pending.classList.remove('is-pending');
+            pending.querySelector('.dash-chat-bubble').innerHTML = renderMarkdownSafe(used);
+            if (result.suggestions && result.suggestions.length) {
+                attachSuggestions(pending, result.suggestions);
+            } else {
+                attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
+            }
+            if (chatId) attachFeedback(pending, chatId);
+        }
         chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
         if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
         document.getElementById('dashChatLog').scrollTop = document.getElementById('dashChatLog').scrollHeight;
         renderHints();
     } catch (err) {
-        pending.classList.remove('is-pending');
-        pending.querySelector('.dash-chat-bubble').innerHTML = softFailHtml(question);
-        used = SOFT_FAIL;
-        chatHistory.push({ role: 'assistant', content: used });
-        if (!chatLlmWarned) {
+        used = paintLocalFallback(pending, question);
+        chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
+        if (isSoftFailText(used) && !chatLlmWarned) {
             chatLlmWarned = true;
             if (typeof window.showToast === 'function') {
-                window.showToast('AI xidməti müvəqqəti əlçatan deyil.', 'error');
+                window.showToast('Ağıllı cavab alınmadı — panel məlumatı ilə cavab verirəm.', 'info');
             }
         }
     } finally {

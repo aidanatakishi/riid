@@ -1,8 +1,8 @@
 ﻿import { state } from './state.js';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
-import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, boardListUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskDueDate, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isResolvedInDateRange, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda15';
-import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda50';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda16';
+import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, boardListUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, getEsdKind, esdKindById, esdStatusLabelById, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskDueDate, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isResolvedInDateRange, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda25';
+import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda53';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda18';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda34';
 import { renderAssessmentSections, paintAssessmentOverview } from './assessments.js?v=idda68';
 
@@ -674,6 +674,7 @@ export function resetAllFilters() {
     state.currentQurumFilter = null;
     state.currentStatusFilter = null;
     state.currentEsdInnerFilter = null;
+    state.currentEsdKindFilter = null;
     state.currentReviewPartyFilter = null;
     state.activeLabelFilter = null;
     state.currentPage = 1;
@@ -793,6 +794,10 @@ export function applyFilters() {
         if (needStatus) {
             var g = getStatusGroup(t.fields.status && t.fields.status.name);
             statusOk = g === state.currentStatusFilter;
+            if (statusOk && state.currentStatusFilter === 'esd' && state.currentEsdKindFilter) {
+                var esdKind = getEsdKind(t);
+                statusOk = !!(esdKind && esdKind.id === state.currentEsdKindFilter);
+            }
             if (statusOk && state.currentStatusFilter === 'esd' && state.currentEsdInnerFilter) {
                 var inner = getEsdInnerStatus(t);
                 statusOk = !!(inner && inner.id === state.currentEsdInnerFilter);
@@ -868,9 +873,13 @@ export function applyFilters() {
     if (statusBadge && statusNameEl) {
         if (state.currentStatusFilter) {
             var stLabel = CHART_STATUS_NAMES[state.currentStatusFilter] || state.currentStatusFilter;
+            if (state.currentStatusFilter === 'esd' && state.currentEsdKindFilter) {
+                var kindMeta = esdKindById(state.currentEsdKindFilter);
+                if (kindMeta && kindMeta.label) stLabel += ' · ' + kindMeta.label;
+            }
             if (state.currentStatusFilter === 'esd' && state.currentEsdInnerFilter) {
-                var innerMeta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === state.currentEsdInnerFilter; })[0];
-                if (innerMeta && innerMeta.label) stLabel += ' · ' + innerMeta.label;
+                var innerLabel = esdStatusLabelById(state.currentEsdInnerFilter, state.allTasks);
+                if (innerLabel) stLabel += ' · ' + innerLabel;
             }
             if (state.currentStatusFilter === 'review' && state.currentReviewPartyFilter) {
                 var partyMeta = (REVIEW_PARTY_OPTIONS || []).filter(function(s) { return s.id === state.currentReviewPartyFilter; })[0];
@@ -1011,12 +1020,8 @@ function replayListViewAction(action) {
         if (action.kind === 'esdInner') {
             var esdList = countableWorkUnits(state.filteredTasks);
             var esdStage = String(action.stageId || 'all');
-            var esdTitle = 'ESD tapşırıqları';
-            if (esdStage && esdStage !== 'all') {
-                var esdMeta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === esdStage; })[0];
-                var esdLabel = (esdMeta && esdMeta.label) || esdStage;
-                esdTitle = 'ESD · ' + esdLabel;
-            }
+            var esdKindId = String(action.kindId || state.currentEsdKindFilter || 'all');
+            var esdTitle = esdSelectionTitle(esdKindId, esdStage, esdList);
             renderTaskList(esdList, esdTitle + ' (' + esdList.length + ')', { keepNested: true });
             openTaskListSection({ scroll: false });
             return true;
@@ -1248,6 +1253,7 @@ export function loadFiltersFromStorage() {
     state.currentQurumFilter = storedQurum ? (canonicalQurumName(storedQurum) || storedQurum) : null;
     state.currentStatusFilter = null;
     state.currentEsdInnerFilter = null;
+    state.currentEsdKindFilter = null;
     state.currentReviewPartyFilter = null;
     try {
         localStorage.removeItem('dgd_filter_status');
@@ -1310,6 +1316,7 @@ export function applyEsdDashboardFilter(stageId) {
 
 export function onEsdStatusClicked() {
     if (state.currentStatusFilter !== 'esd') {
+        state.currentEsdKindFilter = null;
         rememberListAction(null);
         closeTaskListToDefault();
         applyEsdDashboardFilter(null);
@@ -1321,6 +1328,7 @@ export function applyReviewDashboardFilter(partyId) {
     state.currentStatusFilter = 'review';
     state.currentReviewPartyFilter = party;
     state.currentEsdInnerFilter = null;
+    state.currentEsdKindFilter = null;
     applyFilters();
 }
 
@@ -1335,6 +1343,7 @@ export function onReviewStatusClicked() {
 export function clearStatusFilter() {
     state.currentStatusFilter = null;
     state.currentEsdInnerFilter = null;
+    state.currentEsdKindFilter = null;
     state.currentReviewPartyFilter = null;
     localStorage.removeItem('dgd_filter_status');
     localStorage.removeItem('dgd_filter_esd_inner');
@@ -1612,18 +1621,40 @@ export function showDueThisWeekTasks() {
     openDueWeekTaskList();
 }
 
-export function filterEsdInnerStatus(stageId) {
-    closeEsdStagePopup();
-    closeReviewPartyPopup();
-    if (!state._replayingList) applyEsdDashboardFilter(stageId);
-    var list = countableWorkUnits(state.filteredTasks);
-    var stage = String(stageId || 'all');
-    var title = 'ESD tapşırıqları';
-    if (stage && stage !== 'all') {
-        var meta = (ESD_INNER_STAGES || []).filter(function(s) { return s.id === stage; })[0];
-        var label = (meta && meta.label) || (list[0] && getEsdInnerStatus(list[0]) && getEsdInnerStatus(list[0]).label) || stage;
-        title = 'ESD · ' + label;
+function esdSelectionTitle(kindId, stageId, list) {
+    var bits = [];
+    if (kindId && kindId !== 'all') {
+        var meta = esdKindById(kindId);
+        if (meta && meta.label) bits.push(meta.label);
+        else {
+            var i;
+            for (i = 0; i < (list || []).length; i++) {
+                var kind = getEsdKind(list[i]);
+                if (kind && kind.id === kindId && kind.label) {
+                    bits.push(kind.label);
+                    break;
+                }
+            }
+        }
     }
+    if (stageId && stageId !== 'all') {
+        var stageLabel = esdStatusLabelById(stageId, (list && list.length) ? list : state.allTasks);
+        if (stageLabel) bits.push(stageLabel);
+    }
+    if (!bits.length) return 'ESD tapşırıqları';
+    return 'ESD · ' + bits.join(' · ');
+}
+
+export function filterEsdKind(kindId) {
+    closeReviewPartyPopup();
+    var kind = (!kindId || kindId === 'all') ? null : String(kindId);
+    state.currentStatusFilter = 'esd';
+    state.currentEsdKindFilter = kind;
+    state.currentEsdInnerFilter = null;
+    state.currentReviewPartyFilter = null;
+    if (!state._replayingList) applyFilters();
+    var list = countableWorkUnits(state.filteredTasks);
+    var title = esdSelectionTitle(kind || 'all', 'all', list);
     if (!list.length) {
         if (!state._replayingList) {
             rememberListAction(null);
@@ -1631,7 +1662,27 @@ export function filterEsdInnerStatus(stageId) {
         }
         return;
     }
-    if (!state._replayingList) rememberListAction({ kind: 'esdInner', stageId: stage });
+    if (!state._replayingList) rememberListAction({ kind: 'esdInner', stageId: 'all', kindId: kind || 'all' });
+    renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
+    openTaskListSection({ scroll: false });
+}
+
+export function filterEsdInnerStatus(stageId) {
+    closeEsdStagePopup();
+    closeReviewPartyPopup();
+    if (!state._replayingList) applyEsdDashboardFilter(stageId);
+    var list = countableWorkUnits(state.filteredTasks);
+    var stage = String(stageId || 'all');
+    var kindId = state.currentEsdKindFilter || 'all';
+    var title = esdSelectionTitle(kindId, stage, list);
+    if (!list.length) {
+        if (!state._replayingList) {
+            rememberListAction(null);
+            showToast(title + ' üçün tapşırıq yoxdur.', 'info');
+        }
+        return;
+    }
+    if (!state._replayingList) rememberListAction({ kind: 'esdInner', stageId: stage, kindId: kindId });
     renderTaskList(list, title + ' (' + list.length + ')', { keepNested: true });
     openTaskListSection();
 }

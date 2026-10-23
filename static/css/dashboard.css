@@ -307,6 +307,25 @@ input[type="date"] { min-height: 38px; }
     font-size: 0.82rem;
     color: #94a3b8;
 }
+.dash-chart-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.65rem;
+    min-height: 8.5rem;
+    padding: 1.5rem 0.75rem;
+    color: #64748b;
+    font-size: 0.85rem;
+}
+.dash-chart-spinner {
+    width: 1.35rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    border: 2px solid #e2e8f0;
+    border-top-color: #7c3aed;
+    animation: spin 0.75s linear infinite;
+}
 .workload-legend {
     display: flex;
     flex-wrap: wrap;
@@ -559,9 +578,9 @@ input[type="date"] { min-height: 38px; }
     -webkit-overflow-scrolling: touch;
 }
 .dash-charts-row .direction-row {
-    flex: 1 0 auto;
+    flex: 0 0 auto;
     height: auto;
-    min-height: 2.35rem;
+    min-height: 0;
     padding: 0.48rem 0.6rem;
 }
 .dash-charts-row .direction-track { height: 8px; }
@@ -7217,14 +7236,14 @@ body.settings-open { overflow: hidden; }
     left: 50%;
     top: 52%;
     transform: translate(-50%, -50%);
-    width: min(17.5rem, calc(100% - 1.1rem));
+    width: min(26rem, calc(100% - 1.1rem));
     margin: 0;
     padding: 0.7rem 0.75rem 0.55rem;
     border-radius: 14px;
     background: #fff;
     border: 1px solid #e8e0f5;
     box-shadow: 0 18px 40px -14px rgba(49, 16, 99, 0.38), 0 0 0 1px rgba(255,255,255,0.8);
-    max-height: calc(100% - 1.4rem);
+    max-height: min(32rem, 72vh);
     overflow: auto;
 }
 .esd-status-kicker {
@@ -7234,6 +7253,9 @@ body.settings-open { overflow: hidden; }
     letter-spacing: 0.06em;
     text-transform: uppercase;
     color: #7c3aed;
+}
+.esd-status-kicker--sub {
+    margin-top: 0.7rem;
 }
 .esd-status-list {
     display: grid;
@@ -7269,9 +7291,8 @@ body.settings-open { overflow: hidden; }
 }
 .esd-status-row span:nth-child(2) {
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    line-height: 1.25;
 }
 .esd-status-row b {
     font-variant-numeric: tabular-nums;
@@ -7287,6 +7308,10 @@ body.settings-open { overflow: hidden; }
 .esd-status-row.is-viza .esd-status-dot { background: #ea580c; }
 .esd-status-row.is-gonder .esd-status-dot { background: #059669; }
 .esd-status-row.is-huseyn .esd-status-dot { background: #2563eb; }
+.esd-status-row.is-gelen .esd-status-dot { background: #7c3aed; }
+.esd-status-row.is-gonderilen .esd-status-dot { background: #0f766e; }
+.esd-status-row.is-qeydiyyat .esd-status-dot { background: #d97706; }
+.esd-status-row.is-opt .esd-status-dot { background: #64748b; }
 .review-party-panel .esd-status-kicker { color: #0e7490; }
 .esd-status-row.is-dept .esd-status-dot { background: #4f46e5; }
 .esd-status-row.is-div .esd-status-dot { background: #0891b2; }

@@ -11,6 +11,7 @@
     currentQurumFilter: null,
     currentStatusFilter: null,
     currentEsdInnerFilter: null,
+    currentEsdKindFilter: null,
     currentReviewPartyFilter: null,
     sprintDateFiltered: [],
     epicChartTasks: [],
@@ -43,6 +44,9 @@
     autoRefreshInterval: null,
     restoreQuiet: false,
     dashboardFetchBusy: false,
+    dashboardBgHydrateBusy: false,
+    /** İlk sprint boyandı, qalan illər hələ gəlir — boş kartlarda loading */
+    dashboardPartialLoad: false,
     hasLoadedDashboard: false,
     isInitialLoad: true,
     listViewAction: null,

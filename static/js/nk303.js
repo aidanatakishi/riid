@@ -162,6 +162,42 @@ var PROCESS = [
     'Nəticənin quruma təqdim edilməsi'
 ];
 
+/** İSQ / EXQ proses mərhələləri (özünüqiymətləndirmə olmadan). */
+var ASSESS_PROCESS = [
+    'Yerində baxışların keçirilməsi',
+    'Sənədlərin toplanılması mərhələsi',
+    'Təhlil mərhələsi',
+    'Hesabat fəaliyyəti',
+    'Nəticənin quruma təqdim edilməsi'
+];
+
+/**
+ * Hər mərhələ üçün Jira xülasə iynələri (əvvəl strong, sonra soft).
+ * Bir tapşırıq yalnız bir mərhələyə bağlanır — daha spesifik mərhələ üstünlük alır.
+ */
+var ASSESS_STAGE_NEEDLES = [
+    {
+        strong: ['yerinde bax', 'yerinde gorus', 'baxishlarin kechiril', 'ilkin gorus'],
+        soft: ['yerinde', 'baxish', 'gorus', 'qiymetlendir']
+    },
+    {
+        strong: ['senedlerin toplan', 'sened toplan', 'toplanilmasi merhele'],
+        soft: ['toplan', 'sened', 'subut', 'sorgu']
+    },
+    {
+        strong: ['tehlil merhele', 'tehlil edil', 'tehlil fealiyyet', 'sened ve subut'],
+        soft: ['tehlil', 'yoxlama']
+    },
+    {
+        strong: ['hesabat fealiyyet', 'hesabatin hazirlan', 'hesabat hazirla'],
+        soft: ['hesabat']
+    },
+    {
+        strong: ['neticenin quruma', 'quruma teqdim', 'teqdim edil', 'qurumla razilas'],
+        soft: ['teqdim', 'razilas', 'melumatlandirma']
+    }
+];
+
 var NAV = [
     { id: 'overview', label: 'Ümumi nəticələr' },
     { id: 'orgs', label: 'Qurumlar' },
@@ -365,7 +401,9 @@ function collectDiagChildIssues(parent) {
     (parent.fields.subtasks || []).forEach(addChild);
     (parent.fields.issuelinks || []).forEach(function(link) {
         var linked = link.outwardIssue || link.inwardIssue;
-        if (linked && isSubtaskType(linked)) addChild(linked);
+        if (!linked || !linked.key) return;
+        var full = (state.issueIndex && state.issueIndex[linked.key]) || linked;
+        if (isSubtaskType(full)) addChild(full);
     });
     (state.allTasks || []).forEach(function(issue) {
         if (!isSubtaskType(issue)) return;
@@ -373,6 +411,158 @@ function collectDiagChildIssues(parent) {
         if (p && p.key === parent.key) addChild(issue);
     });
     return children;
+}
+
+function assessStageBlob(t) {
+    return fold(issueSummaryText(t));
+}
+
+function scoreAssessStageMatch(blob, stageIdx) {
+    var def = ASSESS_STAGE_NEEDLES[stageIdx];
+    if (!def || !blob) return 0;
+    /* Hesabat + qurumla razılaşdırma / təqdim → son mərhələ */
+    if (stageIdx === 3 && (blob.indexOf('razilas') !== -1 || blob.indexOf('teqdim') !== -1)) {
+        return 0;
+    }
+    /* Məktub / məlumatlandırma yalnız təqdim mərhələsinə */
+    if (stageIdx < 4 && (blob.indexOf('mektub') !== -1 || blob.indexOf('melumatlandirma') !== -1)) {
+        return 0;
+    }
+    /* Sənəd+təhlil → təhlil mərhələsi (toplanmaya yox) */
+    if (stageIdx === 1 && blob.indexOf('tehlil') !== -1) return 0;
+    var i;
+    for (i = 0; i < (def.strong || []).length; i++) {
+        if (blob.indexOf(def.strong[i]) !== -1) return 100 + def.strong[i].length;
+    }
+    for (i = 0; i < (def.soft || []).length; i++) {
+        var needle = def.soft[i];
+        if (blob.indexOf(needle) === -1) continue;
+        return 40 + needle.length;
+    }
+    return 0;
+}
+
+/** İSQ/EXQ ana tapşırığın əlaqəli alt işləri (subtask + Relates). */
+function collectAssessChildIssues(parent) {
+    var children = collectDiagChildIssues(parent);
+    var seen = {};
+    children.forEach(function(c) { if (c && c.key) seen[c.key] = true; });
+    function add(issue) {
+        if (!issue || !issue.key || seen[issue.key] || (parent && issue.key === parent.key)) return;
+        var full = (state.issueIndex && state.issueIndex[issue.key]) || issue;
+        seen[issue.key] = true;
+        children.push(full);
+    }
+    if (!parent || !parent.fields) return children;
+    (parent.fields.issuelinks || []).forEach(function(link) {
+        var linked = link.outwardIssue || link.inwardIssue;
+        if (!linked || !linked.key) return;
+        var full = (state.issueIndex && state.issueIndex[linked.key]) || linked;
+        var blob = assessStageBlob(full);
+        var staged = ASSESS_STAGE_NEEDLES.some(function(_, idx) {
+            return scoreAssessStageMatch(blob, idx) > 0;
+        });
+        if (isSubtaskType(full) || staged) add(full);
+    });
+    return children;
+}
+
+/**
+ * Hər mərhələyə ən yaxşı uyğun Jira tapşırığı.
+ * @returns {{ issue: object|null, done: boolean }[]}
+ */
+function matchAssessStageIssues(kids) {
+    var n = ASSESS_PROCESS.length;
+    var best = [];
+    var i;
+    for (i = 0; i < n; i++) best.push({ issue: null, score: 0, done: false });
+    (kids || []).forEach(function(child) {
+        if (!child) return;
+        var blob = assessStageBlob(child);
+        var stage = -1;
+        var score = 0;
+        var s;
+        /* Daha spesifik mərhələlərdən geriyə */
+        for (s = n - 1; s >= 0; s--) {
+            var sc = scoreAssessStageMatch(blob, s);
+            if (sc > score) {
+                score = sc;
+                stage = s;
+            }
+        }
+        if (stage < 0 || score <= 0) return;
+        if (score > best[stage].score) {
+            best[stage] = {
+                issue: child,
+                score: score,
+                done: isIssueDoneStatus(child)
+            };
+        }
+    });
+    return best.map(function(b) {
+        return { issue: b.issue, done: !!b.done };
+    });
+}
+
+/**
+ * İSQ/EXQ cari mərhələ indeksi (0…4).
+ * Əvvəlcə uyğunlaşdırılmış alt-tapşırıq statusları, sonra ümumi status/hesabat ehtimalı.
+ */
+function assessProcessIndex(t, group, hasResult, matches, kids) {
+    var list = matches || matchAssessStageIssues(kids || collectAssessChildIssues(t));
+    var i;
+    var lastDone = -1;
+    var firstOpen = -1;
+    var anyMatch = false;
+    for (i = 0; i < list.length; i++) {
+        if (!list[i] || !list[i].issue) continue;
+        anyMatch = true;
+        if (list[i].done) lastDone = i;
+        else if (firstOpen < 0) firstOpen = i;
+    }
+    if (anyMatch) {
+        if (firstOpen >= 0) return firstOpen;
+        if (lastDone >= 0) return Math.min(lastDone, list.length - 1);
+    }
+
+    var reports = (kids || []).filter(isDiagReportPrepSubtask);
+    var meetings = (kids || []).filter(function(c) { return !isDiagReportPrepSubtask(c); });
+    var meetingsAllDone = meetings.length > 0 && meetings.every(isIssueDoneStatus);
+    var meetingsSomeDone = meetings.some(isIssueDoneStatus);
+    var reportDone = reports.some(isIssueDoneStatus);
+    var reportOpen = reports.some(function(c) { return !isIssueDoneStatus(c); });
+    var letter = getEsdSentLetterInfo(t) || {};
+    var hasLetter = !!(letter.date || letter.number || letter.raw);
+    var blob = diagPhaseBlob(t, kids);
+
+    // 4 — Nəticənin quruma təqdim edilməsi
+    if (hasLetter) return 4;
+    if (group === 'done' && (hasResult || reportDone)) return 4;
+    if (reportDone && (hasResult || group === 'review' || group === 'esd')) return 4;
+    if (/netice.*qurum|quruma.*teqdim|teqdim edil|razilas/.test(blob) && (reportDone || group === 'done')) {
+        return 4;
+    }
+
+    // 3 — Hesabat fəaliyyəti
+    if (reportDone || (meetingsAllDone && reports.length && reportOpen)) return 3;
+    if (meetingsAllDone && /hesabat/.test(blob)) return 3;
+    if (group === 'done') return 3;
+
+    // 2 — Təhlil mərhələsi
+    if (meetingsAllDone && (/tehlil|yoxlama/.test(blob) || group === 'review' || group === 'esd')) return 2;
+
+    // 1 — Sənədlərin toplanılması
+    if (meetingsAllDone) return 1;
+    if (meetingsSomeDone && (/sened|toplan/.test(blob))) return 1;
+
+    // 0 — Yerində baxışların keçirilməsi
+    if (meetingsSomeDone || (meetings.length && (group === 'progress' || group === 'paused' || group === 'blocked'))) {
+        return 0;
+    }
+    if (group === 'progress' && !meetings.length) return 0;
+    if (group === 'rejected') return 0;
+    if (hasResult) return 3;
+    return 0;
 }
 
 function diagPhaseBlob(t, kids) {
@@ -1237,9 +1427,12 @@ function pageHeadCopy(model) {
     if (ui.hub && ui.hubDetailKey) {
         var detail = resolveHubDetailRow(currentHubView());
         if (detail) {
+            var detailSub = ui.hub === 'exq'
+                ? 'Qurumun EXQ nəticələri'
+                : (ui.hub === 'isq' ? 'Qurumun İSQ nəticələri' : 'Qurumun nəticələri');
             return {
                 title: detail.qurum || 'Qurum',
-                sub: ui.hub === 'isq' ? 'Qurumun İSQ nəticələri' : 'Qurumun nəticələri'
+                sub: detailSub
             };
         }
     }
@@ -1515,7 +1708,9 @@ function hubOrgDetailHtml(view) {
             + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'back\')">Siyahıya qayıt</button>'
             + '</section>';
     }
+    var section = (view && view.section) || ui.hub || 'isq';
     var t = r.task;
+    if (!t && r.key && state.issueIndex) t = state.issueIndex[r.key] || null;
     var star = r.star != null ? Number(r.star) : exqStarFromPercent(r.score);
     var start = t ? getTaskStartDate(t) : null;
     var updated = t && t.fields && t.fields.updated ? new Date(t.fields.updated) : null;
@@ -1523,6 +1718,61 @@ function hubOrgDetailHtml(view) {
     var statusName = r.status || (t && t.fields && t.fields.status && t.fields.status.name) || '—';
     var group = getStatusGroup(statusName) || 'other';
     var vis = visStatusOf(group);
+    var kicker = section === 'exq' ? 'Qurumun EXQ nəticələri' : 'Qurumun İSQ nəticələri';
+    var processBlock = (section === 'isq' || section === 'exq') && t
+        ? assessProcessHtml(t, section, {
+            statusName: statusName,
+            visLabel: vis.label,
+            statusGroup: group,
+            hasResult: r.score != null || !!(r.result && String(r.result).trim())
+        })
+        : '';
+    var scoreHtml = (function() {
+        if (r.score != null) {
+            return '<strong>' + esc(fmt1(r.score) + '%') + '</strong>'
+                + (star ? '<span class="nk303-mat">' + esc(exqStarLabel(star)) + '</span>'
+                    + '<div class="nk303-kpi-stars" style="margin-top:0.35rem">' + exqStarsHtml(star) + '</div>' : '');
+        }
+        var note = hubTextResultNote(r.result);
+        if (note) {
+            return '<span class="nk303-score-note nk303-score-note--lg" title="' + esc(note.full) + '">'
+                + esc(note.short) + '</span>';
+        }
+        return '<strong>—</strong>';
+    })();
+    var metaExtra = section === 'exq'
+        ? '<div><dt>Xidmət sayı</dt><dd>' + esc(r.svc == null ? '—' : String(r.svc)) + '</dd></div>'
+        : '';
+    var head = '<section class="nk303-card" style="margin-bottom:0.55rem">'
+        + '<div class="nk303-profile">'
+        + '<div>'
+        + '<p class="nk303-kicker">' + esc(kicker) + '</p>'
+        + '<h3 style="margin:0;font-size:1.05rem">' + esc(r.qurum || '—') + '</h3>'
+        + '<dl class="nk303-meta">'
+        + '<div><dt>İl</dt><dd>' + esc(r.year || '—') + '</dd></div>'
+        + '<div><dt>Status</dt><dd>' + esc(vis.label) + ' · ' + esc(statusName) + '</dd></div>'
+        + metaExtra
+        + '<div><dt>Başlanğıc</dt><dd>' + esc(start ? fmtDate(start) : NA) + '</dd></div>'
+        + '<div><dt>Son yenilənmə</dt><dd>' + esc(updated ? fmtDate(updated) : NA) + '</dd></div>'
+        + '<div><dt>Tapşırıq</dt><dd class="nk303-meta-task">' + issueLinkHtml(r.key) + '</dd></div>'
+        + '</dl></div>'
+        + '<div>'
+        + '<p class="nk303-hint">Yekun nəticə</p>'
+        + '<div class="nk303-score">' + scoreHtml + '</div></div></div>'
+        + processBlock
+        + '</section>';
+    if (section === 'exq') {
+        var digitPanel = '';
+        if (r.exqStages && typeof exqOrgStagesPanelHtml === 'function') {
+            digitPanel = '<section class="nk303-card"><div class="svc-digit">'
+                + exqOrgStagesPanelHtml(r.exqStages, {
+                    title: 'Meyarlar üzrə nəticə və hədəf',
+                    hint: 'Şaquli xətt hədəfi göstərir · qırmızı rəqəm hədəfdən geriliyi bildirir'
+                })
+                + '</div></section>';
+        }
+        return head + digitPanel;
+    }
     var pillars = hubIsqPillarCards(t);
     var pillarHtml = pillars.map(function(p) {
         return '<article class="nk303-dir">'
@@ -1532,36 +1782,7 @@ function hubOrgDetailHtml(view) {
             + (p.text ? '<p class="nk303-hint">' + esc(clipText(p.text, 160)) + '</p>' : '')
             + '</article>';
     }).join('');
-    return '<section class="nk303-card" style="margin-bottom:0.55rem">'
-        + '<div class="nk303-profile">'
-        + '<div>'
-        + '<p class="nk303-kicker">Qurumun İSQ nəticələri</p>'
-        + '<h3 style="margin:0;font-size:1.05rem">' + esc(r.qurum || '—') + '</h3>'
-        + '<dl class="nk303-meta">'
-        + '<div><dt>İl</dt><dd>' + esc(r.year || '—') + '</dd></div>'
-        + '<div><dt>Status</dt><dd>' + esc(vis.label) + ' · ' + esc(statusName) + '</dd></div>'
-        + '<div><dt>Başlanğıc</dt><dd>' + esc(start ? fmtDate(start) : NA) + '</dd></div>'
-        + '<div><dt>Son yenilənmə</dt><dd>' + esc(updated ? fmtDate(updated) : NA) + '</dd></div>'
-        + '<div><dt>Tapşırıq</dt><dd class="nk303-meta-task">' + issueLinkHtml(r.key) + '</dd></div>'
-        + '</dl></div>'
-        + '<div>'
-        + '<p class="nk303-hint">Yekun nəticə</p>'
-        + '<div class="nk303-score">'
-        + (function() {
-            if (r.score != null) {
-                return '<strong>' + esc(fmt1(r.score) + '%') + '</strong>'
-                    + (star ? '<span class="nk303-mat">' + esc(exqStarLabel(star)) + '</span>'
-                        + '<div class="nk303-kpi-stars" style="margin-top:0.35rem">' + exqStarsHtml(star) + '</div>' : '');
-            }
-            var note = hubTextResultNote(r.result);
-            if (note) {
-                return '<span class="nk303-score-note nk303-score-note--lg" title="' + esc(note.full) + '">'
-                    + esc(note.short) + '</span>';
-            }
-            return '<strong>—</strong>';
-        })()
-        + '</div></div></div>'
-        + '</section>'
+    return head
         + '<section class="nk303-card"><h3>İSQ sütunları</h3>'
         + '<p class="nk303-hint">Qurum üzrə 10 qiymətləndirmə meyarı və status.</p>'
         + '<div class="nk303-dirs nk303-dirs--isq">' + pillarHtml + '</div>'
@@ -2759,6 +2980,65 @@ function processHtml(org) {
         + '</ol></div>'
         + '<p class="nk303-hint">Yerində baxış: hesabat hazırlanması istisna olmaqla bütün alt görüşlər Done olduqda tamamlanır. Status: '
         + esc(org.statusName) + ' (' + esc(org.visLabel) + ').</p>'
+        + '</div>';
+}
+
+/**
+ * İSQ / EXQ mərhələ timeline — hər addım uyğun Jira tapşırığına keçir.
+ * @param {object} task ana Jira issue
+ * @param {string} section 'isq' | 'exq'
+ * @param {{ statusName?: string, visLabel?: string, statusGroup?: string, hasResult?: boolean }} meta
+ */
+function assessProcessHtml(task, section, meta) {
+    meta = meta || {};
+    var kids = collectAssessChildIssues(task);
+    var matches = matchAssessStageIssues(kids);
+    var group = meta.statusGroup || getStatusGroup(meta.statusName) || 'other';
+    var idx = assessProcessIndex(task, group, !!meta.hasResult, matches, kids);
+    var last = ASSESS_PROCESS.length - 1;
+    idx = Math.min(Math.max(idx, 0), last);
+    var allMatchedDone = matches.every(function(m) { return !m.issue || m.done; });
+    var finished = (group === 'done' && (meta.hasResult || idx >= last))
+        || (allMatchedDone && matches.some(function(m) { return !!m.issue; }) && idx >= last);
+    var kindLabel = section === 'exq' ? 'EXQ' : 'İSQ';
+    var currentName = ASSESS_PROCESS[idx];
+    var nowLabel = finished
+        ? (kindLabel + ' tamamlanıb')
+        : ('Cari mərhələ: ' + currentName);
+    var parentHref = task && task.key ? jiraBrowseUrl(task.key) : '';
+    return '<div class="nk303-roadmap">'
+        + '<div class="nk303-roadmap-head">'
+        + '<div><h4>' + esc(kindLabel) + ' mərhələləri</h4>'
+        + '<p class="nk303-roadmap-now' + (finished ? ' is-done' : '') + '">' + esc(nowLabel) + '</p></div>'
+        + '</div>'
+        + '<div class="nk303-road-wrap">'
+        + '<ol class="nk303-road" aria-label="' + esc(kindLabel) + ' proses mərhələləri">'
+        + ASSESS_PROCESS.map(function(name, i) {
+            var match = matches[i] || {};
+            var done = finished || i < idx || (!!match.issue && match.done && i === idx && group === 'done');
+            if (!finished && i === idx && match.issue && match.done) done = true;
+            var on = !finished && !done && i === idx;
+            var cls = done ? ' is-done' : (on ? ' is-on' : '');
+            var stepState = done ? 'Tamamlanıb' : (on ? 'Cari mərhələ' : 'Gözlənilir');
+            var stepKey = (match.issue && match.issue.key) || (task && task.key) || '';
+            var href = stepKey ? jiraBrowseUrl(stepKey) : parentHref;
+            var title = match.issue
+                ? (stepKey + ' · ' + issueSummaryText(match.issue))
+                : (stepKey || '');
+            var inner = '<span class="nk303-road-node" aria-hidden="true">' + (done ? '✓' : String(i + 1)) + '</span>'
+                + '<span class="nk303-road-label">' + esc(name) + '</span>'
+                + '<span class="nk303-road-state">' + esc(stepState) + '</span>';
+            if (href) {
+                return '<li class="' + cls.trim() + '">'
+                    + '<a class="nk303-road-hit" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer"'
+                    + (title ? ' title="' + esc(title) + '"' : '') + '>'
+                    + inner + '</a></li>';
+            }
+            return '<li class="' + cls.trim() + '">' + inner + '</li>';
+        }).join('')
+        + '</ol></div>'
+        + '<p class="nk303-hint">Hər mərhələyə klikləyin — uyğun Jira tapşırığı açılır. Status: '
+        + esc(meta.statusName || '—') + (meta.visLabel ? ' (' + esc(meta.visLabel) + ')' : '') + '.</p>'
         + '</div>';
 }
 
@@ -4439,11 +4719,13 @@ function collapseExqHubRows(list, keepUnevaluated) {
                 time: Number(r.time) || 0,
                 canOpen: !!r.canOpen,
                 scoredKey: '',
+                task: r.task || null,
                 exqStages: {}
             };
             order.push(k);
         }
         var row = map[k];
+        if (!row.task && r.task) row.task = r.task;
         var svc = Number(r.svc);
         if (isFinite(svc) && svc > 0) row.svc += svc;
         if (r.score != null && isFinite(Number(r.score))) {
@@ -4452,6 +4734,7 @@ function collapseExqHubRows(list, keepUnevaluated) {
                 row.scoredKey = r.key;
                 row.key = r.key;
                 row.canOpen = !!r.canOpen;
+                if (r.task) row.task = r.task;
             }
         }
         if (r.exqStages) {
@@ -4671,7 +4954,7 @@ function hubTableHtml(view) {
         var href = r.key ? jiraBrowseUrl(r.key) : '';
         var detailId = r.key || r.qurum || '';
         var click = '';
-        if (view.section === 'isq' && detailId) {
+        if ((view.section === 'isq' || view.section === 'exq') && detailId) {
             click = ' class="is-click" onclick="nk303Call(\'hubDetail\',\'' + qarg(detailId) + '\')"'
                 + ' title="Qurum kartını aç: ' + esc(r.qurum || detailId) + '"';
         } else if (href) {
@@ -4679,14 +4962,14 @@ function hubTableHtml(view) {
         }
         var eyeId = r.key || fold(r.qurum) || '';
         var eyeBtn = (view.section === 'exq' && eyeId)
-            ? '<button type="button" class="nk303-eye-btn" title="Mərhələlər üzrə nəticə və hədəf"'
-                + ' aria-label="Mərhələlərə bax: ' + esc(r.qurum) + '"'
+            ? '<button type="button" class="nk303-eye-btn" title="Meyarlar üzrə nəticə və hədəf"'
+                + ' aria-label="Meyarlara bax: ' + esc(r.qurum) + '"'
                 + ' onclick="event.stopPropagation(); nk303Call(\'exqStages\',\'' + qarg(eyeId) + '\')">'
                 + iconSvg('eye') + '</button>'
             : '';
         var cells = '<td class="num">' + rank + '</td>'
             + '<td class="q" title="' + esc(r.qurum) + (r.key ? ' · ' + esc(r.key) : '') + '">'
-            + (view.section === 'isq'
+            + (view.section === 'isq' || view.section === 'exq'
                 ? esc(r.qurum)
                 : (href
                     ? '<a class="nk303-qurum-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">' + esc(r.qurum) + '</a>'
@@ -4751,7 +5034,7 @@ function hubTableHtml(view) {
         + '<p class="nk303-hint" style="margin:0">' + list.length
         + (view.section === 'exq' ? ' qurum' : ' qeyd')
         + (view.section !== 'exq' && view.rows && list.length !== view.rows.length ? ' / ' + view.rows.length : '')
-        + (view.section === 'isq'
+        + (view.section === 'isq' || view.section === 'exq'
             ? ' · sətirə klikləyib qurum kartını açın'
             : (slice.some(function(r) { return r.key; }) ? ' · sətirə klikləyib tapşırığı Jira-da açın' : ''))
         + '</p></div>'
@@ -4761,7 +5044,7 @@ function hubTableHtml(view) {
                 + '"><thead><tr>'
                 + heads.map(function(h) {
                     return '<th' + (!h ? ' class="nk303-eye-cell"' : '') + '>'
-                        + (h ? esc(h) : '<span class="sr-only">Mərhələlər</span>')
+                        + (h ? esc(h) : '<span class="sr-only">Meyarlar</span>')
                         + '</th>';
                 }).join('')
                 + '</tr></thead><tbody>' + body + '</tbody></table></div>' + pager
@@ -4979,8 +5262,8 @@ function mqKindSeries(st, kind) {
 
 function mqDynSub(view) {
     var period = (view && view.period) || '';
-    if (period && period !== 'Bütün illər') return 'Hər ay müraciət növünə görə say, ' + period;
-    return 'Hər ay müraciət növünə görə say';
+    if (period && period !== 'Bütün illər') return 'Eyni miqyasda, hər növ ayrı sətirdə, ' + period;
+    return 'Eyni miqyasda, hər növ ayrı sətirdə';
 }
 
 function mqKindDynSeries(st) {
@@ -5006,25 +5289,72 @@ var MQ_KIND_SHORT = {
     other: 'Digər'
 };
 
+function mqDynPlotHtml(data, color, dim, ymax) {
+    var n = data.length || 12;
+    var peak = 0;
+    var peakN = 0;
+    var peakAt = 0;
+    var i;
+    for (i = 0; i < n; i++) {
+        var v = data[i] || 0;
+        if (v > peak) { peak = v; peakAt = i; peakN = 1; }
+        else if (peak && v === peak) peakN++;
+    }
+    var W = 120;
+    var H = 32;
+    var max = ymax || peak || 1;
+    function xAt(idx) { return ((idx + 0.5) / n) * W; }
+    function yAt(val) {
+        var pad = 4;
+        return pad + (H - pad * 2) * (1 - val / max);
+    }
+    var d = '';
+    for (i = 0; i < n; i++) {
+        d += (i ? 'L' : 'M') + xAt(i).toFixed(2) + ' ' + yAt(data[i] || 0).toFixed(2) + ' ';
+    }
+    var area = d + 'L' + xAt(n - 1).toFixed(2) + ' ' + H + ' L' + xAt(0).toFixed(2) + ' ' + H + 'Z';
+    var peakHtml = '';
+    if (peak && peakN === 1) {
+        peakHtml = '<i class="mq-dyn-peak" style="left:' + (((peakAt + 0.5) / n) * 100).toFixed(2)
+            + '%;top:' + ((yAt(peak) / H) * 100).toFixed(2)
+            + '%;background:' + color + '"></i>';
+    }
+    var hits = '';
+    for (i = 0; i < n; i++) {
+        hits += '<button type="button" data-m="' + i + '" tabindex="-1" aria-label="' + MQ_MONTHS[i] + '"></button>';
+    }
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" aria-hidden="true">'
+        + '<path d="' + area + '" fill="' + color + '" fill-opacity="' + (dim ? '0.05' : '0.16') + '"></path>'
+        + '<path d="' + d + '" fill="none" stroke="' + color + '" stroke-opacity="' + (dim ? '0.35' : '1')
+        + '" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"></path>'
+        + '</svg>' + peakHtml + '<div class="mq-dyn-hits">' + hits + '</div>';
+}
+
 function mqKindDynamicsHtml(st) {
     var series = mqKindDynSeries(st);
     if (!series.length) return '<p class="mq-empty">Müraciət növü yoxdur.</p>';
     var kindOn = (MEQSED_NOVU_KINDS || []).concat(['other']).indexOf(ui.hubFilter) >= 0;
-    var legend = '<ul class="mq-dyn-legend" aria-label="Müraciət növləri">' + series.map(function(s) {
+    var ymax = 1;
+    series.forEach(function(s) {
+        s.data.forEach(function(v) { if (v > ymax) ymax = v; });
+    });
+    var rows = series.map(function(s) {
         var on = mqFilterOn(s.kind);
         var dim = kindOn && !on;
         var short = MQ_KIND_SHORT[s.kind] || s.label;
-        return '<li><button type="button" class="mq-dyn-leg' + (on ? ' is-on' : '') + (dim ? ' is-dim' : '') + '"'
-            + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
-            + ' title="' + esc(s.label) + '"'
-            + ' onclick="' + mqHit(s.kind) + '">'
-            + '<i style="background:' + s.color + '"></i>'
-            + '<span>' + esc(short) + '</span>'
-            + '<b>' + s.n + '</b>'
-            + '</button></li>';
-    }).join('') + '</ul>';
-    return '<div class="mq-dyn-chart" id="mqKindDynChart" role="img" aria-label="Müraciət növü üzrə aylıq dinamika"></div>'
-        + legend;
+        return '<div class="mq-dyn-row' + (on ? ' is-on' : '') + (dim ? ' is-dim' : '') + '" data-kind="' + esc(s.kind) + '">'
+            + '<button type="button" class="mq-dyn-name" title="' + esc(s.label) + '" aria-pressed="' + (on ? 'true' : 'false') + '" onclick="' + mqHit(s.kind) + '">'
+            + '<i style="background:' + s.color + '"></i><span>' + esc(short) + '</span></button>'
+            + '<b class="mq-dyn-n">' + s.n + '</b>'
+            + '<div class="mq-dyn-plot">' + mqDynPlotHtml(s.data, s.color, dim, ymax) + '</div>'
+            + '</div>';
+    }).join('');
+    var months = MQ_MONTHS.map(function(name) { return '<span>' + name + '</span>'; }).join('');
+    return '<div class="mq-dyn" id="mqKindDynChart" aria-label="Müraciət növü üzrə aylıq dinamika">'
+        + rows
+        + '<div class="mq-dyn-axis" aria-hidden="true"><span></span><span></span><div class="mq-dyn-months">' + months + '</div></div>'
+        + '<div class="mq-dyn-tip" hidden></div>'
+        + '</div>';
 }
 
 function mqOrgBlock(st) {
@@ -5645,188 +5975,59 @@ function drawMeqsedKindChart(st) {
     });
 }
 
-function mqDynTangents(ys) {
-    var n = ys.length;
-    var m = [];
-    var t = new Array(n);
-    var i;
-    for (i = 0; i < n - 1; i++) m[i] = ys[i + 1] - ys[i];
-    t[0] = m[0];
-    t[n - 1] = m[n - 2];
-    for (i = 1; i < n - 1; i++) t[i] = (m[i - 1] * m[i] <= 0) ? 0 : (m[i - 1] + m[i]) / 2;
-    for (i = 0; i < n - 1; i++) {
-        if (Math.abs(m[i]) < 1e-9) { t[i] = 0; t[i + 1] = 0; continue; }
-        var a = t[i] / m[i];
-        var b = t[i + 1] / m[i];
-        var h = a * a + b * b;
-        if (h > 9) {
-            var tau = 3 / Math.sqrt(h);
-            t[i] = tau * a * m[i];
-            t[i + 1] = tau * b * m[i];
-        }
-    }
-    return t;
-}
-
-function mqDynSamples(values, steps) {
-    var n = values.length;
-    var tg = mqDynTangents(values);
-    var out = [];
-    var i;
-    var s;
-    for (i = 0; i < n - 1; i++) {
-        var y0 = values[i];
-        var y1 = values[i + 1];
-        var c1 = y0 + tg[i] / 3;
-        var c2 = y1 - tg[i + 1] / 3;
-        var count = i === n - 2 ? steps + 1 : steps;
-        for (s = 0; s < count; s++) {
-            var t = s / steps;
-            var u = 1 - t;
-            var y = u * u * u * y0 + 3 * u * u * t * c1 + 3 * u * t * t * c2 + t * t * t * y1;
-            out.push(y < 0 ? 0 : y);
-        }
-    }
-    return out;
-}
-
-function mqDynNiceMax(v) {
-    var n = Math.max(1, v);
-    if (n <= 4) return Math.ceil(n);
-    var step = n <= 20 ? 5 : 10;
-    return Math.ceil(n / step) * step;
-}
-
 function drawMeqsedKindDynChart(st) {
     var host = document.getElementById('mqKindDynChart');
-    if (!host || !st) return;
+    if (!host || !st || !host.querySelector('.mq-dyn-row')) return;
     var series = mqKindDynSeries(st);
-    if (!series.length) return;
-    var w = host.clientWidth || 0;
-    var h = host.clientHeight || 0;
-    if (w < 40 || h < 40) {
-        requestAnimationFrame(function() { drawMeqsedKindDynChart(st); });
-        return;
-    }
-    var steps = 8;
-    var samples = series.map(function(s) { return mqDynSamples(s.data, steps); });
-    var len = samples[0].length;
-    var peak = 1;
-    var p;
-    series.forEach(function(s) {
-        s.data.forEach(function(v) { if (v > peak) peak = v; });
-    });
-    var ymax = mqDynNiceMax(peak);
-    var padL = 28;
-    var padR = 10;
-    var padT = 14;
-    var padB = 22;
-    var plotW = Math.max(10, w - padL - padR);
-    var plotH = Math.max(10, h - padT - padB);
-    function xAt(i) { return padL + (i / (len - 1)) * plotW; }
-    function yAt(v) { return padT + plotH - (v / ymax) * plotH; }
-    var kindOn = (MEQSED_NOVU_KINDS || []).concat(['other']).indexOf(ui.hubFilter) >= 0;
-    var grads = '';
-    var fills = '';
-    var strokes = '';
-    var dots = '';
-    var baseY = yAt(0).toFixed(2);
-    series.forEach(function(s, idx) {
-        var dim = kindOn && !mqFilterOn(s.kind);
-        var gid = 'mqDynFill' + idx;
-        grads += '<linearGradient id="' + gid + '" x1="0" y1="0" x2="0" y2="1">'
-            + '<stop offset="0%" stop-color="' + s.color + '" stop-opacity="' + (dim ? '0.04' : '0.20') + '"/>'
-            + '<stop offset="72%" stop-color="' + s.color + '" stop-opacity="' + (dim ? '0.02' : '0.05') + '"/>'
-            + '<stop offset="100%" stop-color="' + s.color + '" stop-opacity="0"/>'
-            + '</linearGradient>';
-        var samp = samples[idx];
-        var d = 'M ' + xAt(0).toFixed(2) + ' ' + yAt(samp[0]).toFixed(2);
-        for (p = 1; p < len; p++) d += ' L ' + xAt(p).toFixed(2) + ' ' + yAt(samp[p]).toFixed(2);
-        fills += '<path d="' + d + ' L ' + xAt(len - 1).toFixed(2) + ' ' + baseY + ' L ' + xAt(0).toFixed(2) + ' ' + baseY + ' Z" fill="url(#' + gid + ')"></path>';
-        strokes += '<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-opacity="' + (dim ? '0.22' : '1') + '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>';
-        s.data.forEach(function(v, mi) {
-            if (!v) return;
-            dots += '<circle cx="' + (padL + (mi / 11) * plotW).toFixed(2) + '" cy="' + yAt(v).toFixed(2) + '" r="3.1" fill="#fff" stroke="' + s.color + '" stroke-opacity="' + (dim ? '0.28' : '1') + '" stroke-width="1.8"/>';
-        });
-    });
-    var grid = '';
-    var ticks = ymax <= 5 ? ymax : Math.round(ymax / (ymax <= 20 ? 5 : 10));
-    var step = ymax / (ticks || 1);
-    var g;
-    for (g = 0; g <= ticks; g++) {
-        var val = Math.round(step * g);
-        var gy = yAt(val);
-        grid += '<line x1="' + padL + '" y1="' + gy.toFixed(2) + '" x2="' + (w - padR) + '" y2="' + gy.toFixed(2) + '" stroke="#e8edf3" stroke-width="1"/>';
-        grid += '<text x="' + (padL - 6) + '" y="' + (gy + 3).toFixed(2) + '" text-anchor="end" fill="#94a3b8" font-size="10" font-family="Inter, Segoe UI, sans-serif">' + val + '</text>';
-    }
-    var labels = '';
-    MQ_MONTHS.forEach(function(name, i) {
-        var x = padL + (i / 11) * plotW;
-        labels += '<text x="' + x.toFixed(2) + '" y="' + (h - 6) + '" text-anchor="middle" fill="#94a3b8" font-size="10" font-weight="600" font-family="Inter, Segoe UI, sans-serif">' + name + '</text>';
-    });
-    host.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" width="100%" height="100%" aria-hidden="true">'
-        + '<defs>' + grads + '</defs>'
-        + grid
-        + '<rect class="mq-dyn-hl" x="0" y="' + padT + '" width="0" height="' + plotH + '" fill="rgba(15,23,42,0.035)"></rect>'
-        + fills + strokes + dots + labels
-        + '</svg><div class="mq-dyn-tip" hidden></div>';
-    var svg = host.querySelector('svg');
+    var byKind = {};
+    series.forEach(function(s) { byKind[s.kind] = s; });
     var tip = host.querySelector('.mq-dyn-tip');
-    var hl = host.querySelector('.mq-dyn-hl');
-    function monthAt(clientX) {
-        var box = svg.getBoundingClientRect();
-        if (!box.width) return -1;
-        var x = ((clientX - box.left) / box.width) * w;
-        var t = (x - padL) / plotW;
-        if (t < -0.04 || t > 1.04) return -1;
-        return Math.max(0, Math.min(11, Math.round(t * 11)));
-    }
-    function kindAt(clientX, clientY) {
-        var month = monthAt(clientX);
-        if (month < 0) return '';
-        var box = svg.getBoundingClientRect();
-        var y = ((clientY - box.top) / box.height) * h;
-        var best = '';
-        var bestDist = 16;
-        series.forEach(function(s) {
-            var v = s.data[month] || 0;
-            if (!v) return;
-            var dist = Math.abs(y - yAt(v));
-            if (dist < bestDist) { bestDist = dist; best = s.kind; }
+    if (!tip) return;
+    function clearHot() {
+        host.querySelectorAll('.mq-dyn-hits button.is-hot').forEach(function(el) {
+            el.classList.remove('is-hot');
         });
-        return best;
     }
     host.onmousemove = function(ev) {
-        var month = monthAt(ev.clientX);
-        if (month < 0) { tip.hidden = true; hl.setAttribute('width', '0'); host.style.cursor = 'default'; return; }
-        var box = host.getBoundingClientRect();
-        var colW = plotW / 11;
-        var svgBox = svg.getBoundingClientRect();
-        var x = padL + (month / 11) * plotW;
-        hl.setAttribute('x', (x - colW / 2).toFixed(2));
-        hl.setAttribute('width', colW.toFixed(2));
-        var lines = series.map(function(s) {
-            var v = s.data[month] || 0;
-            if (!v) return '';
-            return '<span><i style="background:' + s.color + '"></i>' + esc(MQ_KIND_SHORT[s.kind] || s.label) + ' <b>' + v + '</b></span>';
-        }).filter(Boolean);
-        tip.innerHTML = '<strong>' + MQ_MONTHS[month] + '</strong>' + (lines.length ? lines.join('') : '<span>0</span>');
+        var btn = ev.target && ev.target.closest ? ev.target.closest('.mq-dyn-hits button') : null;
+        if (!btn || !host.contains(btn)) {
+            tip.hidden = true;
+            clearHot();
+            return;
+        }
+        var month = Number(btn.getAttribute('data-m'));
+        var row = btn.closest('.mq-dyn-row');
+        var kind = row ? row.getAttribute('data-kind') : '';
+        var s = byKind[kind];
+        clearHot();
+        host.querySelectorAll('.mq-dyn-hits button[data-m="' + month + '"]').forEach(function(el) {
+            el.classList.add('is-hot');
+        });
+        if (!s || month < 0 || month > 11) { tip.hidden = true; return; }
+        var v = s.data[month] || 0;
+        tip.innerHTML = '<strong>' + MQ_MONTHS[month] + '</strong>'
+            + '<span><i style="background:' + s.color + '"></i>'
+            + esc(MQ_KIND_SHORT[s.kind] || s.label) + ' <b>' + v + '</b></span>';
         tip.hidden = false;
-        var left = ((x / w) * svgBox.width) + (svgBox.left - box.left);
-        var tipW = tip.offsetWidth || 80;
+        var box = host.getBoundingClientRect();
+        var btnBox = btn.getBoundingClientRect();
+        var left = btnBox.left - box.left + btnBox.width / 2;
+        var tipW = tip.offsetWidth || 120;
         left = Math.max(tipW / 2 + 4, Math.min(box.width - tipW / 2 - 4, left));
         tip.style.left = left + 'px';
-        tip.style.top = '8px';
-        var over = kindAt(ev.clientX, ev.clientY);
-        host.style.cursor = over ? 'pointer' : 'default';
+        var top = btnBox.top - box.top - 6;
+        if (top < (tip.offsetHeight || 40) + 4) top = btnBox.bottom - box.top + (tip.offsetHeight || 40) + 6;
+        tip.style.top = top + 'px';
     };
     host.onmouseleave = function() {
         tip.hidden = true;
-        hl.setAttribute('width', '0');
-        host.style.cursor = 'default';
+        clearHot();
     };
     host.onclick = function(ev) {
-        var kind = kindAt(ev.clientX, ev.clientY);
+        var btn = ev.target && ev.target.closest ? ev.target.closest('.mq-dyn-hits button') : null;
+        if (!btn || !host.contains(btn)) return;
+        var row = btn.closest('.mq-dyn-row');
+        var kind = row ? row.getAttribute('data-kind') : '';
         if (kind) nk303Call('hubFilter', kind);
     };
 }

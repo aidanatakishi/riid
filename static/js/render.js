@@ -1,7 +1,7 @@
 ﻿import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda14';
-import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda53';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getEsdKind, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda25';
+import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda54';
 import { duePeriodLabel } from './report.js?v=idda34';
 
 export function renderStats(tasks) {
@@ -151,9 +151,8 @@ export function getDifficultyCardHtml(t, type) {
     if (type === 'reject' || statusGroup === 'rejected') {
         statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-rose-50 text-rose-700 border border-rose-100 px-2 py-1 rounded">Status: İmtina</span>';
     } else if (statusGroup === 'esd') {
-        var esdInner = getEsdInnerStatus(t);
         statusBadgeHtml = '<span class="font-mono text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100 px-2 py-1 rounded">ESD'
-            + (esdInner && esdInner.id !== 'none' ? ': ' + escapeTaskListHtml(esdInner.label) : '')
+            + esdDetailSuffix(t)
             + '</span>';
     } else if (statusGroup === 'review') {
         var reviewParty = getReviewParty(t);
@@ -206,8 +205,7 @@ function taskMatchesListSearch(t, query) {
         t.fields.assignee && t.fields.assignee.displayName,
         t.fields.issuetype && t.fields.issuetype.name,
         (function() {
-            var inner = getEsdInnerStatus(t);
-            return inner ? inner.label : '';
+            return esdDetailText(t);
         })(),
         (function() {
             var party = getReviewParty(t);
@@ -217,11 +215,25 @@ function taskMatchesListSearch(t, query) {
     return hay.indexOf(q) !== -1;
 }
 
-function esdInnerBadgeHtml(t) {
+function esdDetailText(t) {
+    var kind = getEsdKind(t);
     var inner = getEsdInnerStatus(t);
-    if (!inner) return '';
+    var parts = [];
+    if (kind && kind.id !== 'none' && kind.label) parts.push(kind.label);
+    if (inner && inner.id !== 'none' && inner.label) parts.push(inner.label);
+    return parts.join(' · ');
+}
+
+function esdDetailSuffix(t) {
+    var text = esdDetailText(t);
+    return text ? ': ' + escapeTaskListHtml(text) : '';
+}
+
+function esdInnerBadgeHtml(t) {
+    var text = esdDetailText(t);
+    if (!text) return '';
     return '<span class="assess-status assess-status--esd-inner" title="ESD Statusu">'
-        + escapeTaskListHtml(inner.label) + '</span>';
+        + escapeTaskListHtml(text) + '</span>';
 }
 
 function reviewPartyBadgeHtml(t) {

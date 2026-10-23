@@ -3914,14 +3914,109 @@ body.nk303-page:has(.nk303-hub-page.is-meqsed) {
     border-radius: 50%;
     flex: 0 0 auto;
 }
-.mq-dyn-chart {
+.mq-dyn {
     position: relative;
-    width: 100%;
-    flex: 1 1 auto;
-    min-height: 13.5rem;
-    height: clamp(13.5rem, 34vh, 17rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.12rem;
 }
-.mq-dyn-chart svg { display: block; }
+.mq-dyn-row,
+.mq-dyn-axis {
+    display: grid;
+    grid-template-columns: minmax(6.4rem, 8.6rem) 1.7rem minmax(0, 1fr);
+    column-gap: 0.45rem;
+    align-items: center;
+}
+.mq-dyn-row {
+    min-height: 2rem;
+    border-radius: 8px;
+}
+.mq-dyn-row:hover { background: #f8fafc; }
+.mq-dyn-row.is-on { background: #f4f7fb; }
+.mq-dyn-row.is-dim { opacity: 0.38; }
+.mq-dyn-name {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    margin: 0;
+    padding: 0.2rem 0.1rem 0.2rem 0.35rem;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.mq-dyn-name i {
+    width: 0.48rem;
+    height: 0.48rem;
+    border-radius: 50%;
+    flex: 0 0 auto;
+}
+.mq-dyn-name span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #334155;
+}
+.mq-dyn-row.is-on .mq-dyn-name span { color: #0f172a; }
+.mq-dyn-n {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #0f172a;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.mq-dyn-plot {
+    position: relative;
+    height: 2rem;
+    min-width: 0;
+}
+.mq-dyn-plot svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+.mq-dyn-peak {
+    position: absolute;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px #fff;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+.mq-dyn-hits {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+.mq-dyn-hits button {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+}
+.mq-dyn-hits button.is-hot { background: rgba(15, 23, 42, 0.055); }
+.mq-dyn-axis { margin-top: 0.1rem; }
+.mq-dyn-months {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+.mq-dyn-months span {
+    text-align: center;
+    font-size: 0.62rem;
+    font-weight: 600;
+    color: #94a3b8;
+    letter-spacing: -0.01em;
+}
 .mq-dyn-tip {
     position: absolute;
     z-index: 2;
@@ -3936,7 +4031,7 @@ body.nk303-page:has(.nk303-hub-page.is-meqsed) {
     font-size: 0.72rem;
     line-height: 1.3;
     pointer-events: none;
-    transform: translateX(-50%);
+    transform: translate(-50%, -100%);
 }
 .mq-dyn-tip[hidden] { display: none; }
 .mq-dyn-tip strong {
@@ -3955,52 +4050,6 @@ body.nk303-page:has(.nk303-hub-page.is-meqsed) {
     flex: 0 0 auto;
 }
 .mq-dyn-tip b { margin-left: auto; font-weight: 700; }
-.mq-dyn-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.2rem 0.35rem;
-    margin: 0.7rem 0 0;
-    padding: 0.55rem 0 0;
-    border-top: 1px solid #eef2f6;
-    list-style: none;
-}
-.mq-dyn-leg {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    max-width: 100%;
-    margin: 0;
-    padding: 0.16rem 0.4rem;
-    border: 0;
-    border-radius: 8px;
-    background: none;
-    font-family: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-.mq-dyn-leg:hover { background: #f8fafc; }
-.mq-dyn-leg.is-on { background: #f4f7fb; }
-.mq-dyn-leg.is-dim { opacity: 0.38; }
-.mq-dyn-leg i {
-    width: 0.48rem;
-    height: 0.48rem;
-    border-radius: 50%;
-    flex: 0 0 auto;
-}
-.mq-dyn-leg span {
-    min-width: 0;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #475569;
-    white-space: nowrap;
-}
-.mq-dyn-leg b {
-    font-size: 0.75rem;
-    font-weight: 700;
-    color: #0f172a;
-    font-variant-numeric: tabular-nums;
-}
-.mq-dyn-leg.is-on span { color: #0f172a; }
 .mq-month {
     flex: 1 1 auto;
     min-height: 10.5rem;

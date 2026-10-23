@@ -110,6 +110,7 @@ SEARCH_FIELDS = (
     "customfield_17511,customfield_17512,"
     "customfield_17634,customfield_17635,customfield_17636,customfield_17637,"
     "customfield_17638,customfield_17639,"
+    "customfield_17439,customfield_17632,customfield_17706,"
     "issuetype,subtasks,parent,issuelinks"
 )
 
@@ -125,6 +126,7 @@ HIERARCHY_FIELDS = (
     "customfield_17511,customfield_17512,"
     "customfield_17634,customfield_17635,customfield_17636,customfield_17637,"
     "customfield_17638,customfield_17639,"
+    "customfield_17439,customfield_17632,customfield_17706,"
     "issuetype,subtasks,parent,issuelinks"
 )
 

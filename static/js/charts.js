@@ -1,8 +1,8 @@
 ﻿import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, ESD_INNER_STAGES, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda14';
-import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda53';
-import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda16';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, getEsdKind, ESD_KIND_OPTIONS, esdKindById, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda25';
+import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda54';
+import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda18';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda4';
 
 var chartRebuildRaf = {};
@@ -72,12 +72,28 @@ export function renderStatusChart(tasks) {
     debounceChartRebuild('statusChart', function() { drawStatusChart(tasks); });
 }
 
-function esdInnerStageMeta(id) {
-    var i;
-    for (i = 0; i < (ESD_INNER_STAGES || []).length; i++) {
-        if (ESD_INNER_STAGES[i].id === id) return ESD_INNER_STAGES[i];
-    }
-    return null;
+function esdRowSlug(id, label) {
+    var f = normalizeStr(label || id || '');
+    if (id === 'gelen' || f.indexOf('gələn') !== -1 || f.indexOf('gelen') !== -1) return 'gelen';
+    if (id === 'gonderilen' || f.indexOf('göndərilən') !== -1 || f.indexOf('gonderilen') !== -1) return 'gonderilen';
+    if (id === 'none' || id === 'all') return id === 'all' ? 'all' : 'none';
+    if (f.indexOf('viza') !== -1) return 'viza';
+    if (f.indexOf('imza') !== -1) return 'imza';
+    if (f.indexOf('göndər') !== -1 || f.indexOf('gonder') !== -1) return 'gonder';
+    if (f.indexOf('daxil') !== -1) return 'daxil';
+    if (f.indexOf('qeydiyyat') !== -1) return 'qeydiyyat';
+    return 'opt';
+}
+
+function esdStatusRank(id, label) {
+    if (id === 'none') return 90;
+    var f = normalizeStr(label || '');
+    if (f.indexOf('qeydiyyat') !== -1) return 10;
+    if (f.indexOf('daxil') !== -1) return 20;
+    if (f.indexOf('viza') !== -1) return 30;
+    if (f.indexOf('imza') !== -1) return 40;
+    if (f.indexOf('göndər') !== -1 || f.indexOf('gonder') !== -1) return 50;
+    return 60;
 }
 
 function reviewPartyMeta(id) {
@@ -133,7 +149,9 @@ export function closeEsdStagePopup() {
 function openEsdStagePopup() {
     var panel = document.getElementById('esdStatusPanel');
     var chips = document.getElementById('esdStatusChips');
-    if (!panel || !chips || !chips.innerHTML) return;
+    var kinds = document.getElementById('esdKindChips');
+    if (!panel || !chips) return;
+    if (!chips.innerHTML && !(kinds && kinds.innerHTML)) return;
     esdPopupOpen = true;
     esdIgnoreUntil = Date.now() + 350;
     panel.classList.remove('hidden');
@@ -251,6 +269,7 @@ function openStatusGroup(k, ev) {
     if (state.currentStatusFilter === 'esd' || state.currentStatusFilter === 'review') {
         state.currentStatusFilter = null;
         state.currentEsdInnerFilter = null;
+        state.currentEsdKindFilter = null;
         state.currentReviewPartyFilter = null;
         applyFilters();
     }
@@ -286,46 +305,114 @@ function renderStatusLegend(keys, data, colors, total) {
     syncEsdLegendOpen();
 }
 
+function esdChoiceButton(opts) {
+    var id = opts.id;
+    var label = opts.label;
+    var count = opts.count;
+    var selected = !!opts.selected;
+    var onclick = opts.onclick;
+    var title = opts.title || label;
+    var arg = String(id).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
+    var slug = esdRowSlug(id, label);
+    return '<button type="button" class="esd-status-row is-' + slug + (selected ? ' is-selected' : '') + '"'
+        + ' onclick="' + onclick + '(\'' + arg + '\')"'
+        + ' title="' + escapeEsdChip(title) + '">'
+        + '<span class="esd-status-dot"></span>'
+        + '<span>' + escapeEsdChip(label) + '</span><b>' + count + '</b></button>';
+}
+
 export function renderEsdStatusBreakdown(tasks) {
     var panel = document.getElementById('esdStatusPanel');
     var chips = document.getElementById('esdStatusChips');
+    var kindHost = document.getElementById('esdKindChips');
     if (!panel || !chips) return;
     var esdTasks = countableWorkUnits(tasks).filter(function(t) {
         return getStatusGroup(t.fields.status.name) === 'esd';
     });
     if (!esdTasks.length) {
         chips.innerHTML = '';
+        if (kindHost) kindHost.innerHTML = '';
         closeEsdStagePopup();
         return;
     }
-    var counts = {};
-    (ESD_INNER_STAGES || []).forEach(function(stage) {
-        counts[stage.id] = { id: stage.id, label: stage.label, n: 0 };
-    });
+    var kindCounts = { gelen: 0, gonderilen: 0, none: 0 };
     esdTasks.forEach(function(t) {
+        var kind = getEsdKind(t) || { id: 'none' };
+        if (!Object.prototype.hasOwnProperty.call(kindCounts, kind.id)) kindCounts[kind.id] = 0;
+        kindCounts[kind.id] += 1;
+    });
+    var selectedKind = state.currentStatusFilter === 'esd' ? (state.currentEsdKindFilter || 'all') : '';
+    var kindHtml = esdChoiceButton({
+        id: 'all', label: 'Hamısı', count: esdTasks.length,
+        selected: !selectedKind || selectedKind === 'all',
+        onclick: 'filterEsdKind', title: 'Bütün ESD tapşırıqları'
+    });
+    (ESD_KIND_OPTIONS || []).forEach(function(opt) {
+        if (opt.id === 'none' && !kindCounts.none) return;
+        if (opt.id !== 'none' && opt.id !== 'gelen' && opt.id !== 'gonderilen' && !kindCounts[opt.id]) return;
+        var meta = esdKindById(opt.id) || opt;
+        kindHtml += esdChoiceButton({
+            id: opt.id,
+            label: meta.label,
+            count: kindCounts[opt.id] || 0,
+            selected: selectedKind === opt.id,
+            onclick: 'filterEsdKind',
+            title: 'ESD: ' + meta.label
+        });
+    });
+    Object.keys(kindCounts).forEach(function(id) {
+        if (id === 'gelen' || id === 'gonderilen' || id === 'none') return;
+        if (!kindCounts[id]) return;
+        var sample = esdTasks.filter(function(t) {
+            var kind = getEsdKind(t);
+            return kind && kind.id === id;
+        })[0];
+        var kind = sample ? getEsdKind(sample) : null;
+        kindHtml += esdChoiceButton({
+            id: id,
+            label: (kind && kind.label) || id,
+            count: kindCounts[id],
+            selected: selectedKind === id,
+            onclick: 'filterEsdKind',
+            title: 'ESD: ' + ((kind && kind.label) || id)
+        });
+    });
+    if (kindHost) kindHost.innerHTML = kindHtml;
+
+    var scoped = esdTasks.filter(function(t) {
+        if (!selectedKind || selectedKind === 'all') return true;
+        var kind = getEsdKind(t);
+        return !!(kind && kind.id === selectedKind);
+    });
+    var counts = {};
+    scoped.forEach(function(t) {
         var inner = getEsdInnerStatus(t) || { id: 'none', label: 'Seçilməyib' };
         if (!counts[inner.id]) counts[inner.id] = { id: inner.id, label: inner.label, n: 0 };
         counts[inner.id].n += 1;
         if (inner.label) counts[inner.id].label = inner.label;
     });
-    var order = (ESD_INNER_STAGES || []).map(function(s) { return s.id; });
-    var extras = Object.keys(counts).filter(function(id) { return order.indexOf(id) === -1; }).sort();
-    var ids = order.concat(extras);
+    var ids = Object.keys(counts).sort(function(a, b) {
+        var ra = esdStatusRank(a, counts[a].label);
+        var rb = esdStatusRank(b, counts[b].label);
+        if (ra !== rb) return ra - rb;
+        return String(counts[a].label).localeCompare(String(counts[b].label), 'az');
+    });
     var selectedInner = state.currentStatusFilter === 'esd' ? (state.currentEsdInnerFilter || 'all') : '';
-    var html = '<button type="button" class="esd-status-row is-all' + (selectedInner === 'all' ? ' is-selected' : '') + '" onclick="filterEsdInnerStatus(\'all\')" title="Bütün ESD tapşırıqları">'
-        + '<span class="esd-status-dot"></span><span>Hamısı</span><b>' + esdTasks.length + '</b></button>';
+    var html = esdChoiceButton({
+        id: 'all', label: 'Hamısı', count: scoped.length,
+        selected: !selectedInner || selectedInner === 'all',
+        onclick: 'filterEsdInnerStatus', title: 'Bu seçimdəki bütün ESD statusları'
+    });
     html += ids.map(function(id) {
         var row = counts[id];
-        var meta = esdInnerStageMeta(id);
-        var label = (meta && meta.label) || row.label || id;
-        var arg = String(id).replace(/\\/g, '\\\\').replace(/'/g, '\\\'');
-        var slug = escapeEsdChip(String(id).replace(/[^a-z0-9]+/gi, '-'));
-        var isSel = selectedInner === id;
-        return '<button type="button" class="esd-status-row is-' + slug + (isSel ? ' is-selected' : '') + '"'
-            + ' onclick="filterEsdInnerStatus(\'' + arg + '\')"'
-            + ' title="ESD Statusu: ' + escapeEsdChip(label) + '">'
-            + '<span class="esd-status-dot"></span>'
-            + '<span>' + escapeEsdChip(label) + '</span><b>' + row.n + '</b></button>';
+        return esdChoiceButton({
+            id: id,
+            label: row.label || id,
+            count: row.n,
+            selected: selectedInner === id,
+            onclick: 'filterEsdInnerStatus',
+            title: 'ESD Statusu: ' + (row.label || id)
+        });
     }).join('');
     chips.innerHTML = html;
     if (!panel._esdStopBound) {
@@ -638,7 +725,9 @@ function drawAssigneeChart(tasks) {
     }
     state.assigneeChart = null;
     if (!labels.length) {
-        list.innerHTML = '<p class="workload-empty">Bu dövr üçün icraçı məlumatı yoxdur.</p>';
+        list.innerHTML = isDashboardDataPending()
+            ? dashChartLoadingHtml('İş yükü yüklənir…')
+            : '<p class="workload-empty">Bu dövr üçün icraçı məlumatı yoxdur.</p>';
         return;
     }
     var maxTotal = Math.max.apply(null, labels.map(function(p) { return peopleCounts[p]; })) || 1;
@@ -716,6 +805,18 @@ function drawAssigneeChart(tasks) {
 
 var DIRECTION_CARD_TITLE = 'İstiqamətlər';
 
+function isDashboardDataPending() {
+    return !!(state.dashboardPartialLoad || state.dashboardBgHydrateBusy
+        || (state.dashboardFetchBusy && !state.hasLoadedDashboard));
+}
+
+function dashChartLoadingHtml(label) {
+    return '<div class="dash-chart-loading" role="status" aria-live="polite">'
+        + '<span class="dash-chart-spinner" aria-hidden="true"></span>'
+        + '<span>' + (label || 'Yüklənir…') + '</span>'
+        + '</div>';
+}
+
 function syncDirectionCardTitle() {
     var el = document.getElementById('epicChartTitle');
     var list = document.getElementById('epicChartList');
@@ -752,7 +853,9 @@ export function renderEpicChart(tasks) {
         if (existing) existing.destroy();
     }
     if (labels.length === 0) {
-        list.innerHTML = '<p class="text-slate-400 text-sm text-center py-8">Bu dövr üçün istiqamət məlumatı yoxdur.</p>';
+        list.innerHTML = isDashboardDataPending()
+            ? dashChartLoadingHtml('İstiqamətlər yüklənir…')
+            : '<p class="text-slate-400 text-sm text-center py-8">Bu dövr üçün istiqamət məlumatı yoxdur.</p>';
         return;
     }
     var max = 1;

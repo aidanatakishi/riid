@@ -339,14 +339,22 @@ export function isActiveExecutionGroup(g) {
     return g === 'progress' || g === 'esd' || g === 'review';
 }
 
-/** Jira «ESD Statusu» seçimləri — workflow ESD olanda daxili mərhələ. */
+/** Jira «ESD» seçimi — “ESD”-dən gələn / “ESD” ilə göndərilən. */
+export var ESD_KIND_FIELD_ID = 'customfield_17632';
+/** Jira «ESD Statusu» mətn xanası: mərhələ — şəxs, tarix. */
+export var ESD_STATUS_TEXT_FIELD_ID = 'customfield_17706';
+/** Köhnə «ESD Statusu» seçim siyahısı — mətndə şəxs yoxdursa ehtiyat. */
+export var ESD_STATUS_SELECT_FIELD_ID = 'customfield_17439';
+
+export var ESD_KIND_OPTIONS = [
+    { id: 'gelen', label: '"ESD"-dən gələn' },
+    { id: 'gonderilen', label: '"ESD" ilə göndərilən' },
+    { id: 'none', label: 'Seçilməyib' }
+];
+
+/** Köhnə sabit mərhələlər. Canlı statistika Jira mətnindən gəlir. */
 export var ESD_INNER_STAGES = [
-    { id: 'none', label: 'Seçilməyib' },
-    { id: 'huseyn', label: 'Hüseyn Məmmədov' },
-    { id: 'viza', label: 'Nazirlikdə vizada' },
-    { id: 'daxil', label: 'Daxildə' },
-    { id: 'imza', label: 'İmzada' },
-    { id: 'gonder', label: 'Göndərilib' }
+    { id: 'none', label: 'Seçilməyib' }
 ];
 
 function isEsdStatusFieldName(folded) {
@@ -363,6 +371,8 @@ export function collectEsdStatusFieldIds() {
         seen[id] = true;
         ids.push(id);
     }
+    add(ESD_STATUS_TEXT_FIELD_ID);
+    add(ESD_STATUS_SELECT_FIELD_ID);
     var named = findJiraFieldsByNeedles(['esd statusu', 'esd status']);
     var i;
     for (i = 0; i < named.length; i++) add(named[i].id);
@@ -375,50 +385,147 @@ export function collectEsdStatusFieldIds() {
     return ids;
 }
 
-function classifyEsdInnerLabel(text) {
-    var raw = String(text || '').trim();
-    var f = foldAz(raw);
-    if (!f || f === 'none' || f === 'null' || f === 'secilmeyib' || f === 'qeyd edilmeyib') {
-        return { id: 'none', label: 'Seçilməyib' };
-    }
-    if (f.indexOf('gonder') !== -1) return { id: 'gonder', label: 'Göndərilib' };
-    if (f.indexOf('imza') !== -1) return { id: 'imza', label: 'İmzada' };
-    if (f.indexOf('viza') !== -1 || f.indexOf('nazirlik') !== -1) {
-        return { id: 'viza', label: 'Nazirlikdə vizada' };
-    }
-    if (f.indexOf('daxil') !== -1) return { id: 'daxil', label: 'Daxildə' };
-    if (f.indexOf('huseyn') !== -1 || f.indexOf('memmedov') !== -1 || f.indexOf('mammadov') !== -1) {
-        return { id: 'huseyn', label: 'Hüseyn Məmmədov' };
-    }
-    return { id: 'opt:' + f.replace(/\s+/g, '-'), label: raw };
+function isEsdKindFieldName(folded) {
+    return folded === 'esd';
 }
 
-function readEsdStatusRaw(t) {
-    if (!t || !t.fields) return null;
-    var ids = collectEsdStatusFieldIds();
+export function collectEsdKindFieldIds() {
+    var ids = [];
+    var seen = {};
+    function add(id) {
+        if (!id || seen[id]) return;
+        seen[id] = true;
+        ids.push(id);
+    }
+    add(ESD_KIND_FIELD_ID);
+    var names = state.jiraFieldNames || {};
+    var key;
+    for (key in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, key)) continue;
+        if (isEsdKindFieldName(foldAz(names[key]))) add(key);
+    }
+    return ids;
+}
+
+function isEsdStatusNarrative(text) {
+    var s = String(text || '');
+    if (/[—–]/.test(s)) return true;
+    return /\d{1,2}[./]\d{1,2}[./]\d{2,4}/.test(s);
+}
+
+/** Tarixi atır, mərhələ və şəxsi saxlayır: «Vizadadır — Cəmşid Naxçıvanski». */
+export function formatEsdStatusLabel(raw) {
+    var s = String(raw || '').replace(/\s+/g, ' ').trim();
+    if (!s) return '';
+    s = s.replace(/\b\d{1,2}[./]\d{1,2}[./]\d{2,4}\b/g, ' ');
+    s = s.replace(/\b\d{4}-\d{2}-\d{2}\b/g, ' ');
+    s = s.replace(/\s*[,;]\s*(?=[,;]|$)/g, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    s = s.replace(/^[,\-–—\s]+|[,\-–—\s]+$/g, '').trim();
+    s = s.replace(/\s*[—–]\s*/g, ' — ');
+    s = s.replace(/\s+-\s+/g, ' — ');
+    return s.replace(/\s+/g, ' ').trim();
+}
+
+function esdStatusKey(label) {
+    var f = foldAz(label);
+    if (!f) return 'none';
+    return 'st-' + f.replace(/\s+/g, '-');
+}
+
+function readNamedFieldByIds(t, ids, nameMatch) {
+    if (!t || !t.fields) return '';
     var i;
+    var text;
     for (i = 0; i < ids.length; i++) {
-        var text = fieldValueText(t.fields[ids[i]]);
+        text = fieldValueText(t.fields[ids[i]]);
         if (text) return text;
     }
+    if (!nameMatch) return '';
     var names = state.jiraFieldNames || {};
     var key;
     for (key in t.fields) {
         if (!Object.prototype.hasOwnProperty.call(t.fields, key)) continue;
-        if (!isEsdStatusFieldName(foldAz(names[key] || key))) continue;
+        if (!nameMatch(foldAz(names[key] || ''))) continue;
         text = fieldValueText(t.fields[key]);
         if (text) return text;
+    }
+    return '';
+}
+
+function readEsdStatusRaw(t) {
+    if (!t || !t.fields) return '';
+    var narrative = '';
+    var fallback = '';
+    var ids = collectEsdStatusFieldIds();
+    var i;
+    var text;
+    for (i = 0; i < ids.length; i++) {
+        text = fieldValueText(t.fields[ids[i]]);
+        if (!text) continue;
+        if (ids[i] === ESD_STATUS_TEXT_FIELD_ID || isEsdStatusNarrative(text)) {
+            if (!narrative || ids[i] === ESD_STATUS_TEXT_FIELD_ID) narrative = text;
+            continue;
+        }
+        if (!fallback) fallback = text;
+    }
+    if (narrative) return narrative;
+    if (fallback) return fallback;
+    return readNamedFieldByIds(t, [], isEsdStatusFieldName);
+}
+
+export function classifyEsdKind(raw) {
+    var text = String(raw || '').replace(/\s+/g, ' ').trim();
+    var f = foldAz(text);
+    if (!f || f === 'none' || f === 'null' || f === 'secilmeyib' || f === 'qeyd edilmeyib') {
+        return { id: 'none', label: 'Seçilməyib' };
+    }
+    if (f.indexOf('gonder') !== -1) return { id: 'gonderilen', label: '"ESD" ilə göndərilən' };
+    if (f.indexOf('gelen') !== -1) return { id: 'gelen', label: '"ESD"-dən gələn' };
+    return { id: 'opt-' + f.replace(/\s+/g, '-'), label: text };
+}
+
+/** Workflow ESD olan tapşırığın «ESD» xanası. */
+export function getEsdKind(t) {
+    if (!t || !t.fields || !t.fields.status) return null;
+    if (getStatusGroup(t.fields.status.name || '') !== 'esd') return null;
+    var raw = readNamedFieldByIds(t, collectEsdKindFieldIds(), isEsdKindFieldName);
+    return classifyEsdKind(raw);
+}
+
+export function esdKindById(id) {
+    var i;
+    for (i = 0; i < ESD_KIND_OPTIONS.length; i++) {
+        if (ESD_KIND_OPTIONS[i].id === id) return ESD_KIND_OPTIONS[i];
     }
     return null;
 }
 
-/** Workflow statusu ESD olan tapşırığın daxili «ESD Statusu» sahəsi. */
+/** Workflow statusu ESD olan tapşırığın «ESD Statusu»: mərhələ və kimdə olduğu, tarixsiz. */
 export function getEsdInnerStatus(t) {
     if (!t || !t.fields || !t.fields.status) return null;
     if (getStatusGroup(t.fields.status.name || '') !== 'esd') return null;
     var raw = readEsdStatusRaw(t);
-    if (!raw) return { id: 'none', label: 'Seçilməyib' };
-    return classifyEsdInnerLabel(raw);
+    var label = formatEsdStatusLabel(raw);
+    if (!label) return { id: 'none', label: 'Seçilməyib' };
+    var folded = foldAz(label);
+    if (!folded || folded === 'secilmeyib' || folded === 'qeyd edilmeyib') {
+        return { id: 'none', label: 'Seçilməyib' };
+    }
+    return { id: esdStatusKey(label), label: label };
+}
+
+export function esdStatusLabelById(id, tasks) {
+    if (!id || id === 'all') return '';
+    if (id === 'none') return 'Seçilməyib';
+    var list = tasks || [];
+    var i;
+    var inner;
+    for (i = 0; i < list.length; i++) {
+        inner = getEsdInnerStatus(list[i]);
+        if (inner && inner.id === id) return inner.label;
+    }
+    return '';
 }
 
 /** Jira keçidi «Rəy gözlənilir» olanda tələb olunan «Rəy verən tərəf». */
@@ -1904,6 +2011,10 @@ export function matchesDashContextFilters(t, skip) {
     if (!skip.status && state.currentStatusFilter) {
         var g = getStatusGroup(t.fields.status && t.fields.status.name);
         if (g !== state.currentStatusFilter) return false;
+        if (state.currentStatusFilter === 'esd' && state.currentEsdKindFilter) {
+            var esdKind = getEsdKind(t);
+            if (!esdKind || esdKind.id !== state.currentEsdKindFilter) return false;
+        }
         if (state.currentStatusFilter === 'esd' && state.currentEsdInnerFilter) {
             var inner = getEsdInnerStatus(t);
             if (!inner || inner.id !== state.currentEsdInnerFilter) return false;
