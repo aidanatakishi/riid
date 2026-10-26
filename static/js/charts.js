@@ -1,6 +1,6 @@
 ﻿import { state } from './state.js';
 import { getInitials, normalizeStr, showToast } from './utils.js?v=idda7';
-import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, getEsdKind, ESD_KIND_OPTIONS, esdKindById, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda27';
+import { collectOtherDashboardUnits, countableWorkUnits, currentSprintName, canonicalQurumName, comparePriorityNames, getEsdInnerStatus, getEsdKind, ESD_KIND_OPTIONS, esdKindById, getReviewParty, REVIEW_PARTY_OPTIONS, getPriorityColor, getPriorityTextColor, getQurumName, getTaskPriorityName, isOtherDashboardUnit, qurumMatchKey, sameQurum, getSprintDateRange, getStatusGroup, hasValidDifficulty, isActiveExecutionGroup, resolveDirection } from './model.js?v=idda31';
 import { applyFilters, filterQurumByStatus, filterQurumList, onEsdStatusClicked, onReviewStatusClicked, rememberListAction, selectDailyUser, setQurumFilter, showDifficulties } from './filters.js?v=idda54';
 import { openTaskListSection, renderTaskList, showUserActivity } from './render.js?v=idda19';
 import { STATUS, catColorByKey, seriesColor } from './palette.js?v=idda4';
@@ -759,7 +759,8 @@ function drawAssigneeChart(tasks) {
             var segPct = Math.max(4, (n / total) * 100);
             var segOn = activePerson === person && activePri === pri;
             html += '<button type="button" class="workload-seg' + (segOn ? ' is-active' : '') + '"'
-                + ' style="width:' + segPct + '%;background:' + getPriorityColor(pri) + '"'
+                + ' style="width:' + segPct + '%;background:' + getPriorityColor(pri)
+                + ';color:' + getPriorityTextColor(pri) + '"'
                 + ' data-workload-person="' + escapeWorkloadHtml(person) + '"'
                 + ' data-workload-pri="' + escapeWorkloadHtml(pri) + '"'
                 + ' title="' + escapeWorkloadHtml(person) + ' · ' + escapeWorkloadHtml(pri) + ': ' + n + '">'

@@ -98,7 +98,8 @@ var PRIORITY_RANK = {
     trivial: 4,
     enasagi: 4
 };
-var PRIORITY_COLORS = ['#DC2626', '#EA580C', '#D97706', '#0284C7', '#64748B'];
+var PRIORITY_COLORS = ['#e11d48', '#f97316', '#7c3aed', '#a78bfa', '#c4b5fd'];
+var PRIORITY_TEXT_COLORS = ['#ffffff', '#ffffff', '#ffffff', '#2e1065', '#4c1d95'];
 
 function foldPriorityKey(s) {
     return compactIssueTypeName(s);
@@ -134,7 +135,14 @@ export function getPriorityColor(name) {
     var rank = priorityRank(name);
     if (rank === 9) return '#94a3b8';
     if (rank >= 0 && rank < PRIORITY_COLORS.length) return PRIORITY_COLORS[rank];
-    return '#78716c';
+    return '#7c3aed';
+}
+
+export function getPriorityTextColor(name) {
+    var rank = priorityRank(name);
+    if (rank === 9) return '#334155';
+    if (rank >= 0 && rank < PRIORITY_TEXT_COLORS.length) return PRIORITY_TEXT_COLORS[rank];
+    return '#ffffff';
 }
 
 /** Jira Scrum lövhə sütunları: Planlaşdırılıb, İcradadır, Rəy, ESD, Bloklanıb, İmtina, İcra edilib. */
