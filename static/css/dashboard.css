@@ -207,8 +207,11 @@ body.is-loading #done-bot:not(.is-boot-hero):not(.is-boot-landing),
     .app-page.is-ready .workload-bar,
     .app-page.is-ready .direction-bar,
     .load-fun-dots span,
-    .app-data-progress::after {
+    .app-data-progress::after,
+    .tl-row--due-soon .tl-row-main {
         animation: none !important;
+        border-color: rgba(251, 146, 60, 0.45);
+        box-shadow: none;
     }
     #loadingOverlay {
         transition: none !important;
@@ -3825,6 +3828,32 @@ body.assess-modal-open { overflow: hidden; }
 .tl-row--parent .tl-row-main { cursor: pointer; }
 .tl-row.is-open .tl-row-main { background: #f8fafc; }
 .tl-row--sub .tl-row-main { background: #f8fafc; }
+.tl-row--due-soon .tl-row-main {
+    margin: 0.2rem 0.55rem;
+    padding-left: calc(1.25rem - 0.55rem);
+    padding-right: calc(1.25rem - 0.55rem);
+    border-radius: 14px;
+    background: rgba(255, 251, 235, 0.72);
+    border: 1px solid rgba(253, 186, 116, 0.35);
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+    animation: tl-due-soon-pulse 2.6s ease-in-out infinite;
+}
+.tl-row--due-soon .tl-row-main:hover,
+.tl-row--due-soon.is-open .tl-row-main,
+.tl-row--due-soon.tl-row--sub .tl-row-main {
+    background: rgba(254, 243, 199, 0.85);
+    border-color: rgba(251, 191, 36, 0.42);
+}
+@keyframes tl-due-soon-pulse {
+    0%, 100% {
+        border-color: rgba(253, 186, 116, 0.28);
+        box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+    }
+    50% {
+        border-color: rgba(251, 146, 60, 0.55);
+        box-shadow: 0 0 0 3px rgba(253, 230, 138, 0.35);
+    }
+}
 .tl-lead {
     flex-shrink: 0;
     width: 1.15rem;
@@ -3979,6 +4008,7 @@ body.assess-modal-open { overflow: hidden; }
 .tl-dates b { color: #475569; font-weight: 600; }
 .tl-date-done { color: #047857; }
 .tl-date-late { color: #dc2626; font-weight: 700; }
+.tl-date-soon { color: #d97706; font-weight: 600; }
 .tl-date-early { color: #0f766e; font-weight: 700; }
 .tl-open {
     flex-shrink: 0;

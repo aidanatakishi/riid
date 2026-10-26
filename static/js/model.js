@@ -1758,6 +1758,26 @@ export function getDateStatus(t) {
     return 'upcoming';
 }
 
+/** Açıq task üçün bitməyə qalan gün sayı (0 = bu gün). Gecikibsə mənfi. */
+export function daysUntilDue(t) {
+    var dueDay = parseLocalDay(getTaskDueDate(t));
+    if (!dueDay) return null;
+    var asOf = getStatusAsOfDate();
+    return Math.round((dueDay.getTime() - asOf.getTime()) / 86400000);
+}
+
+/** Bitmə vaxtına withinDays (default 2) gün və ya daha az qalıbsa — tamamlanmamış tasklar. */
+export function isDueSoon(t, withinDays) {
+    if (!t || !t.fields) return false;
+    var limit = withinDays == null ? 2 : Number(withinDays);
+    if (isNaN(limit) || limit < 0) limit = 2;
+    var statusGroup = getStatusGroup(t.fields.status ? t.fields.status.name : '');
+    if (statusGroup === 'done' || statusGroup === 'rejected') return false;
+    var days = daysUntilDue(t);
+    if (days == null) return false;
+    return days >= 0 && days <= limit;
+}
+
 function parseSprintItem(item) {
     if (!item) return null;
     if (typeof item === 'object' && !Array.isArray(item) && item.name) {

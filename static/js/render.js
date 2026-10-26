@@ -1,6 +1,6 @@
 ﻿import { state } from './state.js';
 import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
-import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getEsdKind, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda25';
+import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, daysUntilDue, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getEsdKind, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueSoon, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda26';
 import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda54';
 import { duePeriodLabel } from './report.js?v=idda34';
 
@@ -564,6 +564,8 @@ export function renderTaskList(tasks, title, opts) {
         var statusGroup = getStatusGroup(statusName);
         var isDone = statusGroup === 'done';
         var dateStatus = getDateStatus(t);
+        var dueSoon = !isDone && isDueSoon(t, 2);
+        var dueSoonDays = dueSoon ? daysUntilDue(t) : null;
         var doneDay = isDone ? getTaskCompletedDay(t) : null;
         var dateBits = '<div class="tl-dates">';
         dateBits += '<span>Bitmə <b>' + fmtDate(dueDateRaw) + '</b></span>';
@@ -572,12 +574,18 @@ export function renderTaskList(tasks, title, opts) {
                 + (doneDay ? formatDateObj(doneDay) : '—') + '</b></span>';
             if (dateStatus === 'late') dateBits += '<span class="tl-date-late">Gecikib</span>';
         } else if (dateStatus === 'late') dateBits += '<span class="tl-date-late">Gecikib</span>';
-        else if (dateStatus === 'early') dateBits += '<span class="tl-date-early">Öncə bitə bilər</span>';
+        else if (dueSoon) {
+            var soonLabel = dueSoonDays === 0
+                ? 'Bu gün bitir'
+                : (dueSoonDays === 1 ? '1 gün qalıb' : dueSoonDays + ' gün qalıb');
+            dateBits += '<span class="tl-date-soon">' + soonLabel + '</span>';
+        } else if (dateStatus === 'early') dateBits += '<span class="tl-date-early">Öncə bitə bilər</span>';
         dateBits += '</div>';
 
         var rowCls = 'tl-row'
             + (isSubtask ? ' tl-row--sub' : '')
-            + (hasNested ? ' tl-row--parent' : '');
+            + (hasNested ? ' tl-row--parent' : '')
+            + (dueSoon ? ' tl-row--due-soon' : '');
         var leadInner = hasNested
             ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd"/></svg>'
             : (isSubtask ? '<span class="tl-sub-rail"></span>' : '');
