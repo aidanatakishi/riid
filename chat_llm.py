@@ -248,7 +248,14 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         q,
     ):
         return 'qurum'
-    # Adlı şəxs («Sabina Mammadova…») — people; «mənim» isə mine
+    # «mənim» əvvəl — iş yüküm dashboard/people-ə düşməsin
+    if re.search(
+        r'mənim|menim|öz iş|oz is|taskım|taskim|tapsırıqım|tapsiriqim|'
+        r'tapsırıqlarım|tapsiriqlarim|işlərim|islerim|işim|isim\b|yüküm|yukum',
+        q,
+    ):
+        return 'mine'
+    # Adlı şəxs («Sabina Mammadova…») — people; komanda paneli — dashboard
     if re.search(
         r'iş yük|is yuk|workload|ən yüklü|en yuklu|ən məşğul|en mesgul|'
         r'istiqamət pay|prioritet pay|status üzrə|status uzre|panel kart',
@@ -266,12 +273,6 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         q,
     ):
         return 'people'
-    if re.search(
-        r'mənim|menim|öz iş|oz is|taskım|taskim|tapsırıqım|tapsiriqim|'
-        r'tapsırıqlarım|tapsiriqlarim|işlərim|islerim|işim|isim\b',
-        q,
-    ):
-        return 'mine'
     if re.search(r'risk', q):
         return 'risk'
     if re.search(r'DGD-\d+', question or '', re.I) or re.search(

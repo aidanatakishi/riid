@@ -623,6 +623,32 @@ class SnapshotTools:
         user = self.meta.get('user') or ''
         if not user:
             return {'error': 'not_found', 'reason': 'viewer_unknown', 'suggestions': []}
+        # Ümumi say — İş yükü panelindən (kəsilmiş task siyahısı 1 göstərib 14 gizlədə bilər)
+        if not status and not priority:
+            wl = self.get_person_workload(user)
+            if not wl.get('error') and wl.get('total') is not None:
+                sample = self.search_tasks(assignee=user, limit=12)
+                sample_tasks = []
+                if isinstance(sample, dict) and not sample.get('error'):
+                    sample_tasks = sample.get('tasks') or sample.get('sample') or []
+                total = int(wl.get('total') or 0)
+                return {
+                    'assignee': wl.get('name') or user,
+                    'total': total,
+                    'count': total,
+                    'done': int(wl.get('done') or 0),
+                    'open': int(wl.get('open') or max(0, total - int(wl.get('done') or 0))),
+                    'overdue': int(wl.get('overdue') or 0),
+                    'blocked': int(wl.get('blocked') or 0),
+                    'byPriority': wl.get('byPriority') or {},
+                    'tasks': sample_tasks[:12],
+                    'sample': sample_tasks[:12],
+                    'source': wl.get('source') or 'workload_panel',
+                    'hint': (
+                        f'CAVAB: Sizin ümumilikdə **{total}** tapşırığınız var '
+                        '(İş yükü paneli). Kəsilmiş siyahıdakı 1–2 nümunəni ümumi say sanma.'
+                    ),
+                }
         return self.search_tasks(status=status, assignee=user, priority=priority, limit=30)
 
     def _workload_row_for(self, person: str) -> Optional[dict]:
@@ -691,14 +717,16 @@ class SnapshotTools:
             if panel_pri:
                 by_pri = {str(k): int(v) for k, v in panel_pri.items()}
             total = int(panel_row.get('total') or 0)
-            done = int(panel_row.get('done') or 0)
-            overdue_n = int(panel_row.get('late') or len(overdue))
-            blocked_n = int(panel_row.get('blocked') or len(blocked))
+            done = int(panel_row.get('done') or 0) if panel_row.get('done') is not None else sum(1 for t in mine if _is_done(t))
+            # 0 falsy-dir — `or len(...)` ilə kəsilmiş siyahıya düşmə
+            overdue_n = int(panel_row['late']) if panel_row.get('late') is not None else len(overdue)
+            blocked_n = int(panel_row['blocked']) if panel_row.get('blocked') is not None else len(blocked)
+            open_n = int(panel_row['open']) if panel_row.get('open') is not None else max(0, total - done)
             return {
                 'name': str(panel_row.get('name') or p_match),
                 'total': total,
                 'done': done,
-                'open': int(panel_row.get('open') or max(0, total - done)),
+                'open': open_n,
                 'overdue': overdue_n,
                 'blocked': blocked_n,
                 'byPriority': by_pri,
@@ -1473,8 +1501,9 @@ def tool_declarations() -> List[dict]:
         {
             'name': 'get_my_tasks',
             'description': (
-                'Yalnız cari istifadəçinin ÖZ işləri («mənim işlərim», «tasklarım»). '
-                'Başqa şəxsin adı çəkilirsə get_person_workload istifadə et.'
+                'Cari istifadəçinin ÖZ işləri («mənim neçə taskım», «iş yüküm»). '
+                'total = İş yükü paneli (doğru cəm). tasks/sample kəsilmiş nümunədir — SAYMA. '
+                'Başqa şəxs üçün get_person_workload.'
             ),
             'parameters': {
                 'type': 'object',
@@ -1789,6 +1818,10 @@ def fast_score_answer_from_payloads(tool_payloads: List[Any]) -> Optional[str]:
             dash = format_dashboard_answer(payload)
             if dash:
                 return dash
+        # get_my_tasks / person workload — panel total + breakdown
+        mine_txt = format_my_workload_answer(payload)
+        if mine_txt:
+            return mine_txt
         # Yalnız konkret qurum filterli bal nəticəsi
         if not str(payload.get('qurum') or '').strip():
             continue
@@ -1935,6 +1968,69 @@ def try_fast_task_answer(question: str, tools: 'SnapshotTools') -> Optional[Tupl
     return '\n'.join(lines), ['get_task'], [result]
 
 
+def _priority_bucket(name: str) -> str:
+    f = fold(str(name or ''))
+    if re.search(r'highest|critical|blocker|yuksek|yüksək|high', f):
+        return 'high'
+    if re.search(r'lowest|trivial|asagi|aşağı|low', f):
+        return 'low'
+    if re.search(r'medium|orta|normal|major|minor', f):
+        return 'medium'
+    return 'other'
+
+
+def format_my_workload_answer(payload: dict, *, first_person: bool = True) -> Optional[str]:
+    """İş yükü paneli ilə eyni cavab (ümumi + gecikən + prioritet + blok)."""
+    if not isinstance(payload, dict) or payload.get('error'):
+        return None
+    if payload.get('total') is None:
+        return None
+    # Dashboard ranking cavabı deyil
+    if payload.get('section') and payload.get('workload') is not None:
+        return None
+    # Panel və ya şəxsi workload sahələri
+    if payload.get('source') != 'workload_panel' and not (
+        payload.get('assignee') or payload.get('byPriority') is not None
+    ):
+        return None
+    total = int(payload.get('total') or 0)
+    overdue = int(payload.get('overdue') or payload.get('late') or 0)
+    blocked = int(payload.get('blocked') or 0)
+    by_pri = payload.get('byPriority') if isinstance(payload.get('byPriority'), dict) else {}
+    buckets = {'high': 0, 'medium': 0, 'low': 0, 'other': 0}
+    for k, v in by_pri.items():
+        buckets[_priority_bucket(k)] += int(v or 0)
+
+    who = payload.get('assignee') or payload.get('name') or ''
+    use_fp = first_person or bool(payload.get('assignee')) or ('Sizin' in str(payload.get('hint') or ''))
+    if use_fp:
+        parts = [f'Sizin ümumilikdə **{total}** tapşırığınız var.']
+    else:
+        parts = [f'**{who or "Bu şəxs"}** üçün ümumilikdə **{total}** tapşırıq var.']
+
+    if overdue > 0:
+        parts.append(f'Bu tapşırıqlardan **{overdue}**-i gecikmiş vəziyyətdədir.')
+
+    hi, mid, lo = buckets['high'], buckets['medium'], buckets['low']
+    if hi or mid or lo:
+        # «Tapşırıqların 4-ü yüksək, 4-ü isə orta prioritetlidir.»
+        bits = []
+        if hi:
+            bits.append(f'**{hi}**-ü yüksək')
+        if mid:
+            bits.append(f'**{mid}**-ü isə orta' if hi else f'**{mid}**-ü orta')
+        if lo:
+            bits.append(f'**{lo}**-ü aşağı')
+        parts.append('Tapşırıqların ' + ', '.join(bits) + ' prioritetlidir.')
+
+    if blocked > 0:
+        parts.append(f'Bloklanmış: **{blocked}**.')
+    else:
+        parts.append('Hazırda heç bir tapşırığınız bloklanmış vəziyyətdə deyil.')
+
+    return ' '.join(parts) + '\n\nBaşqa nə ilə maraqlanmaq istərdiniz?'
+
+
 def format_dashboard_answer(payload: dict, section: str = '') -> Optional[str]:
     if not isinstance(payload, dict) or payload.get('error'):
         return None
@@ -2006,9 +2102,24 @@ def try_fast_panel_answer(hint: str, question: str, tools: 'SnapshotTools') -> O
     if task_fast:
         return task_fast
 
-    # Dashboard panelləri (iş yükü, istiqamət, prioritet…)
+    # «Mənim neçə / iş yüküm» — həmişə şəxsi panel cəmi (kəsilmiş 1 task ≠ 8)
+    mine_q = hint == 'mine' or re.search(
+        r'\bmenim\b|\bmənim\b|'
+        r'\b(nece|neçə)\b.*\b(taskim|tapsiriqim|tapşırığım|isim|işim|yukum|yüküm)\b|'
+        r'\b(taskim|tapsiriqim|tapşırığım|islerim|işlərim|yukum|yüküm)\b|'
+        r'\boz islerim\b|\böz işlərim\b',
+        qf,
+    )
+    if mine_q:
+        mine = tools.get_my_tasks()
+        if not mine.get('error') and mine.get('total') is not None:
+            text = format_my_workload_answer(mine, first_person=True)
+            if text:
+                return text, ['get_my_tasks'], [mine]
+
+    # Dashboard panelləri (iş yükü, istiqamət, prioritet…) — «mənim» deyilsə
     dash_sec = ''
-    if re.search(
+    if (not mine_q) and re.search(
         r'is yuk|iş yük|workload|ən çox iş|en cox is|en mesgul|ən məşğul|'
         r'yuklu|yüklü|kimde cox|kimdə çox|hansı əməkdaş|hansi emekdas|'
         r'icrac[iı].*cox|cox.*icrac',
