@@ -6,10 +6,7 @@ import json
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-SOFT_FAIL = (
-    'Bu sualı indi tam cavablandıra bilmədim, bir az sonra yenidən yoxlayım? '
-    'Bu arada «Mənim işlərim» və ya «Cari həftə risklər» kimi suallara dərhal cavab verə bilərəm.'
-)
+SOFT_FAIL = 'Cavab alına bilmədi, yenidən cəhd edin'
 
 TOOL_LABELS = {
     'get_overview': 'Ümumi mənzərəyə baxıram…',
@@ -20,6 +17,15 @@ TOOL_LABELS = {
     'get_risks': 'Risklər hesablanır…',
     'get_kpi': 'KPI göstəricilərinə baxıram…',
     'get_task': 'Tapşırığa baxıram…',
+    'get_assessment_scores': 'Qiymətləndirmə ballarına baxıram…',
+}
+
+ASSESS_LABELS = {
+    'diag': 'Rəqəmsallaşma diaqnostikası',
+    'exq': 'Elektron xidmətlərin qiymətləndirilməsi',
+    'isq': 'İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi',
+    'self': 'Özünüqiymətləndirmə',
+    'meqsed': 'Məqsədəuyğunluq rəyi',
 }
 
 
@@ -94,6 +100,59 @@ def _parse_task_row(row: Any) -> Optional[dict]:
     }
 
 
+def _parse_assess_row(row: Any) -> Optional[dict]:
+    """cat|qurum|score|year|key  və ya dict."""
+    if isinstance(row, dict):
+        cat = fold(row.get('cat') or row.get('category') or '')
+        if cat in ('diaqnostika', 'diagnosis'):
+            cat = 'diag'
+        score_raw = row.get('score')
+        try:
+            score = float(score_raw) if score_raw not in (None, '') else None
+        except (TypeError, ValueError):
+            score = None
+        year_raw = row.get('year')
+        try:
+            year = int(year_raw) if year_raw not in (None, '') else None
+        except (TypeError, ValueError):
+            year = None
+        return {
+            'cat': cat or str(row.get('cat') or row.get('category') or ''),
+            'qurum': str(row.get('qurum') or row.get('org') or '').strip(),
+            'score': score,
+            'year': year,
+            'key': str(row.get('key') or '').strip(),
+        }
+    text = str(row or '').strip()
+    if not text:
+        return None
+    parts = text.split('|')
+    while len(parts) < 5:
+        parts.append('')
+    cat = fold(parts[0])
+    if cat in ('diaqnostika', 'diagnosis'):
+        cat = 'diag'
+    score = None
+    if parts[2].strip():
+        try:
+            score = float(parts[2].replace(',', '.'))
+        except ValueError:
+            score = None
+    year = None
+    if parts[3].strip():
+        try:
+            year = int(float(parts[3]))
+        except ValueError:
+            year = None
+    return {
+        'cat': cat or parts[0].strip(),
+        'qurum': parts[1].strip(),
+        'score': score,
+        'year': year,
+        'key': parts[4].strip(),
+    }
+
+
 def normalize_snapshot(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raw = {}
@@ -105,6 +164,12 @@ def normalize_snapshot(raw: Any) -> dict:
         parsed = _parse_task_row(row)
         if parsed and parsed.get('key'):
             tasks.append(parsed)
+    assess_raw = raw.get('assessments') if isinstance(raw.get('assessments'), list) else []
+    assessments = []
+    for row in assess_raw:
+        parsed_a = _parse_assess_row(row)
+        if parsed_a and (parsed_a.get('qurum') or parsed_a.get('key')):
+            assessments.append(parsed_a)
     return {
         'meta': {
             'user': str(meta.get('user') or ''),
@@ -115,6 +180,7 @@ def normalize_snapshot(raw: Any) -> dict:
         },
         'overview': overview,
         'tasks': tasks,
+        'assessments': assessments,
         'truncated': bool(raw.get('truncated')),
     }
 
@@ -141,6 +207,28 @@ def _status_fold(t: dict) -> str:
 def _is_done(t: dict) -> bool:
     s = _status_fold(t)
     return any(x in s for x in ('done', 'yekun', 'tamam', 'closed', 'resolved', 'bitib'))
+
+
+def _status_matches(t: dict, status: str) -> bool:
+    """Match status filter; map common EN aliases to panel statuses."""
+    needle = fold(status)
+    if not needle:
+        return True
+    sf = _status_fold(t)
+    if needle in sf or sf in needle:
+        return True
+    # LLM tez-tez status=\"open\" / \"in progress\" göndərir
+    if needle in ('open', 'active', 'todo', 'to do', 'backlog', 'yeni'):
+        return not _is_done(t)
+    if needle in ('progress', 'in progress', 'inprogress', 'doing', 'icra', 'icrada'):
+        return (not _is_done(t)) and (not bool(t.get('blocked')))
+    if needle in ('done', 'closed', 'resolved', 'complete', 'completed', 'tamam', 'yekun'):
+        return _is_done(t)
+    if needle in ('block', 'blocked', 'blok', 'bloklan'):
+        return bool(t.get('blocked')) or any(x in sf for x in ('blok', 'block'))
+    if needle in ('late', 'overdue', 'gecik'):
+        return bool(t.get('overdue'))
+    return False
 
 
 def _match_text(t: dict, needle: str) -> bool:
@@ -218,10 +306,30 @@ def fuzzy_person(name: str, candidates: List[str], limit: int = 5) -> Tuple[Opti
     return best, suggestions
 
 
+def _normalize_assess_cat(raw: str) -> str:
+    f = fold(raw)
+    if not f or f in ('all', 'hamisi', 'umumi'):
+        return ''
+    if 'diag' in f or 'diaqnost' in f or 'yetkin' in f or 'reqemsallas' in f:
+        return 'diag'
+    if f == 'exq' or 'elektron xidmet' in f:
+        return 'exq'
+    if f == 'isq' or 'informasiya ehtiyat' in f or 'sistemlerin qiymet' in f:
+        return 'isq'
+    if 'self' in f or 'ozunuqiymet' in f:
+        return 'self'
+    if 'meqsed' in f:
+        return 'meqsed'
+    if f in ASSESS_LABELS:
+        return f
+    return f
+
+
 class SnapshotTools:
     def __init__(self, snapshot: Any):
         self.snap = normalize_snapshot(snapshot)
         self.tasks = self.snap['tasks']
+        self.assessments = self.snap.get('assessments') or []
         self.overview = self.snap['overview']
         self.meta = self.snap['meta']
         self.truncated = self.snap['truncated']
@@ -311,7 +419,7 @@ class SnapshotTools:
 
         out = []
         for t in self.tasks:
-            if status and fold(status) not in _status_fold(t):
+            if status and not _status_matches(t, status):
                 continue
             if assignee_match and fold(t.get('assignee')) != fold(assignee_match):
                 continue
@@ -453,6 +561,89 @@ class SnapshotTools:
             'completionPct': ov.get('completionPct', ov.get('rate')),
         }
 
+    def get_assessment_scores(
+        self,
+        category: str = 'diag',
+        sort: str = 'top',
+        limit: Any = 10,
+        qurum: str = '',
+        year: Any = None,
+    ) -> dict:
+        """Qiymətləndirmə balları (diaqnostika, EXQ, İSQ, özünüqiymətləndirmə) qurum üzrə."""
+        cat = _normalize_assess_cat(category or 'diag') or 'diag'
+        sort_f = fold(sort)
+        ascending = sort_f in ('bottom', 'lowest', 'min', 'asagi', 'az', 'worst')
+        try:
+            lim = max(1, min(30, int(limit if limit not in (None, '') else 10)))
+        except (TypeError, ValueError):
+            lim = 10
+        year_n = None
+        if year not in (None, ''):
+            try:
+                year_n = int(float(year))
+            except (TypeError, ValueError):
+                year_n = None
+        q_needle = fold(qurum)
+
+        rows = []
+        for a in self.assessments:
+            if cat and fold(a.get('cat')) != fold(cat):
+                continue
+            if year_n is not None and a.get('year') != year_n:
+                continue
+            if q_needle and q_needle not in fold(a.get('qurum')):
+                continue
+            score = a.get('score')
+            if score is None:
+                continue
+            try:
+                score_f = float(score)
+            except (TypeError, ValueError):
+                continue
+            rows.append({
+                'qurum': a.get('qurum') or '—',
+                'score': score_f,
+                'year': a.get('year'),
+                'key': a.get('key') or '',
+            })
+
+        # Eyni qurumdan bir neçə nəticə varsa — ən son il / ən yüksək bal
+        by_q: Dict[str, dict] = {}
+        for r in rows:
+            qk = fold(r['qurum']) or r['qurum']
+            prev = by_q.get(qk)
+            if not prev:
+                by_q[qk] = r
+                continue
+            py = prev.get('year') or 0
+            ry = r.get('year') or 0
+            if ry > py or (ry == py and r['score'] > prev['score']):
+                by_q[qk] = r
+        uniq = list(by_q.values())
+        uniq.sort(key=lambda x: (x['score'], x.get('year') or 0), reverse=not ascending)
+
+        scored_n = len(uniq)
+        total_cat = sum(1 for a in self.assessments if fold(a.get('cat')) == fold(cat))
+        avg = round(sum(r['score'] for r in uniq) / scored_n, 1) if scored_n else None
+        top = uniq[:lim]
+        return {
+            'category': cat,
+            'categoryLabel': ASSESS_LABELS.get(cat, cat),
+            'sort': 'lowest' if ascending else 'highest',
+            'count': total_cat,
+            'withScore': scored_n,
+            'avgScore': avg,
+            'top': top,
+            'highest': top[0] if (top and not ascending) else (uniq[-1] if uniq and ascending else None),
+            'lowest': top[0] if (top and ascending) else (uniq[-1] if uniq and not ascending else None),
+            'truncated': bool(self.truncated),
+            'empty': scored_n == 0,
+            'hint': (
+                'Snapshot-da bu kateqoriya üzrə bal yoxdur. Panelda Diaqnostika bölməsini açıb məlumatın yükləndiyini yoxlayın.'
+                if scored_n == 0 else ''
+            ),
+        }
+
     def get_task(self, key: str = '') -> dict:
         k = str(key or '').strip().upper()
         if not k:
@@ -497,6 +688,13 @@ def run_tool(name: str, args: Optional[dict], tools: SnapshotTools) -> dict:
         ),
         'get_risks': lambda: tools.get_risks(),
         'get_kpi': lambda: tools.get_kpi(direction=str(args.get('direction') or '')),
+        'get_assessment_scores': lambda: tools.get_assessment_scores(
+            category=str(args.get('category') or args.get('cat') or 'diag'),
+            sort=str(args.get('sort') or 'top'),
+            limit=args.get('limit', 10),
+            qurum=str(args.get('qurum') or ''),
+            year=args.get('year'),
+        ),
         'get_task': lambda: tools.get_task(str(args.get('key') or '')),
     }
     fn = dispatch.get(name)
@@ -519,18 +717,27 @@ def tool_declarations() -> List[dict]:
         },
         {
             'name': 'get_my_tasks',
-            'description': 'Cari istifadəçinin (meta.user) tapşırıqları.',
+            'description': (
+                'Yalnız cari istifadəçinin ÖZ işləri («mənim işlərim», «tasklarım»). '
+                'Başqa şəxsin adı çəkilirsə get_person_workload istifadə et.'
+            ),
             'parameters': {
                 'type': 'object',
                 'properties': {
-                    'status': {'type': 'string'},
+                    'status': {
+                        'type': 'string',
+                        'description': 'İstəyə bağlı. Boş buraxmaq daha yaxşıdır. open=bitməmiş, done=tamam, blocked=blok.',
+                    },
                     'priority': {'type': 'string'},
                 },
             },
         },
         {
             'name': 'get_person_workload',
-            'description': 'İcraçı adı üzrə iş yükü (fuzzy Az/Latin).',
+            'description': (
+                'Adı çəkilən icraçının iş yükü (məs. Sabina, sabina mammadova). '
+                'Fuzzy Az/Latin uyğunlaşma. Başqa şəxs soruşulanda bunu çağır.'
+            ),
             'parameters': {
                 'type': 'object',
                 'properties': {'name': {'type': 'string'}},
@@ -577,6 +784,30 @@ def tool_declarations() -> List[dict]:
             'parameters': {
                 'type': 'object',
                 'properties': {'direction': {'type': 'string'}},
+            },
+        },
+        {
+            'name': 'get_assessment_scores',
+            'description': (
+                'Qiymətləndirmə / diaqnostika balları qurum üzrə. '
+                '«Ən yüksək bal alan qurum», «diaqnostika balları», EXQ/İSQ/özünüqiymətləndirmə '
+                'reytingi üçün bunu çağır. category: diag|exq|isq|self|meqsed.'
+            ),
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'category': {
+                        'type': 'string',
+                        'description': 'diag (default), exq, isq, self, meqsed',
+                    },
+                    'sort': {
+                        'type': 'string',
+                        'description': 'top/highest (ən yüksək) və ya bottom/lowest (ən aşağı)',
+                    },
+                    'limit': {'type': 'integer'},
+                    'qurum': {'type': 'string'},
+                    'year': {'type': 'integer'},
+                },
             },
         },
         {

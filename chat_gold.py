@@ -103,7 +103,7 @@ def examples_for(intent, question, limit=2):
 def format_examples(rows):
     if not rows:
         return ''
-    parts = ['Nümunə üslub (məzmunu kopyalama, yalnız yanaşmanı götür):']
+    parts = ['Nümunə (yalnız TON və FORMAT; cavabı məhdudlaşdırmır, məzmunu kopyalama):']
     for i, row in enumerate(rows, 1):
         parts.append(
             str(i) + ') Sual: ' + row['question']

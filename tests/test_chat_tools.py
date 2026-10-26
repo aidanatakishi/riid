@@ -114,6 +114,16 @@ def test_get_my_tasks():
     assert mine.get('count', 0) >= 1
 
 
+def test_status_open_alias():
+    """LLM tez-tez status=open göndərir — Az status adları ilə uyğunlaşmalıdır."""
+    tools = SnapshotTools(SAMPLE)
+    empty_strict = tools.search_tasks(assignee='Sabina Mammadova', status='zzzz-no')
+    assert empty_strict['count'] == 0
+    opened = tools.get_my_tasks(status='open')
+    assert opened.get('count', 0) >= 2
+    assert all(not (i.get('status') or '').lower().startswith('yekun') for i in opened.get('items') or [])
+
+
 def test_normalize_dict_tasks():
     snap = normalize_snapshot({
         'tasks': [{'key': 'DGD-1', 'status': 'Open', 'assignee': 'A', 'blocked': True, 'overdue': False}],
@@ -133,3 +143,28 @@ def test_kpi_direction():
     tools = SnapshotTools(SAMPLE)
     kpi = tools.get_kpi('İnteqrasiya')
     assert kpi['total'] == 2
+
+
+def test_assessment_scores_top_qurum():
+    snap = {
+        'meta': {},
+        'overview': {},
+        'tasks': [],
+        'assessments': [
+            'diag|Qurum A|72.5|2025|DGD-1',
+            'diag|Qurum B|91|2025|DGD-2',
+            'diag|Qurum C|88|2024|DGD-3',
+            'diag|Qurum B|85|2024|DGD-4',  # eyni qurum, köhnə — 91 qalmalıdır
+            'exq|Qurum A|60|2025|DGD-5',
+            'diag|Qurum D||2025|DGD-6',  # balsız — ignore
+        ],
+    }
+    tools = SnapshotTools(snap)
+    r = tools.get_assessment_scores(category='diag', sort='top', limit=3)
+    assert r['withScore'] == 3
+    assert r['highest']['qurum'] == 'Qurum B'
+    assert r['highest']['score'] == 91
+    assert r['top'][0]['qurum'] == 'Qurum B'
+    assert r['avgScore'] is not None
+    low = tools.get_assessment_scores(category='diag', sort='lowest', limit=1)
+    assert low['top'][0]['qurum'] == 'Qurum A'

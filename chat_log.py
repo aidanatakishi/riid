@@ -93,10 +93,12 @@ def append_chat(entry):
                 'overview': snap.get('overview') if isinstance(snap.get('overview'), dict) else {},
                 'truncated': bool(snap.get('truncated')),
                 'tasks': (snap.get('tasks') or [])[:80] if isinstance(snap.get('tasks'), list) else [],
+                'assessments': (snap.get('assessments') or [])[:120] if isinstance(snap.get('assessments'), list) else [],
             }
             blob = json.dumps(slim_snap, ensure_ascii=False)
             if len(blob) > 12000:
                 slim_snap['tasks'] = slim_snap['tasks'][:20]
+                slim_snap['assessments'] = slim_snap['assessments'][:40]
                 slim_snap['truncated'] = True
             row['snapshot'] = slim_snap
         except Exception:

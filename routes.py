@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from functools import wraps
 
-from flask import Blueprint, Response, request, jsonify, session, send_file
+from flask import Blueprint, Response, request, jsonify, session, send_file, stream_with_context
 from werkzeug.utils import secure_filename
 from urllib.parse import quote
 
@@ -802,6 +802,7 @@ def api_chat():
         'snapshot': snapshot,
     }
     if not chat_llm_ready():
+        print('api_chat: LLM açarı yoxdur', flush=True)
         chat_id = append_chat(dict(
             log_base,
             answer=SOFT_FAIL,
@@ -811,18 +812,21 @@ def api_chat():
         ))
         if want_stream:
             def err_gen():
+                yield _sse({'type': 'status', 'label': 'Düşünürəm…'})
                 yield _sse({'type': 'error', 'error': 'LLM açarı yoxdur', 'soft_fail': SOFT_FAIL})
                 yield _sse({'type': 'token', 'text': SOFT_FAIL})
                 yield _sse({
                     'type': 'done',
                     'id': chat_id,
+                    'answer': SOFT_FAIL,
                     'tools_used': [],
                     'model': '',
                     'duration_ms': int((time.time() - started) * 1000),
                 })
-            return Response(err_gen(), mimetype='text/event-stream', headers={
-                'Cache-Control': 'no-cache',
+            return Response(stream_with_context(err_gen()), mimetype='text/event-stream', headers={
+                'Cache-Control': 'no-cache, no-transform',
                 'X-Accel-Buffering': 'no',
+                'Connection': 'keep-alive',
             })
         return jsonify({
             'answer': SOFT_FAIL,
@@ -833,6 +837,15 @@ def api_chat():
         })
 
     if want_stream:
+        print(
+            'api_chat stream start',
+            'q=' + question[:80],
+            'hint=' + kind,
+            'snap_tasks=' + str(len((snapshot or {}).get('tasks') or [])),
+            flush=True,
+        )
+
+        @stream_with_context
         def event_stream():
             answer_parts = []
             tools_used = []
@@ -842,30 +855,41 @@ def api_chat():
             snap_hash = ''
             soft = ''
             err = ''
-            for ev in answer_chat_events(question, facts, draft, history, snapshot=snapshot):
-                et = ev.get('type')
-                if et == 'status':
-                    yield _sse({'type': 'status', 'tool': ev.get('tool'), 'label': ev.get('label')})
-                elif et == 'token':
-                    answer_parts.append(str(ev.get('text') or ''))
-                    yield _sse({'type': 'token', 'text': ev.get('text') or ''})
-                elif et == 'suggestions':
-                    yield _sse({'type': 'suggestions', 'items': ev.get('items') or []})
-                elif et == 'done':
-                    tools_used = list(ev.get('tools_used') or [])
-                    steps = int(ev.get('steps') or 0)
-                    model = str(ev.get('model') or '')
-                    ncheck = str(ev.get('number_check') or 'ok')
-                    snap_hash = str(ev.get('snapshot_hash') or '')
-                    if ev.get('answer'):
-                        answer_parts = [str(ev.get('answer'))]
-                elif et == 'error':
-                    err = str(ev.get('error') or '')
-                    soft = str(ev.get('soft_fail') or SOFT_FAIL)
-                    yield _sse({'type': 'error', 'error': err, 'soft_fail': soft})
-                    if soft:
-                        answer_parts = [soft]
-                        yield _sse({'type': 'token', 'text': soft})
+            # İlk yield dərhal — fetch header alsın, UI «Düşünürəm»də ilişməsin
+            yield _sse({'type': 'status', 'label': 'Düşünürəm…'})
+            try:
+                for ev in answer_chat_events(question, facts, draft, history, snapshot=snapshot):
+                    et = ev.get('type')
+                    if et == 'status':
+                        yield _sse({'type': 'status', 'tool': ev.get('tool'), 'label': ev.get('label')})
+                    elif et == 'token':
+                        answer_parts.append(str(ev.get('text') or ''))
+                        yield _sse({'type': 'token', 'text': ev.get('text') or ''})
+                    elif et == 'suggestions':
+                        yield _sse({'type': 'suggestions', 'items': ev.get('items') or []})
+                    elif et == 'done':
+                        tools_used = list(ev.get('tools_used') or [])
+                        steps = int(ev.get('steps') or 0)
+                        model = str(ev.get('model') or '')
+                        ncheck = str(ev.get('number_check') or 'ok')
+                        snap_hash = str(ev.get('snapshot_hash') or '')
+                        if ev.get('answer'):
+                            answer_parts = [str(ev.get('answer'))]
+                    elif et == 'error':
+                        err = str(ev.get('error') or '')
+                        soft = str(ev.get('soft_fail') or SOFT_FAIL)
+                        print('api_chat stream error', err, flush=True)
+                        yield _sse({'type': 'error', 'error': err, 'soft_fail': soft})
+                        if soft:
+                            answer_parts = [soft]
+                            yield _sse({'type': 'token', 'text': soft})
+            except Exception as stream_err:
+                err = type(stream_err).__name__ + ': ' + str(stream_err)[:180]
+                soft = SOFT_FAIL
+                print('api_chat stream exception', err, flush=True)
+                yield _sse({'type': 'error', 'error': err, 'soft_fail': soft})
+                yield _sse({'type': 'token', 'text': soft})
+                answer_parts = [soft]
             answer = ''.join(answer_parts).strip()
             duration_ms = int((time.time() - started) * 1000)
             meta = getattr(chat_llm, 'LAST_META', None) or {}
@@ -879,9 +903,11 @@ def api_chat():
                 ncheck = str(meta.get('number_check'))
             if meta.get('snapshot_hash'):
                 snap_hash = str(meta.get('snapshot_hash'))
+            if not answer and not err:
+                err = chat_llm.LAST_ERROR or 'boş cavab'
             chat_id = append_chat(dict(
                 log_base,
-                answer=answer,
+                answer=answer or SOFT_FAIL,
                 source='error' if (err and not answer) else ('llm' if answer else 'error'),
                 model=model,
                 error=err,
@@ -891,9 +917,19 @@ def api_chat():
                 snapshot_hash=snap_hash,
                 number_check=ncheck,
             ))
+            print(
+                'api_chat stream done',
+                'id=' + str(chat_id),
+                'len=' + str(len(answer)),
+                'model=' + str(model),
+                'ms=' + str(duration_ms),
+                'err=' + (err[:80] if err else ''),
+                flush=True,
+            )
             yield _sse({
                 'type': 'done',
                 'id': chat_id,
+                'answer': answer,
                 'tools_used': tools_used,
                 'model': model,
                 'duration_ms': duration_ms,
@@ -901,8 +937,9 @@ def api_chat():
             })
 
         return Response(event_stream(), mimetype='text/event-stream', headers={
-            'Cache-Control': 'no-cache',
+            'Cache-Control': 'no-cache, no-transform',
             'X-Accel-Buffering': 'no',
+            'Connection': 'keep-alive',
         })
 
     # Legacy non-stream JSON

@@ -14,6 +14,11 @@ import {
     classifyAssessmentCategory,
     getExqResult,
     getDiagScore,
+    getIsqScore,
+    getSelfAssessInfo,
+    getAssessmentQurumLabel,
+    getAssessmentYear,
+    hasAssessmentResult,
     getHistoricalStatus,
     currentSprintName,
     isDueInSprint,
@@ -78,10 +83,32 @@ var chatLlm = false;
 var chatLlmWarned = false;
 var chatOpen = false;
 var chatBusy = false;
+var chatAbort = null;
+var chatEpoch = 0;
 var chatHistory = [];
-var SOFT_FAIL = 'Bu sualı indi tam cavablandıra bilmədim, bir az sonra yenidən yoxlayım? Bu arada «Mənim işlərim» və ya «Cari həftə risklər» kimi suallara dərhal cavab verə bilərəm.';
+var CHAT_THREAD_KEY = 'aiDoneThread';
+var SOFT_FAIL = 'Cavab alına bilmədi, yenidən cəhd edin';
+var SOFT_FAIL_HINT = 'Bu arada «Mənim işlərim» və ya «Cari həftə risklər» kimi suallara panel məlumatı ilə cavab verə bilərəm.';
 var MAX_SNAPSHOT_TASKS = 450;
+var MAX_SNAPSHOT_ASSESS = 350;
 var MAX_SNAPSHOT_CHARS = 45000;
+var CHAT_FETCH_TIMEOUT_MS = 90000;
+
+function chatLog() {
+    try {
+        if (typeof console !== 'undefined' && console.log) {
+            console.log.apply(console, ['[AI Done]'].concat([].slice.call(arguments)));
+        }
+    } catch (e) {}
+}
+
+function chatWarn() {
+    try {
+        if (typeof console !== 'undefined' && console.warn) {
+            console.warn.apply(console, ['[AI Done]'].concat([].slice.call(arguments)));
+        }
+    } catch (e2) {}
+}
 
 function fold(str) {
     return normalizeStr(str)
@@ -2172,8 +2199,8 @@ function ensureUi() {
     });
     mountDoneBotWidget();
     syncAiBotNotifyFromState();
+    if (!restoreThread()) addBot(welcomeHtml(), false);
     renderHints();
-    addBot(welcomeHtml(), false);
 }
 
 function mountDoneBotWidget() {
@@ -2314,13 +2341,90 @@ function closeChat() {
 }
 
 function resetChat() {
+    chatEpoch += 1;
+    if (chatAbort) chatAbort.abort();
     chatHistory = [];
+    try { sessionStorage.removeItem(CHAT_THREAD_KEY); } catch (e) {}
     lastReportPreview = '';
     closeReportPreview();
     var log = document.getElementById('dashChatLog');
     if (log) log.innerHTML = '';
     addBot(welcomeHtml(), false);
     renderHints();
+}
+
+function remember(role, content) {
+    chatHistory.push({ role: role, content: String(content || '').slice(0, 2000) });
+    if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+    try { sessionStorage.setItem(CHAT_THREAD_KEY, JSON.stringify(chatHistory)); } catch (e) {}
+}
+
+function syncLogMode() {
+    var log = document.getElementById('dashChatLog');
+    if (!log) return;
+    log.classList.toggle('is-fresh', !log.querySelector('.dash-chat-msg.is-user'));
+}
+
+function scrollLog(force) {
+    var log = document.getElementById('dashChatLog');
+    if (!log) return;
+    var near = log.scrollHeight - log.scrollTop - log.clientHeight < 90;
+    if (force || near) log.scrollTop = log.scrollHeight;
+}
+
+function autosizeChatInput() {
+    var input = document.getElementById('dashChatInput');
+    if (!input) return;
+    input.style.height = 'auto';
+    input.style.height = Math.min(Math.max(input.scrollHeight, 24), 160) + 'px';
+    var send = document.getElementById('dashChatSend');
+    if (send) send.classList.toggle('is-idle', !String(input.value || '').trim());
+}
+
+function setComposerBusy(busy) {
+    var input = document.getElementById('dashChatInput');
+    var send = document.getElementById('dashChatSend');
+    if (input) input.disabled = !!busy;
+    if (send) {
+        send.disabled = !!busy;
+        send.classList.toggle('is-busy', !!busy);
+    }
+}
+
+function thinkingHtml() {
+    return '<div class="dash-chat-thinking" aria-label="Düşünürəm"><span></span><span></span><span></span></div>';
+}
+
+function wait(ms) {
+    return new Promise(function(resolve) { setTimeout(resolve, ms); });
+}
+
+function restoreThread() {
+    var raw = '';
+    try { raw = sessionStorage.getItem(CHAT_THREAD_KEY) || ''; } catch (e) { return false; }
+    if (!raw) return false;
+    var items;
+    try { items = JSON.parse(raw); } catch (e2) { return false; }
+    if (!Array.isArray(items) || !items.length) return false;
+    var clean = [];
+    var i;
+    for (i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it || (it.role !== 'user' && it.role !== 'assistant')) continue;
+        var content = String(it.content || '').trim();
+        if (!content) continue;
+        clean.push({ role: it.role, content: content.slice(0, 2000) });
+    }
+    if (!clean.length) return false;
+    chatHistory = clean.slice(-24);
+    var log = document.getElementById('dashChatLog');
+    if (log) log.innerHTML = '';
+    for (i = 0; i < chatHistory.length; i++) {
+        if (chatHistory[i].role === 'user') addUser(chatHistory[i].content);
+        else addBot('<div class="dash-chat-md">' + renderMarkdownSafe(chatHistory[i].content) + '</div>', false);
+    }
+    scrollLog(true);
+    return true;
 }
 
 function llmEnabled() {
@@ -2347,6 +2451,31 @@ function addBot(html, pending) {
     log.appendChild(row);
     log.scrollTop = log.scrollHeight;
     return row;
+}
+
+function showTools(row) {
+    if (!row || row.querySelector('.dash-chat-tool')) return;
+    var tools = row.querySelector('.dash-chat-tools');
+    if (!tools) return;
+    tools.hidden = false;
+    tools.innerHTML = '<button type="button" class="dash-chat-tool" data-act="copy" title="Kopyala" aria-label="Kopyala">'
+        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+        + '</button>';
+    tools.addEventListener('click', function(e) {
+        var btn = e.target.closest('[data-act="copy"]');
+        if (!btn) return;
+        var bubble = row.querySelector('.dash-chat-bubble');
+        var text = bubble ? String(bubble.innerText || '').trim() : '';
+        if (!text || !navigator.clipboard || !navigator.clipboard.writeText) return;
+        navigator.clipboard.writeText(text).then(function() {
+            btn.classList.add('is-on');
+            btn.setAttribute('title', 'Kopyalandı');
+            setTimeout(function() {
+                btn.classList.remove('is-on');
+                btn.setAttribute('title', 'Kopyala');
+            }, 1400);
+        }).catch(function() {});
+    });
 }
 
 function sendChatFeedback(chatId, vote, reason, box) {
@@ -2408,18 +2537,23 @@ function attachFeedback(row, chatId) {
 
 function onSubmit(e) {
     e.preventDefault();
-    if (chatBusy) return;
+    if (chatBusy) {
+        chatWarn('göndərmə gözlənilir — əvvəlki cavab hələ gəlir');
+        return;
+    }
     var input = document.getElementById('dashChatInput');
     var q = String(input.value || '').trim();
     if (!q) return;
     input.value = '';
+    try { autosizeChatInput(); } catch (e0) {}
     addUser(q);
+    chatLog('istifadəçi mesajı', q.slice(0, 80));
     reply(q);
 }
 
 function softFailHtml(question) {
     return '<p class="dash-chat-lead">' + esc(SOFT_FAIL) + '</p>'
-        + '<p class="dash-chat-note">«Mənim işlərim», sprint və ya qurum adı ilə də soruşa bilərsiniz.</p>'
+        + '<p class="dash-chat-note">' + esc(SOFT_FAIL_HINT) + '</p>'
         + '<button type="button" class="dash-chat-retry" data-retry-q="' + esc(question) + '">Yenidən cəhd et</button>';
 }
 
@@ -2443,6 +2577,79 @@ function renderMarkdownSafe(text) {
         }
     } catch (e2) {}
     return renderMarkdownish(text);
+}
+
+function parseAssessScoreNum(raw) {
+    if (raw == null || raw === '' || raw === '—') return null;
+    if (typeof raw === 'number' && isFinite(raw)) return raw;
+    var n = parseFloat(String(raw).replace(',', '.').replace('%', '').trim());
+    return isFinite(n) ? n : null;
+}
+
+function assessmentScoreForCat(cat, t) {
+    try {
+        if (cat === 'diag') return parseAssessScoreNum(getDiagScore(t));
+        if (cat === 'exq') {
+            var exq = getExqResult(t);
+            return exq && exq.percent != null ? parseAssessScoreNum(exq.percent) : null;
+        }
+        if (cat === 'isq') return parseAssessScoreNum(getIsqScore(t));
+        if (cat === 'self') {
+            var info = getSelfAssessInfo(t);
+            return parseAssessScoreNum(info && info.score);
+        }
+    } catch (e) {}
+    return null;
+}
+
+function buildAssessmentSnapshotRows() {
+    var rows = [];
+    var source = state.allTasks || [];
+    var i;
+    for (i = 0; i < source.length; i++) {
+        var t = source[i];
+        if (!t || !t.key) continue;
+        var cat = '';
+        try { cat = classifyAssessmentCategory(t) || ''; } catch (e0) { cat = ''; }
+        if (!cat || (cat !== 'diag' && cat !== 'exq' && cat !== 'isq' && cat !== 'self' && cat !== 'meqsed')) {
+            continue;
+        }
+        var score = assessmentScoreForCat(cat, t);
+        var hasRes = false;
+        try { hasRes = !!hasAssessmentResult(cat, t); } catch (e1) { hasRes = score != null; }
+        // Ballı və ya nəticəsi olanları göndər — «ən yüksək bal» üçün score lazımdır
+        if (score == null && !hasRes) continue;
+        var qurum = '';
+        try { qurum = getAssessmentQurumLabel(t) || getQurumName(t) || ''; } catch (e2) {
+            try { qurum = getQurumName(t) || ''; } catch (e3) { qurum = ''; }
+        }
+        var year = '';
+        try {
+            var y = getAssessmentYear(t);
+            if (y != null && isFinite(y)) year = String(y);
+        } catch (e4) {}
+        rows.push([
+            cat,
+            String(qurum || '').replace(/\|/g, '/').slice(0, 80),
+            score != null ? String(Math.round(score * 10) / 10) : '',
+            year,
+            String(t.key)
+        ].join('|'));
+        if (rows.length >= MAX_SNAPSHOT_ASSESS) break;
+    }
+    // Balı olan diaq/exq/isq əvvəl — truncate olanda itməsin
+    rows.sort(function(a, b) {
+        var pa = a.split('|');
+        var pb = b.split('|');
+        var sa = pa[2] ? 1 : 0;
+        var sb = pb[2] ? 1 : 0;
+        if (sa !== sb) return sb - sa;
+        var ca = pa[0] === 'diag' ? 0 : 1;
+        var cb = pb[0] === 'diag' ? 0 : 1;
+        return ca - cb;
+    });
+    if (rows.length > MAX_SNAPSHOT_ASSESS) rows = rows.slice(0, MAX_SNAPSHOT_ASSESS);
+    return rows;
 }
 
 function buildSnapshot() {
@@ -2531,6 +2738,9 @@ function buildSnapshot() {
         }
     }
 
+    var assessments = [];
+    try { assessments = buildAssessmentSnapshotRows(); } catch (eAssess) { assessments = []; }
+
     var snap = {
         meta: {
             user: viewerAssigneeName() || viewerFirstName() || '',
@@ -2541,12 +2751,18 @@ function buildSnapshot() {
         },
         overview: overview,
         tasks: tasks,
+        assessments: assessments,
         truncated: truncated
     };
     try {
         var blob = JSON.stringify(snap);
         while (blob.length > MAX_SNAPSHOT_CHARS && snap.tasks.length > 40) {
             snap.tasks = snap.tasks.slice(0, Math.floor(snap.tasks.length * 0.7));
+            snap.truncated = true;
+            blob = JSON.stringify(snap);
+        }
+        while (blob.length > MAX_SNAPSHOT_CHARS && snap.assessments.length > 40) {
+            snap.assessments = snap.assessments.slice(0, Math.floor(snap.assessments.length * 0.7));
             snap.truncated = true;
             blob = JSON.stringify(snap);
         }
@@ -2558,30 +2774,22 @@ function detectHint(question) {
     var q = fold(question || '');
     if (/gecik/.test(q)) return 'late';
     if (/blok|cetinlik/.test(q)) return 'blocked';
-    if (/menim|oz islerim|taskim|tapsiriqim|tapsiriqlarim|islerim\b/.test(q)) return 'mine';
+    // «mənim işlərim» — self; adlı şəxs sorğusu people (get_my_tasks-ə düşməsin)
+    if (/menim|oz islerim|taskim|tapsiriqim|tapsiriqlarim|islerim\b/.test(q)
+        && !/\b[a-z]{3,}\s+[a-z]{3,}\b/.test(q.replace(/\b(menim|oz|islerim|tapsiriqlarim|taskim)\b/g, ''))) {
+        return 'mine';
+    }
+    if (/is yuku|icraci|kimde|ustunde|baxir|baxir\?|nin is|nin tapsiriq|nin yuku/.test(q)) return 'people';
+    if (/\b[a-z]{3,}\s+[a-z]{4,}\b/.test(q) && /is|task|tapsiriq|yuk|nece|hansi/.test(q)) return 'people';
     if (/risk/.test(q)) return 'risk';
-    if (/is yuku|icraci/.test(q)) return 'people';
+    if (/diaqnostika|qiymetlendir|exq|isq|meqsed|ozunuqiymet|reqemsal yetkin|en yuksek bal|en asagi bal|bal alan/.test(q)) {
+        return 'assess';
+    }
     if (/kpi|faiz|tamamlan/.test(q)) return 'kpi';
     if (/dgd-\d+/i.test(question || '')) return 'issue';
     if (/veziyyet|icmal|xulase/.test(q)) return 'overview';
+    if (/sprint|hefte/.test(q)) return 'sprint';
     return 'open';
-}
-
-function localAnswerOrNull(question) {
-    try {
-        var local = answerQuestion(question);
-        if (!local || !local.html) return null;
-        var kind = (local.facts && local.facts.kind) || '';
-        if (!kind || kind === 'open') return null;
-        return {
-            kind: kind,
-            html: local.html,
-            text: local.text || stripHtml(local.html),
-            local: local
-        };
-    } catch (e) {
-        return null;
-    }
 }
 
 function routeLocal(question) {
@@ -2599,11 +2807,31 @@ function routeLocal(question) {
     return null;
 }
 
+/** LLM uğursuz olanda panel datası ilə cavab (intent yalnız ehtiyat). */
+function localPlatformFallback(question) {
+    try {
+        if (!hasData()) return null;
+        var local = answerQuestion(question);
+        if (!local || !local.html) return null;
+        var kind = (local.facts && local.facts.kind) || '';
+        if (!kind || kind === 'open' || kind === 'empty' || kind === 'about' || kind === 'identity' || kind === 'help') {
+            return null;
+        }
+        return {
+            kind: kind,
+            html: local.html,
+            text: local.text || stripHtml(local.html)
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
 function isSoftFailText(text) {
     var t = String(text || '');
     if (!t) return true;
     return t === SOFT_FAIL
-        || /ağıllı cavabı tam formalaşdıra|süni intellekt xidməti müvəqqəti|tam cavablandıra bilmədim/i.test(t);
+        || /cavab alına bilmədi|ağıllı cavabı tam formalaşdıra|süni intellekt xidməti müvəqqəti|tam cavablandıra bilmədim/i.test(t);
 }
 
 function setStatusLine(row, label) {
@@ -2621,12 +2849,18 @@ function setStatusLine(row, label) {
 
 function clearStatusLine(row) {
     if (!row) return;
-    var status = row.querySelector('.dash-chat-wait');
+    var status = row.querySelector('.dash-chat-wait, .dash-chat-thinking');
     if (status) status.remove();
 }
 
 function attachSuggestions(row, items) {
     if (!row || !items || !items.length) return;
+    var log = document.getElementById('dashChatLog');
+    if (log) {
+        Array.prototype.forEach.call(log.querySelectorAll('.dash-chat-suggest'), function(el) {
+            if (!row.contains(el)) el.remove();
+        });
+    }
     var old = row.querySelector('.dash-chat-suggest');
     if (old) old.remove();
     var box = document.createElement('div');
@@ -2642,38 +2876,102 @@ function attachSuggestions(row, items) {
         document.getElementById('dashChatInput').value = q;
         document.getElementById('dashChatForm').requestSubmit();
     };
-    row.appendChild(box);
+    var col = row.querySelector('.dash-chat-msg-col') || row;
+    col.appendChild(box);
 }
 
-async function askServer(question, pending) {
+async function askServer(question, pending, signal) {
     var hint = detectHint(question);
     var snapshot = buildSnapshot();
-    var res = await fetch('/api/chat', {
-        credentials: 'same-origin',
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-        body: JSON.stringify({
-            question: question,
-            draft: '',
-            facts: { hint: hint, intent: hint, viewer: viewerFact() },
-            snapshot: snapshot,
-            history: chatHistory.slice(0, -1).slice(-12),
-            stream: 1
-        })
+    var body = {
+        question: question,
+        draft: '',
+        facts: { hint: hint, intent: hint, viewer: viewerFact() },
+        snapshot: snapshot,
+        history: chatHistory.slice(0, -1).slice(-12),
+        stream: 1
+    };
+    chatLog('sorğu göndərilir', {
+        endpoint: '/api/chat',
+        hint: hint,
+        qLen: String(question || '').length,
+        history: body.history.length,
+        snapTasks: (snapshot && snapshot.tasks && snapshot.tasks.length) || 0
     });
+
+    var timedOut = false;
+    var timeoutId = setTimeout(function() {
+        timedOut = true;
+        chatWarn('sorğu timeout', CHAT_FETCH_TIMEOUT_MS + 'ms');
+        try {
+            if (chatAbort) chatAbort.abort();
+        } catch (e1) {}
+    }, CHAT_FETCH_TIMEOUT_MS);
+
+    function clearChatTimeout() {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+            timeoutId = null;
+        }
+    }
+
+    var res;
+    try {
+        res = await fetch('/api/chat', {
+            credentials: 'same-origin',
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+            signal: signal,
+            body: JSON.stringify(body)
+        });
+    } catch (fetchErr) {
+        clearChatTimeout();
+        if (fetchErr && fetchErr.name === 'AbortError') {
+            if (timedOut) {
+                var tErr = new Error('timeout');
+                tErr.code = 'timeout';
+                throw tErr;
+            }
+            throw fetchErr;
+        }
+        chatWarn('fetch xətası', fetchErr && fetchErr.message);
+        var netErr = new Error('network');
+        netErr.code = 'network';
+        throw netErr;
+    }
+
+    chatLog('cavab header', res.status, res.headers.get('content-type') || '');
     if (!res.ok) {
-        throw new Error('HTTP ' + res.status);
+        clearChatTimeout();
+        var httpErr = new Error('HTTP ' + res.status);
+        httpErr.code = 'http';
+        httpErr.status = res.status;
+        throw httpErr;
     }
     var ctype = String(res.headers.get('content-type') || '');
     if (ctype.indexOf('text/event-stream') === -1) {
+        clearChatTimeout();
         var data = await res.json();
+        chatLog('JSON cavab', {
+            source: data && data.source,
+            answerLen: data && data.answer ? String(data.answer).length : 0,
+            error: data && data.error
+        });
         var ans = (data && data.answer) || (data && data.soft_fail) || SOFT_FAIL;
         return {
             answer: ans,
             chatId: (data && data.chatId) || '',
             suggestions: [],
-            error: data && data.source === 'error' ? (data.error || '') : ''
+            error: data && data.source === 'error' ? (data.error || SOFT_FAIL) : ''
         };
+    }
+
+    if (!res.body || typeof res.body.getReader !== 'function') {
+        clearChatTimeout();
+        chatWarn('stream body yoxdur');
+        var noBody = new Error('stream');
+        noBody.code = 'stream';
+        throw noBody;
     }
 
     var reader = res.body.getReader();
@@ -2682,163 +2980,261 @@ async function askServer(question, pending) {
     var answer = '';
     var chatId = '';
     var suggestions = [];
-    var bubble = pending.querySelector('.dash-chat-bubble');
+    var streamError = '';
+    var bubble = pending ? pending.querySelector('.dash-chat-bubble') : null;
     var mdTarget = document.createElement('div');
     mdTarget.className = 'dash-chat-md';
-    bubble.appendChild(mdTarget);
+    var caret = document.createElement('span');
+    caret.className = 'dash-chat-caret';
+    caret.setAttribute('aria-hidden', 'true');
+    var pump = { queued: '', done: false, aborted: false, started: false, tokens: 0 };
 
     function paint() {
+        if (!bubble) return;
         mdTarget.innerHTML = renderMarkdownSafe(answer);
-        var log = document.getElementById('dashChatLog');
-        if (log) log.scrollTop = log.scrollHeight;
+        if (!mdTarget.parentNode) bubble.appendChild(mdTarget);
+        if (!caret.parentNode) bubble.appendChild(caret);
+        scrollLog(false);
     }
 
-    while (true) {
-        var chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        var parts = buffer.split('\n\n');
-        buffer = parts.pop() || '';
-        var pi;
-        for (pi = 0; pi < parts.length; pi++) {
-            var block = parts[pi].trim();
-            if (!block) continue;
-            var lines = block.split('\n');
-            var dataLine = '';
-            var li;
-            for (li = 0; li < lines.length; li++) {
-                if (lines[li].indexOf('data:') === 0) {
-                    dataLine += lines[li].slice(5).trim();
-                }
+    var pumpTask = (async function() {
+        while (!pump.done || pump.queued) {
+            if (pump.aborted && !pump.queued) return;
+            if (!pump.queued) {
+                await wait(20);
+                continue;
             }
-            if (!dataLine) continue;
-            var ev;
-            try { ev = JSON.parse(dataLine); } catch (parseErr) { continue; }
-            if (!ev || !ev.type) continue;
-            if (ev.type === 'status') {
-                setStatusLine(pending, ev.label || 'Düşünürəm…');
-            } else if (ev.type === 'token') {
+            if (!pump.started) {
+                pump.started = true;
                 clearStatusLine(pending);
-                answer += String(ev.text || '');
-                paint();
-            } else if (ev.type === 'suggestions') {
-                suggestions = ev.items || [];
-            } else if (ev.type === 'done') {
-                chatId = ev.id || chatId;
-                if (!answer && ev.answer) answer = String(ev.answer);
-            } else if (ev.type === 'error') {
-                if (!answer) {
-                    answer = String(ev.soft_fail || SOFT_FAIL);
-                    paint();
+                if (bubble) bubble.appendChild(mdTarget);
+            }
+            var n = pump.queued.length > 220 ? 16 : (pump.queued.length > 70 ? 6 : 2);
+            answer += pump.queued.slice(0, n);
+            pump.queued = pump.queued.slice(n);
+            paint();
+            await wait(12);
+        }
+    })();
+
+    try {
+        while (true) {
+            if (signal && signal.aborted) {
+                pump.aborted = true;
+                break;
+            }
+            var chunk = await reader.read();
+            if (chunk.done) break;
+            buffer += decoder.decode(chunk.value, { stream: true });
+            var parts = buffer.split('\n\n');
+            buffer = parts.pop() || '';
+            var pi;
+            for (pi = 0; pi < parts.length; pi++) {
+                var block = parts[pi].trim();
+                if (!block) continue;
+                var lines = block.split('\n');
+                var dataLine = '';
+                var li;
+                for (li = 0; li < lines.length; li++) {
+                    if (lines[li].indexOf('data:') === 0) dataLine += lines[li].slice(5).trim();
+                }
+                if (!dataLine) continue;
+                var ev;
+                try { ev = JSON.parse(dataLine); } catch (parseErr) {
+                    chatWarn('SSE parse xətası', dataLine.slice(0, 120));
+                    continue;
+                }
+                if (!ev || !ev.type) continue;
+                if (ev.type === 'status') {
+                    setStatusLine(pending, ev.label || '');
+                    chatLog('status', ev.label || ev.tool || '');
+                } else if (ev.type === 'token') {
+                    pump.tokens += 1;
+                    pump.queued += String(ev.text || '');
+                } else if (ev.type === 'suggestions') {
+                    suggestions = ev.items || [];
+                } else if (ev.type === 'done') {
+                    chatId = ev.id || chatId;
+                    if ((!pump.queued && !answer) && ev.answer) {
+                        pump.queued += String(ev.answer);
+                    }
+                    chatLog('done', { id: chatId, model: ev.model, tokens: pump.tokens, ms: ev.duration_ms });
+                } else if (ev.type === 'error') {
+                    streamError = String(ev.error || '');
+                    chatWarn('stream error', streamError);
+                    if (!answer && !pump.queued) pump.queued += String(ev.soft_fail || SOFT_FAIL);
                 }
             }
         }
+    } catch (err) {
+        clearChatTimeout();
+        if (err && err.name === 'AbortError') {
+            pump.aborted = true;
+            pump.queued = '';
+            pump.done = true;
+            await pumpTask;
+            if (timedOut) {
+                var toErr = new Error('timeout');
+                toErr.code = 'timeout';
+                throw toErr;
+            }
+            return { answer: answer, chatId: chatId, suggestions: suggestions, aborted: true };
+        }
+        pump.aborted = true;
+        pump.queued = '';
+        pump.done = true;
+        await pumpTask;
+        chatWarn('stream oxuma xətası', err && err.message);
+        throw err;
     }
+    clearChatTimeout();
+    pump.done = true;
+    await pumpTask;
+    if (caret.parentNode) caret.remove();
     clearStatusLine(pending);
-    if (!answer) answer = SOFT_FAIL;
-    paint();
-    return { answer: answer, chatId: chatId, suggestions: suggestions };
+    if (!answer && !pump.aborted) {
+        answer = SOFT_FAIL;
+        if (bubble) {
+            bubble.appendChild(mdTarget);
+            paint();
+        }
+        if (caret.parentNode) caret.remove();
+        chatWarn('boş cavab — soft_fail göstərilir');
+    } else {
+        chatLog('cavab hazır', { len: answer.length, chatId: chatId, tokens: pump.tokens });
+    }
+    return {
+        answer: answer,
+        chatId: chatId,
+        suggestions: suggestions,
+        aborted: pump.aborted,
+        error: streamError
+    };
 }
 
-function paintLocalFallback(pending, question) {
-    var fallback = localAnswerOrNull(question);
-    if (!fallback) {
-        try {
-            var openLocal = answerQuestion(question);
-            if (openLocal && openLocal.html && (openLocal.facts || {}).kind !== 'open') {
-                fallback = {
-                    kind: (openLocal.facts || {}).kind || 'local',
-                    html: openLocal.html,
-                    text: openLocal.text || stripHtml(openLocal.html)
-                };
-            } else if (openLocal && openLocal.html && hasData()) {
-                // open analiz də lokal ehtiyat kimi göstərilsin — boş soft-fail olmasın
-                fallback = {
-                    kind: 'open',
-                    html: openLocal.html,
-                    text: openLocal.text || stripHtml(openLocal.html)
-                };
-            }
-        } catch (e) {}
-    }
-    if (fallback && fallback.html) {
+function paintSoftFail(pending, question) {
+    /* 1) salam/təşəkkür 2) panel platforma ehtiyatı 3) soft_fail + Yenidən cəhd et */
+    var local = routeLocal(question);
+    if (local && local.html) {
         pending.classList.remove('is-pending');
-        pending.querySelector('.dash-chat-bubble').innerHTML = fallback.html;
-        attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
-        return fallback.text || stripHtml(fallback.html);
+        pending.querySelector('.dash-chat-bubble').innerHTML = local.html;
+        return local.text || stripHtml(local.html);
+    }
+    var plat = localPlatformFallback(question);
+    if (plat && plat.html) {
+        pending.classList.remove('is-pending');
+        clearStatusLine(pending);
+        pending.querySelector('.dash-chat-bubble').innerHTML = plat.html
+            + '<p class="dash-chat-note">Ağıllı cavab müvəqqəti alınmadı — panel rəqəmləri ilə cavab verirəm.</p>';
+        attachSuggestions(pending, ['Cari həftə risklər', 'Gecikən tapşırıqlar', 'Ümumi vəziyyət']);
+        return plat.text || stripHtml(plat.html);
     }
     pending.classList.remove('is-pending');
+    clearStatusLine(pending);
     pending.querySelector('.dash-chat-bubble').innerHTML = softFailHtml(question);
+    attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
     return SOFT_FAIL;
+}
+
+function paintMarkdownAnswer(pending, text) {
+    pending.classList.remove('is-pending');
+    clearStatusLine(pending);
+    var bubble = pending.querySelector('.dash-chat-bubble');
+    if (bubble) bubble.innerHTML = '<div class="dash-chat-md">' + renderMarkdownSafe(text) + '</div>';
+    showTools(pending);
+    scrollLog(false);
 }
 
 async function reply(question) {
     chatBusy = true;
+    chatAbort = new AbortController();
+    setComposerBusy(true);
     var thinkingApi = getDoneBot() || window.DoneBot;
     if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(true);
-    chatHistory.push({ role: 'user', content: question });
+    remember('user', question);
     renderHints();
     var local = routeLocal(question);
     var pending = addBot(local ? local.html : '<p class="dash-chat-wait">Düşünürəm…</p>', !local);
     var used = local ? local.text : '';
     var chatId = '';
+    chatLog('reply start', { local: !!(local && local.kind), q: String(question || '').slice(0, 80) });
     try {
         if (local) {
             pending.classList.remove('is-pending');
-            attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
-            chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
-            if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+            showTools(pending);
+            remember('assistant', used);
             renderHints();
+            chatLog('lokal cavab', local.kind);
             return;
         }
+        // Bayraq köhnə ola bilər — hər dəfə config yoxla; yenə də serverə cəhd et
         if (!chatLlm) {
             try {
                 var cfgRes = await fetch('/api/config', { credentials: 'same-origin' });
                 if (cfgRes.ok) {
                     var cfg = await cfgRes.json();
                     if (cfg && cfg.hasChatLlm) chatLlm = true;
+                    chatLog('config hasChatLlm', !!chatLlm);
                 }
-            } catch (cfgErr) {}
+            } catch (cfgErr) {
+                chatWarn('config oxunmadı', cfgErr && cfgErr.message);
+            }
         }
-        if (!chatLlm) {
-            used = paintLocalFallback(pending, question);
-            chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
-            if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
-            renderHints();
+        var result = await askServer(question, pending, chatAbort.signal);
+        if (result.aborted) {
+            used = result.answer || '';
+            if (used) {
+                paintMarkdownAnswer(pending, used);
+                remember('assistant', used);
+            } else if (pending && pending.parentNode) {
+                pending.remove();
+            }
+            chatLog('reply aborted');
             return;
         }
-        var result = await askServer(question, pending);
         used = result.answer || '';
         chatId = result.chatId || '';
         if (!used || isSoftFailText(used) || result.error) {
-            used = paintLocalFallback(pending, question);
-        } else {
-            pending.classList.remove('is-pending');
-            pending.querySelector('.dash-chat-bubble').innerHTML = renderMarkdownSafe(used);
-            if (result.suggestions && result.suggestions.length) {
-                attachSuggestions(pending, result.suggestions);
-            } else {
-                attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
+            chatWarn('soft_fail UI', { error: result.error || '', usedLen: used.length });
+            used = paintSoftFail(pending, question);
+            showTools(pending);
+            if (typeof window.showToast === 'function') {
+                window.showToast(SOFT_FAIL, 'info');
             }
+        } else {
+            paintMarkdownAnswer(pending, used);
+            if (result.suggestions && result.suggestions.length) attachSuggestions(pending, result.suggestions);
             if (chatId) attachFeedback(pending, chatId);
+            chatLog('UI-da göstərildi', { len: used.length, chatId: chatId });
         }
-        chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
-        if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
-        document.getElementById('dashChatLog').scrollTop = document.getElementById('dashChatLog').scrollHeight;
+        remember('assistant', used);
         renderHints();
     } catch (err) {
-        used = paintLocalFallback(pending, question);
-        chatHistory.push({ role: 'assistant', content: String(used).slice(0, 2000) });
-        if (isSoftFailText(used) && !chatLlmWarned) {
-            chatLlmWarned = true;
-            if (typeof window.showToast === 'function') {
-                window.showToast('Ağıllı cavab alınmadı — panel məlumatı ilə cavab verirəm.', 'info');
-            }
+        if (err && err.name === 'AbortError') {
+            if (pending && pending.parentNode) pending.remove();
+            chatLog('reply abortError');
+            return;
+        }
+        chatWarn('reply xətası', err && (err.code || err.message));
+        used = paintSoftFail(pending, question);
+        showTools(pending);
+        remember('assistant', used);
+        if (typeof window.showToast === 'function') {
+            var toastMsg = SOFT_FAIL;
+            if (err && err.code === 'timeout') toastMsg = 'Cavab vaxtı bitdi, yenidən cəhd edin';
+            else if (err && err.code === 'network') toastMsg = 'Serverə qoşulmaq mümkün olmadı, yenidən cəhd edin';
+            else if (err && err.status === 401) toastMsg = 'Giriş sessiyası bitib — yenidən daxil olun';
+            window.showToast(toastMsg, 'info');
         }
     } finally {
+        // Epoch dəyişsə belə busy sıfırlanmalıdır — əks halda növbəti mesajlar susur
         chatBusy = false;
+        chatAbort = null;
+        setComposerBusy(false);
         var doneApi = getDoneBot() || window.DoneBot;
         if (doneApi && typeof doneApi.setThinking === 'function') doneApi.setThinking(false);
+        var input = document.getElementById('dashChatInput');
+        if (input && chatOpen) input.focus();
     }
 }
 

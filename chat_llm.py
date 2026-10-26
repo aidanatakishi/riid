@@ -199,15 +199,14 @@ def _system_prompt(user_name: str, today: str, sprint: str) -> str:
         'Rolun: ChatGPT/Claude səviyyəsində ağıllı, səmimi həmsöhbət + platformanın data analitiki.\n'
         '\n'
         'QAYDALAR\n'
-        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI) haqqında sual olarsa — əvvəl uyğun aləti çağır, sonra YALNIZ alət nəticəsinə əsaslan. Rəqəmi heç vaxt təxmin etmə və uydurma.\n'
-        '2. «Mənim işlərim», «neçə taskım var», «bu ay tapşırıqlarım» kimi suallarda mütləq get_my_tasks və ya get_person_workload çağır.\n'
-        '3. Ümumi sual olarsa (idarəetmə, texnologiya, yazı, hesablama, məsləhət, izah) — öz biliyinlə sərbəst və dolğun cavab ver. Panel mövzusuna məcbur etmə.\n'
-        '4. Qarışıq suallarda əvvəl faktı göstər, sonra təhlil və konkret təklif ver.\n'
-        '5. Cavabı bilmirsənsə və ya data yoxdursa: bunu açıq və səmimi de; nəyi bildiyini və nəyi bilmədiyini ayır; 1–2 faydalı alternativ təklif et. Heç vaxt uydurma.\n'
-        '6. Cavabı istifadəçinin dilində ver (default: Azərbaycan dili). Təbii, canlı, insan kimi yaz; robot şablonu və təkrar giriş cümlələri olmasın.\n'
-        '7. Format: qısa sual → 1–3 cümlə. Təhlil → qısa başlıq + siyahı. Markdown istifadə et, rəqəmləri **qalın** yaz. Uzatma.\n'
-        '8. Uyğun olduqda sonda 1 davam sualı təklif et.\n'
-        '9. Şəxsi/həssas məlumat və ya icazəsiz əməliyyat istənərsə, nəzakətlə imtina et.\n'
+        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI, diaqnostika/qiymətləndirmə balı, qurum reytingi) haqqında sual olarsa — YALNIZ alətlərdən gələn məlumata əsaslan. Diaqnostika/EXQ/İSQ balı və «ən yüksək bal alan qurum» üçün get_assessment_scores çağır. Rəqəmi heç vaxt təxmin etmə və uydurma.\n'
+        '2. Ümumi sual olarsa (idarəetmə, texnologiya, yazı, hesablama, məsləhət, izah) — öz biliyinlə sərbəst və dolğun cavab ver. Panel mövzusuna məcbur etmə.\n'
+        '3. Qarışıq suallarda əvvəl faktı göstər, sonra təhlil və konkret təklif ver.\n'
+        '4. Cavabı bilmirsənsə və ya data yoxdursa: bunu açıq və səmimi de; nəyi bildiyini və nəyi bilmədiyini ayır; 1–2 faydalı alternativ təklif et. Heç vaxt uydurma.\n'
+        '5. Cavabı istifadəçinin dilində ver (default: Azərbaycan dili). Təbii, canlı, insan kimi yaz; robot şablonu və təkrar giriş cümlələri olmasın.\n'
+        '6. Format: qısa sual → 1–3 cümlə. Təhlil → qısa başlıq + siyahı. Markdown istifadə et, rəqəmləri **qalın** yaz. Uzatma.\n'
+        '7. Uyğun olduqda sonda 1 davam sualı təklif et.\n'
+        '8. Şəxsi/həssas məlumat və ya icazəsiz əməliyyat istənərsə, nəzakətlə imtina et.\n'
     ).format(
         user_name=user_name or 'istifadəçi',
         today=today or '',
@@ -225,6 +224,18 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'late'
     if re.search(r'blok|çətinlik|cetinlik', q):
         return 'blocked'
+    # Adlı şəxs («Sabina Mammadova…») — people; «mənim» isə mine
+    if re.search(
+        r'(iş yük|is yuk|icraçı|icraci|kimdə|kimde|üstündə|ustunde|'
+        r'baxır|baxir|nın iş|nin is|nın tapşırıq|nin tapsiriq)',
+        q,
+    ):
+        return 'people'
+    if re.search(r'[a-zəıöğüçş]{3,}\s+[a-zəıöğüçş]{4,}', q, re.I) and re.search(
+        r'iş|is\b|task|tapşırıq|tapsiriq|yük|yuk|neçə|nece|hansı|hansi',
+        q,
+    ):
+        return 'people'
     if re.search(
         r'mənim|menim|öz iş|oz is|taskım|taskim|tapsırıqım|tapsiriqim|'
         r'tapsırıqlarım|tapsiriqlarim|işlərim|islerim|işim|isim\b',
@@ -233,6 +244,12 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'mine'
     if re.search(r'risk', q):
         return 'risk'
+    if re.search(
+        r'diaqnostika|qiymətləndir|qiymetlendir|exq|isq|məqsəd|meqsed|'
+        r'özünüqiymət|ozunuqiymet|ən yüksək bal|en yuksek bal|bal alan',
+        q,
+    ):
+        return 'assess'
     if re.search(r'DGD-\d+', question or '', re.I):
         return 'issue'
     return 'open'
@@ -258,6 +275,8 @@ def _history_blocks(history: Optional[list]) -> Tuple[List[dict], str]:
 
 def _default_suggestions(question: str, tools_used: List[str]) -> List[str]:
     q = str(question or '').lower()
+    if 'get_assessment_scores' in tools_used or 'diaqnost' in q or 'qiymət' in q or 'bal' in q:
+        return ['Ən aşağı bal alan qurum', 'EXQ üzrə reyting', 'İSQ balları']
     if 'get_risks' in tools_used or 'gecik' in q or 'risk' in q:
         return ['Mənim gecikənlərim', 'Bloklanan işlər', 'İcraçılar üzrə yük']
     if 'get_person_workload' in tools_used or 'get_my_tasks' in tools_used:
@@ -340,6 +359,7 @@ def answer_chat_events(
     gemini, openai = _keys(api_key)
     if not gemini and not openai:
         LAST_ERROR = 'Açar yoxdur'
+        print('chat_llm: açar yoxdur', flush=True)
         yield {'type': 'error', 'error': LAST_ERROR, 'soft_fail': SOFT_FAIL}
         return
 
@@ -354,12 +374,20 @@ def answer_chat_events(
     if (not use_openai_first) and openai:
         providers.append(('openai', openai))
 
+    print(
+        'chat_llm start',
+        'providers=' + ','.join(p for p, _ in providers),
+        'hint=' + str(hint),
+        'q=' + q[:80],
+        flush=True,
+    )
+
     last_err = ''
     for pname, key in providers:
         try:
             force_tools = hint in (
                 'mine', 'late', 'blocked', 'risk', 'people', 'kpi',
-                'overview', 'sprint', 'qurum', 'directions', 'issue',
+                'overview', 'sprint', 'qurum', 'directions', 'issue', 'assess',
             )
             if pname == 'gemini':
                 gen = _tool_loop_gemini(
@@ -411,6 +439,15 @@ def answer_chat_events(
                     'duration_ms': duration_ms,
                     'suggestions': suggestions[:3],
                 }
+                print(
+                    'chat_llm ok',
+                    pname,
+                    'model=' + str(LAST_MODEL),
+                    'len=' + str(len(answer)),
+                    'tools=' + ','.join(tools_used),
+                    'ms=' + str(duration_ms),
+                    flush=True,
+                )
                 yield {
                     'type': 'done',
                     'answer': answer,
@@ -422,6 +459,7 @@ def answer_chat_events(
                     'number_check': ncheck,
                 }
                 return
+            print('chat_llm empty answer', pname, 'last_err=' + str(last_err or LAST_ERROR), flush=True)
         except Exception as err:
             last_err = type(err).__name__ + ': ' + str(err)[:180]
             LAST_ERROR = last_err
@@ -429,6 +467,7 @@ def answer_chat_events(
             continue
 
     LAST_ERROR = last_err or LAST_ERROR or 'cavab alınmadı'
+    print('chat_llm final fail', LAST_ERROR, flush=True)
     yield {'type': 'error', 'error': LAST_ERROR, 'soft_fail': SOFT_FAIL}
 
 

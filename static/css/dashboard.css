@@ -87,21 +87,33 @@ body {
 }
 .load-fun {
     position: relative;
-    padding: 1.6rem 1.75rem 1.35rem;
-    border-radius: 22px;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    box-shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.55);
-    min-width: min(300px, calc(100vw - 2.5rem));
+    padding: 0.5rem 1.25rem 0.75rem;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    min-width: min(280px, calc(100vw - 2.5rem));
 }
 .load-fun-mascot {
     width: min(200px, 46vw);
     height: calc(min(200px, 46vw) * 1.2);
-    margin: 0 auto 0.85rem;
+    margin: 0 auto 1rem;
     display: flex;
     align-items: flex-end;
     justify-content: center;
     min-height: 120px;
+    filter:
+        drop-shadow(0 2px 4px rgba(15, 23, 42, 0.18))
+        drop-shadow(0 14px 28px rgba(15, 23, 42, 0.35))
+        drop-shadow(0 28px 48px rgba(0, 0, 0, 0.28))
+        drop-shadow(0 0 22px rgba(34, 211, 238, 0.22));
+}
+/* Boot hero bot: kart yox, yumşaq real kölgə */
+#loadingOverlay #done-bot.is-boot-hero .bot {
+    filter:
+        drop-shadow(0 3px 6px rgba(15, 23, 42, 0.2))
+        drop-shadow(0 16px 36px rgba(15, 23, 42, 0.42))
+        drop-shadow(0 32px 56px rgba(0, 0, 0, 0.32))
+        drop-shadow(0 0 20px color-mix(in srgb, var(--bot-glow) 38%, transparent));
 }
 /* Yüklənmədə künc maskotu gizlənsin (hero/landing istisna) */
 body.is-loading #done-bot:not(.is-boot-hero):not(.is-boot-landing),
@@ -116,6 +128,7 @@ body.is-loading #done-bot:not(.is-boot-hero):not(.is-boot-landing),
     letter-spacing: -0.02em;
     margin: 0 0 0.35rem;
     color: #f8fafc;
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }
 .load-fun-msg {
     margin: 0;
@@ -124,6 +137,7 @@ body.is-loading #done-bot:not(.is-boot-hero):not(.is-boot-landing),
     font-weight: 500;
     min-height: 1.25em;
     transition: opacity 0.25s ease;
+    text-shadow: 0 1px 10px rgba(0, 0, 0, 0.4);
 }
 .load-fun-msg.is-swap { opacity: 0; }
 .load-fun-dots {
@@ -7112,6 +7126,18 @@ body.settings-open { overflow: hidden; }
     font-weight: 700;
 }
 .dash-chat-md strong { color: #4c1d95; }
+.dash-chat-caret {
+    display: inline-block;
+    width: 0.45em;
+    height: 1em;
+    margin-left: 1px;
+    vertical-align: text-bottom;
+    background: #7c3aed;
+    animation: dash-chat-caret-blink 0.9s step-end infinite;
+}
+@keyframes dash-chat-caret-blink {
+    50% { opacity: 0; }
+}
 .dash-chat-form {
     display: flex;
     align-items: flex-end;
