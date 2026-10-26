@@ -8,6 +8,7 @@ import os
 _LLM_ENV_KEYS = (
     'OPENAI_API_KEY',
     'OPENAI_MODEL',
+    'OPENAI_CHAT_MODEL',
     'OPENAI_BASE_URL',
     'CHAT_LLM_PROVIDER',
     'GEMINI_API_KEY',

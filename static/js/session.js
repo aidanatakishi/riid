@@ -97,7 +97,10 @@ export function applySessionChrome(cfg) {
     var adminLink = document.getElementById('adminUsersLink');
     var tech = canManageTech(user);
     var manage = canManageUsers(user);
-    var displayName = (user && (user.displayName || user.username)) || '—';
+    var displayName = (user && (user.greetingName || user.displayName || user.username)) || '—';
+    if (displayName && user && displayName === user.username && (user.givenName || user.surname)) {
+        displayName = [user.givenName, user.surname].filter(Boolean).join(' ').trim() || displayName;
+    }
     if (nameEl) nameEl.textContent = displayName;
     if (roleEl) roleEl.textContent = roleLabel(user && user.role);
     if (avatarEl) {

@@ -1,6 +1,7 @@
 import hmac
 import json
 import os
+import re
 import time
 import uuid
 from collections import defaultdict
@@ -15,6 +16,16 @@ from config import SEARCH_FIELDS, HIERARCHY_FIELDS, JIRA_BASE_URL, JIRA_PROJECT_
 from chat_llm import answer_chat, answer_chat_events, chat_llm_ready, polish_monthly_report
 import chat_llm
 from chat_log import append_chat, list_chat, chat_stats, set_feedback, get_chat
+from chat_gold import add_correction
+from chat_kb import (
+    list_kb,
+    upsert_qurum_alias,
+    delete_qurum_alias,
+    resolve_qurum_label,
+    seed_builtin_aliases,
+    merge_live_names,
+    enrich_aliases_with_llm,
+)
 from chat_tools import SOFT_FAIL
 from diag_excel import parse_diag_excel
 from rehber_excel import TABS, TAB_LABELS, parse_tab, build_template, template_filename
@@ -542,7 +553,9 @@ def api_users():
         data.get('team') or 'komplayns',
         data.get('jiraAccountId') or '',
         data.get('jiraDisplayName') or '',
-        data.get('jiraPat') if is_superadmin() else ''
+        data.get('jiraPat') if is_superadmin() else '',
+        given_name=data.get('givenName') or '',
+        surname=data.get('surname') or '',
     )
     if err:
         return jsonify({'error': err}), 400
@@ -562,12 +575,17 @@ def api_user_item(user_id):
         data = {}
     fields = {
         'username': data.get('username'),
-        'display_name': data.get('displayName'),
         'role': data.get('role'),
         'project_key': data.get('projectKey'),
         'team': data.get('team'),
         'password': data.get('password')
     }
+    if 'displayName' in data:
+        fields['display_name'] = data.get('displayName')
+    if 'givenName' in data:
+        fields['given_name'] = data.get('givenName')
+    if 'surname' in data:
+        fields['surname'] = data.get('surname')
     if 'jiraAccountId' in data or 'jiraDisplayName' in data:
         fields['jira_account_id'] = data.get('jiraAccountId') or ''
         fields['jira_display_name'] = data.get('jiraDisplayName') or ''
@@ -1008,15 +1026,85 @@ def api_chat_feedback():
     chat_id = str(data.get('chatId') or data.get('id') or '').strip()
     vote = str(data.get('vote') or '').strip().lower()
     reason = str(data.get('reason') or '').strip()
-    item, err = set_feedback(chat_id, vote, reason, session_user_id())
+    correct = str(
+        data.get('correctAnswer')
+        or data.get('correction')
+        or data.get('answer')
+        or ''
+    ).strip()
+    item, err = set_feedback(chat_id, vote, reason, session_user_id(), correct)
     if err:
         return jsonify({'error': err}), 400
+    taught = None
+    if vote == 'down' and correct:
+        taught, teach_err = add_correction(
+            question=item.get('question') or '',
+            answer=correct,
+            intent=item.get('intent') or item.get('kind') or 'open',
+            wrong=item.get('answer') or '',
+            chat_id=chat_id,
+        )
+        if teach_err:
+            return jsonify({'error': teach_err, 'feedback': item.get('feedback')}), 400
     return jsonify({
         'ok': True,
         'id': item.get('id'),
         'feedback': item.get('feedback'),
         'flags': item.get('flags') or [],
+        'taught': bool(taught),
+        'gold': taught,
     })
+
+
+@api.route('/api/chat/kb', methods=['GET', 'POST', 'DELETE', 'OPTIONS'])
+@login_required
+def api_chat_kb():
+    """Admin: qurum lüğəti (tam ad ↔ qısa ad) idarəsi."""
+    if request.method == 'OPTIONS':
+        return options_ok()
+    if not can_manage_users(find_user_by_id(session_user_id())):
+        return jsonify({'error': 'İcazə yoxdur — admin hesabı lazımdır'}), 403
+    try:
+        if request.method == 'GET':
+            q = str(request.args.get('resolve') or request.args.get('q') or '').strip()
+            payload = list_kb()
+            if q:
+                payload['resolve'] = resolve_qurum_label(q)
+            return jsonify(payload)
+        data = request_json()
+        if not isinstance(data, dict):
+            data = {}
+        if request.method == 'DELETE' or str(data.get('action') or '').lower() == 'delete':
+            ok, err = delete_qurum_alias(data.get('canonical') or data.get('name') or '')
+            if not ok:
+                return jsonify({'error': err}), 400
+            return jsonify({'ok': True, **list_kb()})
+        action = str(data.get('action') or '').lower()
+        if action == 'resolve':
+            return jsonify({
+                'ok': True,
+                'resolve': resolve_qurum_label(data.get('query') or data.get('q') or ''),
+            })
+        if action == 'seed':
+            return jsonify({'ok': True, **seed_builtin_aliases()})
+        if action == 'merge_live':
+            names = data.get('names') if isinstance(data.get('names'), list) else []
+            return jsonify({'ok': True, **merge_live_names(names)})
+        if action == 'enrich':
+            names = data.get('names') if isinstance(data.get('names'), list) else None
+            payload, err = enrich_aliases_with_llm(names)
+            if err:
+                return jsonify({'error': err, **list_kb()}), 400
+            return jsonify({'ok': True, **payload})
+        aliases = data.get('aliases')
+        if isinstance(aliases, str):
+            aliases = [p.strip() for p in re.split(r'[,;\n]+', aliases) if p.strip()]
+        row, err = upsert_qurum_alias(data.get('canonical') or data.get('name') or '', aliases)
+        if err:
+            return jsonify({'error': err}), 400
+        return jsonify({'ok': True, 'item': row, **list_kb()})
+    except Exception as exc:
+        return jsonify({'error': 'KB xətası: ' + type(exc).__name__ + ': ' + str(exc)[:180]}), 500
 
 
 @api.route('/api/chat/logs', methods=['GET', 'OPTIONS'])

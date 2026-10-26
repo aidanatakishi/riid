@@ -389,6 +389,79 @@ body.settings-page {
     color: #475569;
 }
 .set-chat-top strong { color: var(--ink); }
+.set-kb-auto {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+    margin: 0.35rem 0 0.85rem;
+}
+.set-kb-form {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr auto;
+    gap: 0.75rem;
+    align-items: end;
+    margin: 0.85rem 0 1rem;
+}
+.set-kb-form .admin-actions { margin: 0; }
+.set-kb-test { margin: 0 0 0.85rem; }
+.set-kb-test-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+.set-kb-test-row input { flex: 1; }
+.set-kb-resolve {
+    margin: 0.35rem 0 0;
+    font-size: 0.85rem;
+    color: #475569;
+    min-height: 1.2em;
+}
+.set-kb-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+    max-height: 420px;
+    overflow: auto;
+}
+.set-kb-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.7rem 0.85rem;
+    border: 1px solid #eee8f6;
+    border-radius: 12px;
+    background: #faf8ff;
+}
+.set-kb-item-main { min-width: 0; flex: 1; }
+.set-kb-item-main strong {
+    display: block;
+    margin-bottom: 0.35rem;
+    color: #312e81;
+}
+.set-kb-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+.set-kb-chip {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: #ede9fe;
+    color: #5b21b6;
+    font-size: 0.72rem;
+    font-weight: 650;
+}
+.set-kb-item-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+@media (max-width: 900px) {
+    .set-kb-form { grid-template-columns: 1fr; }
+}
 @media (max-width: 920px) {
     .set-chat-stats,
     .set-chat-filters { grid-template-columns: 1fr 1fr; }

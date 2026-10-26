@@ -183,11 +183,12 @@ def get_chat(chat_id):
     return None
 
 
-def set_feedback(chat_id, vote, reason='', user_id=''):
+def set_feedback(chat_id, vote, reason='', user_id='', correct_answer=''):
     chat_id = str(chat_id or '').strip()
     vote = str(vote or '').strip().lower()
     if vote not in ('up', 'down', 'clear'):
         return None, 'vote up|down|clear olmalıdır'
+    correct_answer = str(correct_answer or '').strip()[:1200]
     with _LOCK:
         items = _read_all_locked()
         found = None
@@ -200,16 +201,21 @@ def set_feedback(chat_id, vote, reason='', user_id=''):
         if vote == 'clear':
             found['feedback'] = None
         else:
-            found['feedback'] = {
+            fb = {
                 'vote': vote,
                 'reason': str(reason or '')[:200],
                 'userId': str(user_id or '')[:80],
                 'ts': _now(),
             }
+            if correct_answer:
+                fb['correctAnswer'] = correct_answer
+            found['feedback'] = fb
         flags = list(found.get('flags') or [])
-        flags = [f for f in flags if f not in ('thumbs_down', 'thumbs_up')]
+        flags = [f for f in flags if f not in ('thumbs_down', 'thumbs_up', 'taught')]
         if vote == 'down':
             flags.append('thumbs_down')
+            if correct_answer:
+                flags.append('taught')
         elif vote == 'up':
             flags.append('thumbs_up')
         found['flags'] = flags

@@ -2136,6 +2136,37 @@ function preferExqQurumRow(a, b) {
     return a;
 }
 
+function preferDiagQurumRow(a, b) {
+    var sa = diagNumericScore(a);
+    var sb = diagNumericScore(b);
+    if ((sa == null) !== (sb == null)) return sb != null ? b : a;
+    if (sa != null && sb != null && sa !== sb) return sb > sa ? b : a;
+    var da = null;
+    var db = null;
+    try { da = getTaskDueDate(a && a.task); } catch (e1) {}
+    try { db = getTaskDueDate(b && b.task); } catch (e2) {}
+    if (da && db && !isNaN(da.getTime()) && !isNaN(db.getTime()) && da.getTime() !== db.getTime()) {
+        return db.getTime() > da.getTime() ? b : a;
+    }
+    if (db && !da) return b;
+    return a;
+}
+
+function dedupeSectionRows(section, rows) {
+    if (section === 'diag') return uniqueQurumRows(rows, preferDiagQurumRow);
+    if (section === 'exq') return uniqueQurumRows(rows, preferExqQurumRow);
+    if (section === 'isq' || section === 'self') {
+        return uniqueQurumRows(rows, function(a, b) {
+            var sa = section === 'isq' ? isqNumericScore(a) : selfNumericScore(a);
+            var sb = section === 'isq' ? isqNumericScore(b) : selfNumericScore(b);
+            if ((sa == null) !== (sb == null)) return sb != null ? b : a;
+            if (sa != null && sb != null && sa !== sb) return sb > sa ? b : a;
+            return a;
+        });
+    }
+    return rows || [];
+}
+
 function uniqueQurumRows(rows, pick) {
     var map = {};
     var keys = [];
@@ -4725,13 +4756,15 @@ function getSectionView(section) {
     var includeUndated = isAllYears(year) && !hasActivePeriod();
     var allRows = collectCategoryTasks(section);
     var searchActive = !!(searchState[section] || '').trim();
-    var yearRows = pickSectionRows(section, allRows, year, includeUndated);
+    var yearRows = dedupeSectionRows(section, pickSectionRows(section, allRows, year, includeUndated));
     var filtered;
     if (section === 'meqsed' && searchActive) {
         filtered = pickSectionRows(section, filterBySearch(allRows, section), year, includeUndated);
     } else {
         filtered = filterBySearch(yearRows, section);
     }
+    // Diaqnostika/İSQ/… — hər qurumdan yalnız bir sətir
+    if (section !== 'meqsed') filtered = dedupeSectionRows(section, filtered);
     filtered = filterRowsByListDash(section, filtered);
     filtered = applyListSort(section, filtered);
     var dashFilter = listDashFilter(section);

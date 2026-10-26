@@ -898,6 +898,9 @@ function applyDashboardPayload(data, opts) {
     applyFilters();
     refreshTodayTasks();
     state.hasLoadedDashboard = true;
+    try {
+        if (typeof window.persistAiDoneQurums === 'function') window.persistAiDoneQurums();
+    } catch (ePersist) {}
 }
 
 export function applyTeamScope() {
@@ -907,6 +910,9 @@ export function applyTeamScope() {
     populateSprintFilter();
     applyFilters();
     refreshTodayTasks();
+    try {
+        if (typeof window.persistAiDoneQurums === 'function') window.persistAiDoneQurums();
+    } catch (ePersist2) {}
     if (typeof window.renderAssessmentSections === 'function') {
         try { window.renderAssessmentSections(); } catch (e) {}
     }

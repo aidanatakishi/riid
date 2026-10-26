@@ -25,7 +25,7 @@
             <nav class="set-links" aria-label="Tənzimləmələr">
                 <a class="set-link is-on" href="#scope" data-view="scope" id="navScope">Layihə və komanda</a>
                 <a class="set-link hidden" href="#users" data-view="users" id="navUsers">İstifadəçilər</a>
-                <a class="set-link hidden" href="#chat" data-view="chat" id="navChat">AI Done jurnalı</a>
+                <a class="set-link hidden" href="#chat" data-view="chat" id="navChat">AI Done</a>
                 <button type="button" class="set-link is-exit" id="logoutBtn">Çıxış</button>
             </nav>
         </aside>
@@ -84,6 +84,48 @@
             </section>
 
             <section id="view-chat" class="hidden">
+                <article class="set-card">
+                    <div class="set-chat-head">
+                        <div>
+                            <h3>Qurum lüğəti</h3>
+                            <p class="set-note">Tam ad ↔ qısa ad. Əl ilə yazmağa ehtiyac yoxdur — standart siyahını yüklə və ya AI ilə tamamla.</p>
+                        </div>
+                        <button type="button" class="admin-btn admin-btn--ghost" id="kbRefresh">Yenilə</button>
+                    </div>
+                    <div class="set-kb-auto admin-actions">
+                        <button type="button" class="admin-btn admin-btn--primary" id="kbSeed">Standart qurumları yüklə</button>
+                        <button type="button" class="admin-btn admin-btn--ghost" id="kbEnrich">AI ilə qısa adları tamamla</button>
+                        <button type="button" class="admin-btn admin-btn--ghost" id="kbMergeLive">Paneldən götür</button>
+                    </div>
+                    <div class="set-kb-form">
+                        <label class="admin-field">
+                            <span>Tam ad (istəyə bağlı əl ilə)</span>
+                            <input id="kbCanonical" type="text" placeholder="məs. Dövlət Miqrasiya Xidməti" autocomplete="off">
+                        </label>
+                        <label class="admin-field">
+                            <span>Qısa adlar (vergüllə)</span>
+                            <input id="kbAliases" type="text" placeholder="məs. DMX, miqrasiya" autocomplete="off">
+                        </label>
+                        <div class="admin-actions">
+                            <button type="button" class="admin-btn admin-btn--primary" id="kbSave">Yadda saxla</button>
+                        </div>
+                    </div>
+                    <div class="set-kb-test">
+                        <label class="admin-field">
+                            <span>Sınaq: bot bunu necə tanıyır?</span>
+                            <div class="set-kb-test-row">
+                                <input id="kbResolveQ" type="search" placeholder="TƏBİB, DMX, Miqrasiya…" autocomplete="off">
+                                <button type="button" class="admin-btn admin-btn--ghost" id="kbResolveBtn">Yoxla</button>
+                            </div>
+                        </label>
+                        <p class="set-kb-resolve" id="kbResolveOut"></p>
+                    </div>
+                    <p class="admin-error" id="kbError"></p>
+                    <p class="set-ok" id="kbOk"></p>
+                    <p class="set-note" id="kbStatus">Lüğət yüklənir…</p>
+                    <div class="set-kb-list" id="kbList"></div>
+                </article>
+
                 <article class="set-card">
                     <div class="set-chat-head">
                         <div>
@@ -161,9 +203,19 @@
                                 </label>
                                 <p class="admin-note" id="modeNote"></p>
                                 <p class="admin-chip hidden" id="jiraChip"></p>
+                                <div class="admin-row">
+                                    <label class="admin-field">
+                                        <span>Ad</span>
+                                        <input id="givenName" required autocomplete="given-name" placeholder="Fərid">
+                                    </label>
+                                    <label class="admin-field">
+                                        <span>Soyad</span>
+                                        <input id="surname" required autocomplete="family-name" placeholder="Osmanov">
+                                    </label>
+                                </div>
                                 <label class="admin-field">
                                     <span>İstifadəçi adı</span>
-                                    <input id="username" required minlength="3" autocomplete="off">
+                                    <input id="username" required minlength="3" autocomplete="off" placeholder="farid.osmanov">
                                 </label>
                                 <label class="admin-field">
                                     <span>Parol</span>
@@ -197,6 +249,6 @@
             </div>
         </div>
     </div>
-    <script src="/static/js/settings.js?v=idda12"></script>
+    <script src="/static/js/settings.js?v=idda14"></script>
 </body>
 </html>

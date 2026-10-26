@@ -73,16 +73,246 @@
         if (navChat) navChat.classList.toggle('is-on', isChat);
         document.getElementById('setTitle').textContent = isUsers
             ? 'İstifadəçilər'
-            : (isChat ? 'AI Done jurnalı' : 'Layihə və komanda');
+            : (isChat ? 'AI Done' : 'Layihə və komanda');
         document.getElementById('setSub').textContent = isUsers
             ? 'Hesablar, rollar və hər kəsə verilən access-lər.'
             : (isChat
-                ? 'Bütün cihazlardan gələn sualları və AI cavablarını izləyin.'
+                ? 'Qurum lüğəti, söhbət keyfiyyəti və AI cavabları.'
                 : 'Jira KEY və komanda bu panelin əhatəsini müəyyən edir.');
         if (isUsers && location.hash !== '#users') history.replaceState(null, '', '#users');
         else if (isChat && location.hash !== '#chat') history.replaceState(null, '', '#chat');
         else if (isScope && location.hash && location.hash !== '#scope') history.replaceState(null, '', '#scope');
-        if (isChat) loadChatLogs();
+        if (isChat) {
+            loadChatKb();
+            loadChatLogs();
+        }
+    }
+    function parseAliasInput(raw) {
+        return String(raw || '')
+            .split(/[,;\n]+/)
+            .map(function (s) { return s.trim(); })
+            .filter(Boolean);
+    }
+    function fillKbForm(canonical, aliases) {
+        var c = document.getElementById('kbCanonical');
+        var a = document.getElementById('kbAliases');
+        if (c) c.value = canonical || '';
+        if (a) a.value = (aliases || []).join(', ');
+        if (c) try { c.focus(); } catch (e) {}
+    }
+    function renderKbList(items) {
+        var list = document.getElementById('kbList');
+        var status = document.getElementById('kbStatus');
+        if (!list) return;
+        items = items || [];
+        if (status) status.textContent = items.length
+            ? (items.length + ' qurum · data/chat_kb.json')
+            : 'Hələ sabit alias yoxdur — əlavə edin.';
+        if (!items.length) {
+            list.innerHTML = '<p class="set-chat-empty">Boş lüğət. Tam ad və qısa adları yuxarıda yazın.</p>';
+            return;
+        }
+        list.innerHTML = items.map(function (it) {
+            var als = (it.aliases || []).map(function (a) {
+                return '<span class="set-kb-chip">' + esc(a) + '</span>';
+            }).join('');
+            return '<article class="set-kb-item" data-canonical="' + esc(it.canonical || '') + '">'
+                + '<div class="set-kb-item-main">'
+                + '<strong>' + esc(it.canonical || '') + '</strong>'
+                + '<div class="set-kb-chips">' + (als || '<span class="set-note">alias yoxdur</span>') + '</div>'
+                + '</div>'
+                + '<div class="set-kb-item-actions">'
+                + '<button type="button" class="admin-btn admin-btn--ghost set-kb-edit">Redaktə</button>'
+                + '<button type="button" class="admin-btn admin-btn--quiet set-kb-del">Sil</button>'
+                + '</div>'
+                + '</article>';
+        }).join('');
+    }
+    function loadChatKb() {
+        showError('kbError', '');
+        var ok = document.getElementById('kbOk');
+        if (ok) ok.textContent = '';
+        return api('/api/chat/kb').then(function (res) {
+            if (!res.ok) {
+                var err = (res.data && res.data.error) || '';
+                if (res.status === 404) err = 'Server köhnə kodla işləyir — app-i yenidən başladın';
+                if (res.status === 403) err = err || 'İcazə yoxdur (admin lazımdır)';
+                showError('kbError', err || ('Lüğət oxunmadı (' + res.status + ')'));
+                renderKbList([]);
+                return;
+            }
+            renderKbList((res.data && res.data.qurumAliases) || []);
+        }).catch(function () {
+            showError('kbError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    }
+    function saveChatKb() {
+        var canonical = String((document.getElementById('kbCanonical') || {}).value || '').trim();
+        var aliases = parseAliasInput((document.getElementById('kbAliases') || {}).value || '');
+        showError('kbError', '');
+        var ok = document.getElementById('kbOk');
+        if (ok) ok.textContent = '';
+        if (!canonical) {
+            showError('kbError', 'Tam ad yazın (məs. Dövlət Miqrasiya Xidməti), qısa adı aşağıda');
+            return;
+        }
+        api('/api/chat/kb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canonical: canonical, aliases: aliases })
+        }).then(function (res) {
+            if (!res.ok) {
+                var err = (res.data && res.data.error) || '';
+                if (res.status === 404) err = 'Server köhnə kodla işləyir — app-i yenidən başladın';
+                if (res.status === 403) err = err || 'İcazə yoxdur (admin lazımdır)';
+                showError('kbError', err || ('Saxlanılmadı (' + res.status + ')'));
+                return;
+            }
+            if (ok) ok.textContent = 'Yadda saxlandı';
+            fillKbForm('', []);
+            renderKbList((res.data && res.data.qurumAliases) || []);
+        }).catch(function () {
+            showError('kbError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    }
+    function deleteChatKb(canonical) {
+        if (!canonical) return;
+        if (!window.confirm('«' + canonical + '» lüğətdən silinsin?')) return;
+        showError('kbError', '');
+        api('/api/chat/kb', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ canonical: canonical })
+        }).then(function (res) {
+            if (!res.ok) {
+                showError('kbError', (res.data && res.data.error) || 'Silinmədi');
+                return;
+            }
+            renderKbList((res.data && res.data.qurumAliases) || []);
+        }).catch(function () {
+            showError('kbError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    }
+    function resolveChatKb() {
+        var q = String((document.getElementById('kbResolveQ') || {}).value || '').trim();
+        var out = document.getElementById('kbResolveOut');
+        if (!out) return;
+        if (!q) {
+            out.textContent = 'Axtarış yazın';
+            return;
+        }
+        out.textContent = 'Yoxlanılır…';
+        api('/api/chat/kb?resolve=' + encodeURIComponent(q)).then(function (res) {
+            if (!res.ok) {
+                if (res.status === 404) out.textContent = 'Server köhnədir — app-i yenidən başladın';
+                else out.textContent = (res.data && res.data.error) || ('Alınmadı (' + res.status + ')');
+                return;
+            }
+            var r = (res.data && res.data.resolve) || {};
+            if (r.match) {
+                out.innerHTML = 'Tapıldı: <strong>' + esc(r.match) + '</strong>'
+                    + (r.suggestions && r.suggestions.length
+                        ? ' · digər: ' + r.suggestions.map(esc).join(', ')
+                        : '');
+            } else {
+                out.textContent = 'Uyğunluq yoxdur'
+                    + (r.suggestions && r.suggestions.length
+                        ? ' · bənzəyənlər: ' + r.suggestions.join(', ')
+                        : '');
+            }
+        }).catch(function () {
+            out.textContent = 'Server xətası';
+        });
+    }
+    function kbAction(action, extra, busyLabel) {
+        showError('kbError', '');
+        var ok = document.getElementById('kbOk');
+        if (ok) ok.textContent = busyLabel || 'İşləyir…';
+        var body = Object.assign({ action: action }, extra || {});
+        return api('/api/chat/kb', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function (res) {
+            if (!res.ok) {
+                if (ok) ok.textContent = '';
+                showError('kbError', (res.data && res.data.error) || ('Alınmadı (' + res.status + ')'));
+                if (res.data && res.data.qurumAliases) renderKbList(res.data.qurumAliases);
+                return;
+            }
+            renderKbList((res.data && res.data.qurumAliases) || []);
+            if (ok) {
+                if (action === 'seed') ok.textContent = 'Standart qurumlar yükləndi (' + ((res.data && res.data.count) || 0) + ')';
+                else if (action === 'enrich') ok.textContent = 'AI tamamladı (' + ((res.data && res.data.enriched) || 0) + ' yeniləmə)';
+                else if (action === 'merge_live') ok.textContent = 'Paneldən əlavə olundu (' + ((res.data && res.data.count) || 0) + ')';
+                else ok.textContent = 'Hazır';
+            }
+        }).catch(function () {
+            if (ok) ok.textContent = '';
+            showError('kbError', 'Serverə qoşulmaq mümkün olmadı');
+        });
+    }
+    function seedChatKb() {
+        kbAction('seed', {}, 'Standart siyahı yüklənir…');
+    }
+    function enrichChatKb() {
+        kbAction('enrich', {}, 'AI qısa adları hazırlayır…');
+    }
+    function readStoredQurumNames() {
+        var bags = [];
+        function pushParsed(raw) {
+            if (!raw) return;
+            try {
+                var parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) bags.push(parsed);
+            } catch (e) {}
+        }
+        try { pushParsed(localStorage.getItem('aiDoneQurums')); } catch (e1) {}
+        try { pushParsed(sessionStorage.getItem('aiDoneQurums')); } catch (e2) {}
+        try {
+            if (Array.isArray(window.__AI_DONE_QURUMS__)) bags.push(window.__AI_DONE_QURUMS__);
+        } catch (e3) {}
+        try {
+            var snap = window.__AI_DONE_SNAPSHOT__ || (window.opener && window.opener.__AI_DONE_SNAPSHOT__);
+            if (snap && Array.isArray(snap.qurums)) {
+                bags.push(snap.qurums.map(function (r) { return (r && r.name) || r; }));
+            }
+        } catch (e4) {}
+        try {
+            var cat = localStorage.getItem('aiDoneQurumCatalog');
+            if (cat) {
+                var rows = JSON.parse(cat);
+                if (Array.isArray(rows)) {
+                    bags.push(rows.map(function (r) { return (r && r.name) || ''; }));
+                }
+            }
+        } catch (e5) {}
+        var seen = {};
+        var out = [];
+        bags.forEach(function (list) {
+            (list || []).forEach(function (n) {
+                n = String(n || '').trim();
+                if (!n || seen[n]) return;
+                seen[n] = true;
+                out.push(n);
+            });
+        });
+        return out;
+    }
+    function mergeLiveChatKb() {
+        var names = readStoredQurumNames();
+        if (!names.length) {
+            // Panel keşi yoxdursa standartı yüklə — boş error vermə
+            showError('kbError', '');
+            var ok = document.getElementById('kbOk');
+            if (ok) ok.textContent = 'Panel keşi boşdur — standart qurumlar yüklənir…';
+            return kbAction('seed', {}, 'Standart qurumlar yüklənir…').then(function () {
+                if (ok) {
+                    ok.textContent = 'Standart yükləndi. Live qurumlar üçün paneli açıb məlumat yükləyin, sonra yenidən «Paneldən götür».';
+                }
+            });
+        }
+        kbAction('merge_live', { names: names }, 'Paneldən birləşdirilir…');
     }
     function chatFilterQuery() {
         var flag = (document.getElementById('chatLogFlag') || {}).value || '';
@@ -157,20 +387,27 @@
                 var voteBadge = fb.vote === 'down'
                     ? '<span class="set-chat-badge is-down">👎</span>'
                     : (fb.vote === 'up' ? '<span class="set-chat-badge">👍</span>' : '');
+                var taughtBadge = (fb.correctAnswer || (it.flags || []).indexOf('taught') >= 0)
+                    ? '<span class="set-chat-badge">Öyrədildi</span>'
+                    : '';
                 var dur = it.durationMs != null ? Math.round(it.durationMs / 100) / 10 + 's' : '';
                 return '<article class="set-chat-item" data-id="' + esc(it.id || '') + '">'
                     + '<div class="set-chat-meta">'
                     + '<span class="set-chat-badge' + badgeClass + '">' + esc(badge) + '</span>'
                     + voteBadge
+                    + taughtBadge
                     + '<span>' + esc(who) + '</span>'
                     + (when ? '<span>' + esc(when) + '</span>' : '')
                     + (dur ? '<span>' + esc(dur) + '</span>' : '')
                     + (it.intent || it.kind ? '<span>' + esc(it.intent || it.kind) + '</span>' : '')
-                    + flags.map(function (f) { return '<span class="set-chat-badge is-local">' + esc(f) + '</span>'; }).join('')
+                    + flags.filter(function (f) { return f !== 'taught'; }).map(function (f) {
+                        return '<span class="set-chat-badge is-local">' + esc(f) + '</span>';
+                    }).join('')
                     + '</div>'
                     + '<p class="set-chat-q">' + esc(it.question || '') + '</p>'
                     + '<p class="set-chat-a">' + esc(ans) + '</p>'
                     + (fb.reason ? '<p class="set-chat-a"><em>Səbəb: ' + esc(fb.reason) + '</em></p>' : '')
+                    + (fb.correctAnswer ? '<p class="set-chat-a"><em>Düzgün: ' + esc(fb.correctAnswer) + '</em></p>' : '')
                     + (it.id ? '<div class="set-chat-actions"><button type="button" class="admin-btn admin-btn--ghost set-chat-replay" data-id="' + esc(it.id) + '">Yenidən işə sal</button></div>' : '')
                     + '</article>';
             }).join('');
@@ -273,6 +510,16 @@
             chip.classList.add('hidden');
         }
     }
+    function fillNameFromFull(full) {
+        var givenEl = document.getElementById('givenName');
+        var surEl = document.getElementById('surname');
+        if (!givenEl || !surEl) return;
+        if ((givenEl.value || '').trim() && (surEl.value || '').trim()) return;
+        var parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return;
+        if (!(givenEl.value || '').trim()) givenEl.value = parts[0];
+        if (!(surEl.value || '').trim() && parts.length > 1) surEl.value = parts.slice(1).join(' ');
+    }
     function applyMode() {
         var person = selectedPerson();
         var note = document.getElementById('modeNote');
@@ -282,6 +529,7 @@
                 username.value = person.suggestedUsername;
             }
             setJiraHidden(person.accountId, person.displayName || '');
+            fillNameFromFull(person.displayName || '');
             if (person.linkedUserId && person.linkedUserId !== editingId) {
                 note.textContent = 'Bu Jira şəxsinin artıq hesabı var (' + (person.linkedUsername || '') + '). Başqasını seçin və ya mövcud hesabı redaktə edin.';
             } else {
@@ -289,7 +537,7 @@
             }
         } else {
             setJiraHidden('', '');
-            note.textContent = 'Siyahıda yoxdursa yalnız istifadəçi adı və parol yazın. Jira ilə bağlanmayacaq.';
+            note.textContent = 'Siyahıda yoxdursa ad, soyad, istifadəçi adı və parol yazın.';
         }
     }
     function fillPeopleOptions(people, selectedId) {
@@ -362,6 +610,8 @@
     function resetForm() {
         editingId = '';
         document.getElementById('userId').value = '';
+        document.getElementById('givenName').value = '';
+        document.getElementById('surname').value = '';
         document.getElementById('username').value = '';
         document.getElementById('username').dataset.locked = '';
         document.getElementById('password').value = '';
@@ -380,6 +630,15 @@
     }
     function fillEdit(user) {
         editingId = user.id;
+        var given = user.givenName || '';
+        var sur = user.surname || '';
+        if ((!given || !sur) && user.displayName) {
+            var parts = String(user.displayName).trim().split(/\s+/).filter(Boolean);
+            if (!given && parts[0]) given = parts[0];
+            if (!sur && parts.length > 1) sur = parts.slice(1).join(' ');
+        }
+        document.getElementById('givenName').value = given;
+        document.getElementById('surname').value = sur;
         document.getElementById('username').value = user.username || '';
         document.getElementById('username').dataset.locked = '1';
         document.getElementById('password').value = '';
@@ -422,9 +681,10 @@
             var row = document.createElement('article');
             var privileged = user.role === 'admin' || user.role === 'superadmin';
             row.className = 'admin-person' + (privileged ? ' is-admin' : '');
-            var name = user.jiraDisplayName || user.displayName || user.username || '';
+            var name = user.greetingName || user.displayName || user.jiraDisplayName || user.username || '';
             var roleText = roleLabel(user);
             var teamText = teamLabel(user);
+            var login = user.username && user.username !== name ? (' · ' + user.username) : '';
             row.innerHTML =
                 '<span class="admin-avatar" style="background:' + avatarGradient(name) + '" title="' + esc(initials(name)) + '">' + esc(initials(name)) + '</span>' +
                 '<div class="admin-person-copy">' +
@@ -432,6 +692,7 @@
                 '<div class="admin-meta">' +
                 '<span class="admin-badge' + (privileged ? ' is-admin' : '') + '">' + esc(roleText) + '</span>' +
                 (teamText ? '<span class="admin-badge">' + esc(teamText) + '</span>' : '') +
+                (login ? '<span class="admin-badge">' + esc(user.username) + '</span>' : '') +
                 '</div></div><div class="admin-person-actions"></div>';
             var actions = row.querySelector('.admin-person-actions');
             var editBtn = document.createElement('button');
@@ -568,6 +829,45 @@
     if (chatRefresh) {
         chatRefresh.addEventListener('click', function () { loadChatLogs(); });
     }
+    var kbRefresh = document.getElementById('kbRefresh');
+    if (kbRefresh) kbRefresh.addEventListener('click', function () { loadChatKb(); });
+    var kbSave = document.getElementById('kbSave');
+    if (kbSave) kbSave.addEventListener('click', function () { saveChatKb(); });
+    var kbSeed = document.getElementById('kbSeed');
+    if (kbSeed) kbSeed.addEventListener('click', function () { seedChatKb(); });
+    var kbEnrich = document.getElementById('kbEnrich');
+    if (kbEnrich) kbEnrich.addEventListener('click', function () { enrichChatKb(); });
+    var kbMergeLive = document.getElementById('kbMergeLive');
+    if (kbMergeLive) kbMergeLive.addEventListener('click', function () { mergeLiveChatKb(); });
+    var kbResolveBtn = document.getElementById('kbResolveBtn');
+    if (kbResolveBtn) kbResolveBtn.addEventListener('click', function () { resolveChatKb(); });
+    var kbResolveQ = document.getElementById('kbResolveQ');
+    if (kbResolveQ) {
+        kbResolveQ.addEventListener('keydown', function (ev) {
+            if (ev.key === 'Enter') {
+                ev.preventDefault();
+                resolveChatKb();
+            }
+        });
+    }
+    var kbList = document.getElementById('kbList');
+    if (kbList) {
+        kbList.addEventListener('click', function (ev) {
+            var item = ev.target.closest('.set-kb-item');
+            if (!item) return;
+            var canonical = item.getAttribute('data-canonical') || '';
+            if (ev.target.closest('.set-kb-edit')) {
+                var chips = item.querySelectorAll('.set-kb-chip');
+                var aliases = [];
+                Array.prototype.forEach.call(chips, function (c) { aliases.push(c.textContent || ''); });
+                fillKbForm(canonical, aliases);
+                return;
+            }
+            if (ev.target.closest('.set-kb-del')) {
+                deleteChatKb(canonical);
+            }
+        });
+    }
     ['chatLogFlag', 'chatLogSource'].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.addEventListener('change', function () { loadChatLogs(); });
@@ -631,12 +931,22 @@
             showError('formError', 'Bu Jira şəxsinin artıq hesabı var.');
             return;
         }
+        var givenName = document.getElementById('givenName').value.trim();
+        var surname = document.getElementById('surname').value.trim();
         var username = document.getElementById('username').value.trim();
+        if (!givenName || !surname) {
+            btn.disabled = false;
+            showError('formError', 'Ad və soyad yazın');
+            return;
+        }
         var jiraId = (person && person.accountId) || document.getElementById('jiraAccountId').value || '';
         var jiraName = (person && person.displayName) || document.getElementById('jiraDisplayName').value || '';
+        var displayName = (givenName + ' ' + surname).trim();
         var payload = {
             username: username,
-            displayName: jiraName || username,
+            givenName: givenName,
+            surname: surname,
+            displayName: displayName,
             projectKey: String(document.getElementById('userProjectKey').value || homeProjectKey).toUpperCase(),
             team: document.getElementById('team').value || 'komplayns',
             role: document.getElementById('role').value,

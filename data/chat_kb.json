@@ -1,0 +1,574 @@
+{
+  "panel": [
+    {
+      "id": "overview",
+      "title": "Ümumi panel KPI",
+      "aliases": [
+        "umumi veziyyet",
+        "overview",
+        "panel saylari",
+        "kpi"
+      ],
+      "text": "Panel kartları cari filter (sprint, tarix, istiqamət, qurum) üzrə total, tamamlanan, açıq, gecikən, bloklanan, progress və tamamlanma faizini göstərir. AI Done eyni kəsiyə baxır."
+    },
+    {
+      "id": "qurum",
+      "title": "Qurum",
+      "aliases": [
+        "teskilat",
+        "nazirlik",
+        "agentlik",
+        "xidmet",
+        "org"
+      ],
+      "text": "Qurum — tapşırığa bağlanan dövlət qurumu (Nazirlik, Agentlik, Xidmət və s.). Qısa ad və ya rəsmi ad eyni qurumu bildirə bilər. Qurum üzrə iş yükü, gecikən və qiymətləndirmə balları alətlərlə oxunur."
+    },
+    {
+      "id": "diag",
+      "title": "Rəqəmsallaşma diaqnostikası",
+      "aliases": [
+        "diaqnostika",
+        "diag",
+        "reqemsal yetkinlik"
+      ],
+      "text": "Diaqnostika balı qurumlar üzrə reytingdir. «Ən yüksək/aşağı bal» üçün get_assessment_scores (category=diag) istifadə olunur."
+    },
+    {
+      "id": "exq",
+      "title": "Elektron xidmətlərin qiymətləndirilməsi",
+      "aliases": [
+        "exq",
+        "elektron xidmet"
+      ],
+      "text": "EXQ balları qurum üzrədir; get_assessment_scores category=exq."
+    },
+    {
+      "id": "isq",
+      "title": "İnformasiya ehtiyat və sistemlərinin qiymətləndirilməsi",
+      "aliases": [
+        "isq",
+        "informasiya ehtiyat"
+      ],
+      "text": "İSQ balları qurum üzrədir; get_assessment_scores category=isq."
+    }
+  ],
+  "qurumAliases": [
+    {
+      "canonical": "Ailə, Qadın və Uşaq Problemləri üzrə Dövlət Komitəsi",
+      "aliases": [
+        "AQUPDK",
+        "ailə komitəsi"
+      ]
+    },
+    {
+      "canonical": "Ali Məhkəmə",
+      "aliases": []
+    },
+    {
+      "canonical": "Antiinhisar və İstehlak Bazarına Nəzarət Dövlət Xidməti",
+      "aliases": [
+        "antiinhisar",
+        "istehlak bazarı"
+      ]
+    },
+    {
+      "canonical": "ASAN xidmət",
+      "aliases": [
+        "ASAN",
+        "Vətəndaşlara Xidmət və Sosial İnnovasiyalar üzrə Dövlət Agentliyi",
+        "VXSIDA"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Avtomobil Yolları Dövlət Agentliyi",
+      "aliases": [
+        "AAYDA",
+        "avtomobil yolları"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Dəmir Yolları",
+      "aliases": [
+        "ADY",
+        "dəmir yolları"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Hava Yolları",
+      "aliases": [
+        "AZAL",
+        "hava yolları"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Milli Elmlər Akademiyası",
+      "aliases": [
+        "AMEA",
+        "elmlər akademiyası"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikası Prezidentinin İşlər İdarəsi",
+      "aliases": [
+        "Pİİ",
+        "işlər idarəsi"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikasının İnsan Hüquqları üzrə Müvəkkili",
+      "aliases": [
+        "Ombudsman"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikasının Mədəniyyət Nazirliyi yanında Turizm Agentliyi",
+      "aliases": [
+        "turizm agentliyi"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikasının Mərkəzi Bankı",
+      "aliases": [
+        "AMB",
+        "mərkəzi bank",
+        "CBAR"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikasının Milli Məclisi",
+      "aliases": [
+        "MM",
+        "milli məclis"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikasının Prezidentinin Administrasiyası",
+      "aliases": [
+        "prezident administrasiyasi",
+        "apa"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Respublikasının Qida Təhlükəsizliyi Agentliyi",
+      "aliases": [
+        "AQTA",
+        "qida təhlükəsizliyi"
+      ]
+    },
+    {
+      "canonical": "Azərbaycan Televiziyası",
+      "aliases": [
+        "AzTV"
+      ]
+    },
+    {
+      "canonical": "Azəriqaz",
+      "aliases": [
+        "Azerigaz"
+      ]
+    },
+    {
+      "canonical": "Azərişıq",
+      "aliases": [
+        "Azerishig",
+        "azərişıq ASC"
+      ]
+    },
+    {
+      "canonical": "Azərsu",
+      "aliases": []
+    },
+    {
+      "canonical": "Bakı Nəqliyyat Agentliyi",
+      "aliases": [
+        "BNA",
+        "bakı nəqliyyat"
+      ]
+    },
+    {
+      "canonical": "Bakı Şəhər İcra Hakimiyyəti",
+      "aliases": [
+        "BŞİH",
+        "bakı icra"
+      ]
+    },
+    {
+      "canonical": "Baş Prokurorluq",
+      "aliases": [
+        "BP",
+        "prokurorluq"
+      ]
+    },
+    {
+      "canonical": "Daxili İşlər Nazirliyi",
+      "aliases": [
+        "din",
+        "daxili isler",
+        "daxili işlər nazirliyi",
+        "DİN"
+      ]
+    },
+    {
+      "canonical": "Dini Qurumlarla İş üzrə Dövlət Komitəsi",
+      "aliases": [
+        "DQİDK",
+        "dini qurumlar"
+      ]
+    },
+    {
+      "canonical": "Dövlət Agentliyi (E-Gov / Elektron Hökumət)",
+      "aliases": [
+        "e-gov",
+        "elektron hökumət",
+        "ASAN"
+      ]
+    },
+    {
+      "canonical": "Dövlət Əmək Müfəttişliyi Xidməti",
+      "aliases": [
+        "emek mufettisliyi",
+        "demx"
+      ]
+    },
+    {
+      "canonical": "Dövlət Gömrük Komitəsi",
+      "aliases": [
+        "dgk",
+        "gomruk",
+        "customs"
+      ]
+    },
+    {
+      "canonical": "Dövlət İmtahan Mərkəzi",
+      "aliases": [
+        "DİM",
+        "DIM",
+        "imtahan mərkəzi"
+      ]
+    },
+    {
+      "canonical": "Dövlət Miqrasiya Xidməti",
+      "aliases": [
+        "dmx",
+        "miqrasiya",
+        "migration service",
+        "miqrasiya xidmeti"
+      ]
+    },
+    {
+      "canonical": "Dövlət Miqrasiya Xidməti yanında Vətəndaşlıq Məsələləri Baş İdarəsi",
+      "aliases": [
+        "VMBİ",
+        "vətəndaşlıq"
+      ]
+    },
+    {
+      "canonical": "Dövlət Neft Fondu",
+      "aliases": [
+        "DNF",
+        "neft fondu",
+        "SOFAZ"
+      ]
+    },
+    {
+      "canonical": "Dövlət Şəhərsalma və Arxitektura Agentliyi",
+      "aliases": [
+        "şəhərsalma agentliyi"
+      ]
+    },
+    {
+      "canonical": "Dövlət Şəhərsalma və Arxitektura Komitəsi",
+      "aliases": [
+        "DŞAK",
+        "şəhərsalma",
+        "şəhərsalma komitəsi"
+      ]
+    },
+    {
+      "canonical": "Dövlət Sərhəd Xidməti",
+      "aliases": [
+        "DSX",
+        "sərhəd xidməti"
+      ]
+    },
+    {
+      "canonical": "Dövlət Sosial Müdafiə Fondu",
+      "aliases": [
+        "DSMF",
+        "sosial müdafiə fondu"
+      ]
+    },
+    {
+      "canonical": "Dövlət Statistika Komitəsi",
+      "aliases": [
+        "dsk",
+        "statistika komitesi",
+        "statistika"
+      ]
+    },
+    {
+      "canonical": "Dövlət Təhlükəsizliyi Xidməti",
+      "aliases": [
+        "DTX",
+        "təhlükəsizlik xidməti"
+      ]
+    },
+    {
+      "canonical": "Dövlət Vergi Xidməti",
+      "aliases": [
+        "dvx",
+        "vergi xidmeti",
+        "vergi"
+      ]
+    },
+    {
+      "canonical": "Ədliyyə Nazirliyi",
+      "aliases": [
+        "edliyye",
+        "ƏN"
+      ]
+    },
+    {
+      "canonical": "Ekologiya və Təbii Sərvətlər Nazirliyi",
+      "aliases": [
+        "ekologiya",
+        "etsn"
+      ]
+    },
+    {
+      "canonical": "Elm və Təhsil Nazirliyi",
+      "aliases": [
+        "ETN",
+        "təhsil nazirliyi",
+        "elm və təhsil",
+        "tehsil"
+      ]
+    },
+    {
+      "canonical": "Əmək və Əhalinin Sosial Müdafiəsi Nazirliyi",
+      "aliases": [
+        "esn",
+        "emek nazirliyi",
+        "sosial mudafie",
+        "ƏƏSMN"
+      ]
+    },
+    {
+      "canonical": "Energetika Nazirliyi",
+      "aliases": [
+        "energetika",
+        "EN"
+      ]
+    },
+    {
+      "canonical": "Fövqəladə Hallar Nazirliyi",
+      "aliases": [
+        "FHN",
+        "fövqəladə hallar"
+      ]
+    },
+    {
+      "canonical": "Gəncə Şəhər İcra Hakimiyyəti",
+      "aliases": [
+        "gəncə icra"
+      ]
+    },
+    {
+      "canonical": "Gənclər və İdman Nazirliyi",
+      "aliases": [
+        "gencler",
+        "idman nazirliyi",
+        "GİN",
+        "GIN"
+      ]
+    },
+    {
+      "canonical": "Hesablama Palatası",
+      "aliases": [
+        "HP",
+        "hesablama"
+      ]
+    },
+    {
+      "canonical": "İcbari Tibbi Sığorta üzrə Dövlət Agentliyi",
+      "aliases": [
+        "İTSDA",
+        "ITSDA",
+        "icbari tibbi sığorta",
+        "ITS"
+      ]
+    },
+    {
+      "canonical": "İctimai Televiziya",
+      "aliases": [
+        "İTV",
+        "ITV"
+      ]
+    },
+    {
+      "canonical": "İnovasiya və Rəqəmsal İnkişaf Agentliyi",
+      "aliases": [
+        "İRİA",
+        "IRIA",
+        "innovasiya agentliyi"
+      ]
+    },
+    {
+      "canonical": "İqtisadiyyat Nazirliyi",
+      "aliases": [
+        "iqtisadiyyat",
+        "in",
+        "iqtisadiyyat nazirliyi",
+        "İN"
+      ]
+    },
+    {
+      "canonical": "Kənd Təsərrüfatı Nazirliyi",
+      "aliases": [
+        "kend teserrufati",
+        "ktn"
+      ]
+    },
+    {
+      "canonical": "Kiçik və Orta Biznesin İnkişafı Agentliyi",
+      "aliases": [
+        "KOBİA",
+        "KOBIA",
+        "KOB"
+      ]
+    },
+    {
+      "canonical": "Konstitusiya Məhkəməsi",
+      "aliases": [
+        "KM"
+      ]
+    },
+    {
+      "canonical": "Maliyyə Nazirliyi",
+      "aliases": [
+        "maliyye",
+        "mn"
+      ]
+    },
+    {
+      "canonical": "Mədəniyyət Nazirliyi",
+      "aliases": [
+        "medeniyyet",
+        "MədN"
+      ]
+    },
+    {
+      "canonical": "Mərkəzi Seçki Komissiyası",
+      "aliases": [
+        "MSK",
+        "seçki komissiyası"
+      ]
+    },
+    {
+      "canonical": "Müdafiə Nazirliyi",
+      "aliases": [
+        "MN",
+        "mudafie"
+      ]
+    },
+    {
+      "canonical": "Müdafiə Sənayesi Nazirliyi",
+      "aliases": [
+        "MSN",
+        "müdafiə sənayesi"
+      ]
+    },
+    {
+      "canonical": "Naxçıvan Muxtar Respublikası",
+      "aliases": [
+        "NMR",
+        "naxçıvan"
+      ]
+    },
+    {
+      "canonical": "Nazirlər Kabineti",
+      "aliases": [
+        "nk"
+      ]
+    },
+    {
+      "canonical": "Qaçqınların və Məcburi Köçkünlərin İşləri üzrə Dövlət Komitəsi",
+      "aliases": [
+        "QMKİDK",
+        "qaçqınlar komitəsi",
+        "məcburi köçkünlər"
+      ]
+    },
+    {
+      "canonical": "Rəqəmsal İnkişaf və Nəqliyyat Nazirliyi",
+      "aliases": [
+        "rinn",
+        "rin",
+        "reqemsal inkisaf",
+        "neqliyyat nazirliyi",
+        "rəqəmsal inkişaf və nəqliyyat nazirliyi",
+        "RİNN",
+        "RİN"
+      ]
+    },
+    {
+      "canonical": "Səhiyyə Nazirliyi",
+      "aliases": [
+        "sehiyye",
+        "sn"
+      ]
+    },
+    {
+      "canonical": "SOCAR",
+      "aliases": [
+        "Azərbaycan Respublikası Dövlət Neft Şirkəti",
+        "neft şirkəti"
+      ]
+    },
+    {
+      "canonical": "Sumqayıt Şəhər İcra Hakimiyyəti",
+      "aliases": [
+        "sumqayıt icra"
+      ]
+    },
+    {
+      "canonical": "TƏBİB",
+      "aliases": [
+        "tabib",
+        "təbib",
+        "tibbi erazi",
+        "tibbi ərazi bölmələrini idarəetmə birliyi"
+      ]
+    },
+    {
+      "canonical": "Təhsil Nazirliyi",
+      "aliases": [
+        "tehsil",
+        "tn"
+      ]
+    },
+    {
+      "canonical": "Tibbi Ərazi Bölmələrini İdarəetmə Birliyi",
+      "aliases": [
+        "TƏBİB",
+        "TABIB",
+        "təbib"
+      ]
+    },
+    {
+      "canonical": "Xarici İşlər Nazirliyi",
+      "aliases": [
+        "XİN",
+        "XIN",
+        "xarici işlər"
+      ]
+    },
+    {
+      "canonical": "Xarici Kəşfiyyat Xidməti",
+      "aliases": [
+        "XKX",
+        "kəşfiyyat"
+      ]
+    }
+  ]
+}

@@ -22,6 +22,7 @@ data/*.json
 data/*.jsonl
 !data/users.example.json
 !data/chat_gold.json
+!data/chat_kb.json
 data/users.json
 data/users.json.bak
 data/accounts.state.json

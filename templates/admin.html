@@ -88,9 +88,19 @@
                         </label>
                         <p class="admin-note" id="modeNote"></p>
                         <p class="admin-chip hidden" id="jiraChip"></p>
+                        <div class="admin-row">
+                            <label class="admin-field">
+                                <span>Ad</span>
+                                <input id="givenName" required autocomplete="given-name" placeholder="Fərid">
+                            </label>
+                            <label class="admin-field">
+                                <span>Soyad</span>
+                                <input id="surname" required autocomplete="family-name" placeholder="Osmanov">
+                            </label>
+                        </div>
                         <label class="admin-field">
                             <span>İstifadəçi adı</span>
-                            <input id="username" required minlength="3" autocomplete="off">
+                            <input id="username" required minlength="3" autocomplete="off" placeholder="farid.osmanov">
                         </label>
                         <label class="admin-field">
                             <span>Parol</span>
@@ -216,6 +226,16 @@
             chip.classList.add('hidden');
         }
     }
+    function fillNameFromFull(full) {
+        var givenEl = document.getElementById('givenName');
+        var surEl = document.getElementById('surname');
+        if (!givenEl || !surEl) return;
+        if ((givenEl.value || '').trim() && (surEl.value || '').trim()) return;
+        var parts = String(full || '').trim().split(/\s+/).filter(Boolean);
+        if (!parts.length) return;
+        if (!(givenEl.value || '').trim()) givenEl.value = parts[0];
+        if (!(surEl.value || '').trim() && parts.length > 1) surEl.value = parts.slice(1).join(' ');
+    }
     function applyMode() {
         var person = selectedPerson();
         var jiraWrap = document.getElementById('jiraFieldWrap');
@@ -227,6 +247,7 @@
                 username.value = person.suggestedUsername;
             }
             setJiraHidden(person.accountId, person.displayName || '');
+            fillNameFromFull(person.displayName || '');
             if (person.linkedUserId && person.linkedUserId !== editingId) {
                 note.textContent = 'Bu Jira şəxsinin artıq hesabı var (' + (person.linkedUsername || '') + '). Başqasını seçin və ya mövcud hesabı redaktə edin.';
             } else {
@@ -234,7 +255,7 @@
             }
         } else {
             setJiraHidden('', '');
-            note.textContent = 'Siyahıda yoxdursa yalnız istifadəçi adı və parol yazın. Jira ilə bağlanmayacaq.';
+            note.textContent = 'Siyahıda yoxdursa ad, soyad, istifadəçi adı və parol yazın.';
         }
     }
     function fillPeopleOptions(people, selectedId) {
@@ -307,6 +328,8 @@
     function resetForm() {
         editingId = '';
         document.getElementById('userId').value = '';
+        document.getElementById('givenName').value = '';
+        document.getElementById('surname').value = '';
         document.getElementById('username').value = '';
         document.getElementById('username').dataset.locked = '';
         document.getElementById('password').value = '';
@@ -325,6 +348,15 @@
     }
     function fillEdit(user) {
         editingId = user.id;
+        var given = user.givenName || '';
+        var sur = user.surname || '';
+        if ((!given || !sur) && user.displayName) {
+            var parts = String(user.displayName).trim().split(/\s+/).filter(Boolean);
+            if (!given && parts[0]) given = parts[0];
+            if (!sur && parts.length > 1) sur = parts.slice(1).join(' ');
+        }
+        document.getElementById('givenName').value = given;
+        document.getElementById('surname').value = sur;
         document.getElementById('username').value = user.username || '';
         document.getElementById('username').dataset.locked = '1';
         document.getElementById('password').value = '';
@@ -361,8 +393,7 @@
             var row = document.createElement('article');
             var privileged = user.role === 'admin' || user.role === 'superadmin';
             row.className = 'admin-person' + (privileged ? ' is-admin' : '');
-            var jira = user.jiraDisplayName || '';
-            var name = jira || user.displayName || user.username || '';
+            var name = user.greetingName || user.displayName || user.jiraDisplayName || user.username || '';
             var loginName = user.username || '';
             var roleText = user.roleLabel || (user.role === 'superadmin' ? 'Superadmin' : (user.role === 'admin' ? 'Admin' : 'İstifadəçi'));
             var teamText = user.teamLabel || user.team || '';
@@ -455,12 +486,22 @@
             showError('formError', 'Bu Jira şəxsinin artıq hesabı var.');
             return;
         }
+        var givenName = document.getElementById('givenName').value.trim();
+        var surname = document.getElementById('surname').value.trim();
         var username = document.getElementById('username').value.trim();
+        if (!givenName || !surname) {
+            btn.disabled = false;
+            showError('formError', 'Ad və soyad yazın');
+            return;
+        }
         var jiraId = (person && person.accountId) || document.getElementById('jiraAccountId').value || '';
         var jiraName = (person && person.displayName) || document.getElementById('jiraDisplayName').value || '';
+        var displayName = (givenName + ' ' + surname).trim();
         var payload = {
             username: username,
-            displayName: jiraName || username,
+            givenName: givenName,
+            surname: surname,
+            displayName: displayName,
             projectKey: String(document.getElementById('projectKey').value || homeProjectKey).toUpperCase(),
             team: document.getElementById('team').value || 'komplayns',
             role: document.getElementById('role').value,

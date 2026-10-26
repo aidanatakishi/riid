@@ -442,8 +442,21 @@ def sync_display_names():
             jira = str(user.get('jira_display_name') or '').strip()
             display = str(user.get('display_name') or '').strip()
             uname = str(user.get('username') or '').strip()
-            if jira and (not display or display == uname):
+            given = str(user.get('given_name') or '').strip()
+            sur = str(user.get('surname') or '').strip()
+            if given and sur:
+                composed = compose_display_name(given, sur)
+                if composed and display != composed:
+                    user['display_name'] = composed
+                    changed = True
+                continue
+            if jira and (not display or display == uname or is_login_like(display)):
                 user['display_name'] = jira
+                g, s = split_person_name(jira)
+                if g and not given:
+                    user['given_name'] = g
+                if s and not sur:
+                    user['surname'] = s
                 changed = True
         if changed:
             save_store(store)
@@ -481,6 +494,38 @@ def fold_latin(text):
 def first_name(name):
     parts = str(name or '').strip().split()
     return parts[0] if parts else ''
+
+
+def is_login_like(name):
+    """Username üslubu (farid.osmanov) — salamlama üçün uyğun deyil."""
+    raw = str(name or '').strip()
+    if not raw or ' ' in raw:
+        return False
+    low = raw.lower()
+    if '@' in low:
+        return True
+    return ('.' in low or '_' in low) and raw == raw.lower()
+
+
+def split_person_name(full):
+    parts = [p for p in str(full or '').strip().split() if p]
+    if not parts:
+        return '', ''
+    if len(parts) == 1:
+        return parts[0], ''
+    return parts[0], ' '.join(parts[1:])
+
+
+def compose_display_name(given_name='', surname='', fallback=''):
+    given = str(given_name or '').strip()
+    sur = str(surname or '').strip()
+    composed = ' '.join(p for p in (given, sur) if p).strip()
+    if composed:
+        return composed
+    fb = str(fallback or '').strip()
+    if fb and not is_login_like(fb):
+        return fb
+    return ''
 
 
 def username_from_display_name(name):
@@ -528,7 +573,11 @@ def login_identity_keys(user):
         head = re.split(r'[._]', uname)[0]
         if len(head) >= 3:
             keys.add(head)
-    for raw in (user.get('display_name'), user.get('jira_display_name')):
+    for raw in (
+        user.get('display_name'),
+        user.get('jira_display_name'),
+        compose_display_name(user.get('given_name'), user.get('surname')),
+    ):
         folded = fold_login(raw)
         if not folded:
             continue
@@ -618,13 +667,27 @@ def public_user(user):
     if not user:
         return None
     team = normalize_team(user.get('team'))
-    display = user.get('display_name') or user.get('username')
+    uname = str(user.get('username') or '').strip()
     jira_name = (user.get('jira_display_name') or '').strip()
+    given = str(user.get('given_name') or '').strip()
+    surname = str(user.get('surname') or '').strip()
+    display = compose_display_name(given, surname, user.get('display_name') or jira_name)
+    if not display or is_login_like(display):
+        display = compose_display_name('', '', jira_name) or display
+    if not given and display and not is_login_like(display):
+        given, inferred_sur = split_person_name(display)
+        if not surname:
+            surname = inferred_sur
+    first = given or (first_name(display) if display and not is_login_like(display) else '')
+    greeting = display if (display and not is_login_like(display)) else (first or '')
     return {
         'id': user.get('id'),
         'username': user.get('username'),
-        'displayName': display,
-        'firstName': first_name(jira_name or display),
+        'displayName': display or uname,
+        'givenName': given,
+        'surname': surname,
+        'firstName': first,
+        'greetingName': greeting,
         'role': user.get('role') or 'user',
         'roleLabel': ROLE_LABELS.get(user.get('role') or 'user') or 'İstifadəçi',
         'projectKey': normalize_project_key(user.get('project_key')) or 'DGD',
@@ -644,7 +707,7 @@ def admin_count(users=None):
     return sum(1 for user in rows if user.get('role') in PRIVILEGED_ROLES)
 
 
-def create_user(username, password, display_name='', role='user', project_key='DGD', team='komplayns', jira_account_id='', jira_display_name='', jira_pat='', allow_superadmin=False):
+def create_user(username, password, display_name='', role='user', project_key='DGD', team='komplayns', jira_account_id='', jira_display_name='', jira_pat='', allow_superadmin=False, given_name='', surname=''):
     name = normalize_username(username)
     if not name:
         return None, 'İstifadəçi adı boş ola bilməz'
@@ -658,6 +721,17 @@ def create_user(username, password, display_name='', role='user', project_key='D
     team_id = normalize_team(team)
     jira_id = str(jira_account_id or '').strip()
     jira_name = str(jira_display_name or '').strip()
+    given = str(given_name or '').strip()
+    sur = str(surname or '').strip()
+    if not given and not sur and display_name:
+        given, sur = split_person_name(display_name)
+    if not given and not sur and jira_name:
+        given, sur = split_person_name(jira_name)
+    display = compose_display_name(given, sur, jira_name or display_name)
+    if not given or not sur:
+        return None, 'Ad və soyad yazın'
+    if not display:
+        display = compose_display_name(given, sur)
     with _store_lock():
         store = load_store()
         users = store['users']
@@ -668,7 +742,9 @@ def create_user(username, password, display_name='', role='user', project_key='D
         user = {
             'id': str(uuid.uuid4()),
             'username': name,
-            'display_name': (jira_name or display_name or name).strip(),
+            'given_name': given,
+            'surname': sur,
+            'display_name': display,
             'password_hash': generate_password_hash(pwd),
             'role': role_name,
             'project_key': project,
@@ -677,7 +753,7 @@ def create_user(username, password, display_name='', role='user', project_key='D
         }
         if jira_id:
             user['jira_account_id'] = jira_id
-            user['jira_display_name'] = jira_name or user['display_name']
+            user['jira_display_name'] = jira_name or display
         users.append(user)
         save_store(store)
         own_pat = str(jira_pat or '').strip()
@@ -705,8 +781,27 @@ def update_user(user_id, **fields):
                 if user is not target and normalize_username(user.get('username')) == name:
                     return None, 'Bu istifadəçi adı artıq var'
             target['username'] = name
-        if 'display_name' in fields and fields['display_name'] is not None:
-            target['display_name'] = str(fields['display_name'] or target.get('username')).strip()
+        name_touched = (
+            ('given_name' in fields and fields['given_name'] is not None)
+            or ('surname' in fields and fields['surname'] is not None)
+            or ('display_name' in fields and fields['display_name'] is not None)
+        )
+        if 'given_name' in fields and fields['given_name'] is not None:
+            target['given_name'] = str(fields['given_name'] or '').strip()
+        if 'surname' in fields and fields['surname'] is not None:
+            target['surname'] = str(fields['surname'] or '').strip()
+        if name_touched:
+            given = str(target.get('given_name') or '').strip()
+            sur = str(target.get('surname') or '').strip()
+            raw_display = fields.get('display_name') if 'display_name' in fields else target.get('display_name')
+            if 'display_name' in fields and fields['display_name'] is not None and not given and not sur:
+                given, sur = split_person_name(fields['display_name'])
+                target['given_name'] = given
+                target['surname'] = sur
+            composed = compose_display_name(given, sur, raw_display)
+            if not given or not sur:
+                return None, 'Ad və soyad yazın'
+            target['display_name'] = composed or compose_display_name(given, sur)
         if 'role' in fields and fields['role'] is not None:
             if target.get('role') == 'superadmin':
                 pass
@@ -869,31 +964,41 @@ def bootstrap_users(
             raise SystemExit(
                 'Production: hesab yoxdur. .env-də ADMIN_PASSWORD yazın (ən azı 8 simvol, asan parol olmasın) və yenidən başladın.'
             )
-        create_user(admin_name, admin_pwd, 'Admin', 'superadmin', project, allow_superadmin=True)
+        create_user(
+            admin_name, admin_pwd, 'Admin Hesab', 'superadmin', project,
+            allow_superadmin=True, given_name='Admin', surname='Hesab',
+        )
         if user_name and _is_strong_password(user_pwd):
-            create_user(user_name, user_pwd, 'İstifadəçi', 'user', project)
-        if dept_name and _is_strong_password(dept_pwd):
             create_user(
-                dept_name,
-                dept_pwd,
-                dept_display or 'Qiymətləndirmə və komplayens şöbəsi',
-                'user',
-                project,
+                user_name, user_pwd, 'İstifadəçi Hesab', 'user', project,
+                given_name='İstifadəçi', surname='Hesab',
+            )
+        if dept_name and _is_strong_password(dept_pwd):
+            dept_label = dept_display or 'Qiymətləndirmə və komplayens şöbəsi'
+            g, s = split_person_name(dept_label)
+            create_user(
+                dept_name, dept_pwd, dept_label, 'user', project,
+                given_name=g or 'Şöbə', surname=s or 'Hesab',
             )
         return
 
     if not admin_pwd:
         admin_pwd = 'admin123'
-    create_user(admin_name, admin_pwd, 'Admin', 'superadmin', project, allow_superadmin=True)
+    create_user(
+        admin_name, admin_pwd, 'Admin Hesab', 'superadmin', project,
+        allow_superadmin=True, given_name='Admin', surname='Hesab',
+    )
     if user_name:
-        create_user(user_name, user_pwd or 'user123', 'İstifadəçi', 'user', project)
-    if dept_name and dept_pwd:
         create_user(
-            dept_name,
-            dept_pwd,
-            dept_display or 'Qiymətləndirmə və komplayens şöbəsi',
-            'user',
-            project,
+            user_name, user_pwd or 'user123', 'İstifadəçi Hesab', 'user', project,
+            given_name='İstifadəçi', surname='Hesab',
+        )
+    if dept_name and dept_pwd:
+        dept_label = dept_display or 'Qiymətləndirmə və komplayens şöbəsi'
+        g, s = split_person_name(dept_label)
+        create_user(
+            dept_name, dept_pwd, dept_label, 'user', project,
+            given_name=g or 'Şöbə', surname=s or 'Hesab',
         )
     print('Lokal ilk hesablar: %s / %s' % (admin_name, admin_pwd))
     if user_name:

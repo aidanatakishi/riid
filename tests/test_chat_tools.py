@@ -4,8 +4,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chat_tools import SnapshotTools, fold, fuzzy_person, number_check, normalize_snapshot
-
+from chat_tools import SnapshotTools, fold, fuzzy_person, number_check, normalize_snapshot, run_tool
+from chat_kb import fuzzy_qurum, derive_aliases
 
 SAMPLE = {
     'meta': {'user': 'Sabina Mammadova', 'today': '2026-10-22', 'sprint': 'Sprint 12', 'week': 'Sprint 12'},
@@ -15,12 +15,17 @@ SAMPLE = {
         'completionPct': 40,
     },
     'tasks': [
-        'DGD-100|İcradadır|Sabina Mammadova|High|2026-10-01|İnteqrasiya|Sprint 12|0|1',
-        'DGD-101|Bloklanıb|Sabina Mammadova|Highest||İnteqrasiya|Sprint 12|1|0',
-        'DGD-102|Yekunlaşıb|Ali Vəliyev|Low||EXQ|Sprint 11|0|0',
-        'DGD-103|İcradadır|Ali Veliyev|Medium|2026-10-20|EXQ|Sprint 12|0|1',
-        'DGD-104|Planlaşdırılıb|Nigar|Low||Diaqnostika|Sprint 12|0|0',
-        'DGD-999|İcradadır|Orxan|High||Digər|Sprint 12|0|0',
+        # key|status|assignee|pri|due|dir|sprint|blocked|overdue|summary|qurum
+        'DGD-100|İcradadır|Sabina Mammadova|High|2026-10-01|İnteqrasiya|Sprint 12|0|1|Miqrasiya inteqrasiya|Dövlət Miqrasiya Xidməti',
+        'DGD-101|Bloklanıb|Sabina Mammadova|Highest||İnteqrasiya|Sprint 12|1|0|Blok iş|Dövlət Miqrasiya Xidməti',
+        'DGD-102|Yekunlaşıb|Ali Vəliyev|Low||EXQ|Sprint 11|0|0|EXQ yekun|Dövlət Gömrük Komitəsi',
+        'DGD-103|İcradadır|Ali Veliyev|Medium|2026-10-20|EXQ|Sprint 12|0|1|EXQ icra|Dövlət Gömrük Komitəsi',
+        'DGD-104|Planlaşdırılıb|Nigar|Low||Diaqnostika|Sprint 12|0|0|Diaq plan|Əmək və Əhalinin Sosial Müdafiəsi Nazirliyi',
+        'DGD-999|İcradadır|Orxan|High||Digər|Sprint 12|0|0|Digər|',
+    ],
+    'assessments': [
+        'diag|Dövlət Miqrasiya Xidməti|77|2025|DGD-100',
+        'diag|Dövlət Gömrük Komitəsi|88|2025|DGD-102',
     ],
 }
 
@@ -168,3 +173,49 @@ def test_assessment_scores_top_qurum():
     assert r['avgScore'] is not None
     low = tools.get_assessment_scores(category='diag', sort='lowest', limit=1)
     assert low['top'][0]['qurum'] == 'Qurum A'
+
+
+def test_fuzzy_qurum_miqrasiya_aliases():
+    cands = ['Dövlət Miqrasiya Xidməti', 'Dövlət Gömrük Komitəsi']
+    for q in ('Dövlət Miqrasiya Xidməti', 'Miqrasiya', 'dmx', 'miqrasiya xidmeti'):
+        match, _ = fuzzy_qurum(q, cands)
+        assert match == 'Dövlət Miqrasiya Xidməti', q
+
+
+def test_derive_aliases_paren_and_short():
+    als = derive_aliases('Tibbi Ərazi Bölmələrini İdarəetmə Birliyi (TƏBİB)')
+    folded = {a.lower().replace('ə', 'e').replace('ı', 'i') for a in als}
+    assert any('tabib' in a.replace('ə', 'e') or a.upper() == 'TƏBİB' for a in als)
+    catalog = [{
+        'name': 'Tibbi Ərazi Bölmələrini İdarəetmə Birliyi (TƏBİB)',
+        'aliases': als,
+    }]
+    match, _ = fuzzy_qurum('TƏBİB', [], live_catalog=catalog)
+    assert match and 'TƏBİB' in match.upper() or 'Birliyi' in (match or '')
+    match2, _ = fuzzy_qurum('tabib', [catalog[0]['name']], live_catalog=catalog)
+    assert match2 == catalog[0]['name']
+
+
+def test_get_qurum_stats_and_person_redirect():
+    tools = SnapshotTools(SAMPLE)
+    r = tools.get_qurum_stats('Miqrasiya')
+    assert r.get('error') is None
+    assert r['qurum'] == 'Dövlət Miqrasiya Xidməti'
+    assert r['total'] == 2
+    assert r['overdue'] >= 1
+    assert any(a.get('score') == 77 for a in (r.get('assessments') or []))
+    # LLM şəxs tool-una qurum yazsa — run_tool avtomatik yönləndirir
+    redirected = run_tool('get_person_workload', {'name': 'Dövlət Miqrasiya Xidməti'}, tools)
+    assert redirected.get('redirectedFrom') == 'get_person_workload'
+    assert redirected.get('qurum') == 'Dövlət Miqrasiya Xidməti'
+    assert redirected.get('total') == 2
+
+
+def test_search_by_qurum_and_summary():
+    tools = SnapshotTools(SAMPLE)
+    by_q = tools.search_tasks(qurum='DMX')
+    assert by_q['count'] == 2
+    assert by_q['qurum'] == 'Dövlət Miqrasiya Xidməti'
+    by_text = tools.search_tasks(text='inteqrasiya')
+    assert by_text['count'] >= 1
+    assert any('Miqrasiya' in (i.get('summary') or '') for i in by_text['items'])

@@ -19,10 +19,12 @@ import {
     getAssessmentQurumLabel,
     getAssessmentYear,
     hasAssessmentResult,
+    getMeqsedInfo,
     getHistoricalStatus,
     currentSprintName,
     isDueInSprint,
     getQurumName,
+    canonicalQurumName,
     jiraBoardWorkUnits,
     collectDueThisWeekTasks,
     collectDueThisWeekDoneTasks,
@@ -34,7 +36,9 @@ import {
     hasValidDifficulty,
     isActiveExecutionGroup,
     getBlockReason,
-    getTaskDueDate
+    getTaskDueDate,
+    countableWorkUnits,
+    getTaskPriorityName
 } from './model.js?v=idda10';
 import { exportTasksToWord } from './report.js?v=idda34';
 import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda8';
@@ -90,10 +94,12 @@ var chatHistory = [];
 var CHAT_THREAD_KEY = 'aiDoneThread';
 var SOFT_FAIL = 'Cavab alına bilmədi, yenidən cəhd edin';
 var SOFT_FAIL_HINT = 'Bu arada «Mənim işlərim» və ya «Cari həftə risklər» kimi suallara panel məlumatı ilə cavab verə bilərəm.';
-var MAX_SNAPSHOT_TASKS = 450;
+var MAX_SNAPSHOT_TASKS = 280;
 var MAX_SNAPSHOT_ASSESS = 350;
-var MAX_SNAPSHOT_CHARS = 45000;
+var MAX_SNAPSHOT_CHARS = 72000;
 var CHAT_FETCH_TIMEOUT_MS = 90000;
+var _snapCache = { hash: '', at: 0, snap: null };
+var SNAP_CACHE_MS = 20000;
 
 function chatLog() {
     try {
@@ -134,10 +140,35 @@ function firstNameOf(name) {
     return parts[0] || '';
 }
 
+function isLoginLikeName(name) {
+    var raw = String(name || '').trim();
+    if (!raw || /\s/.test(raw)) return false;
+    var low = raw.toLowerCase();
+    if (low.indexOf('@') !== -1) return true;
+    return (low.indexOf('.') !== -1 || low.indexOf('_') !== -1) && raw === low;
+}
+
 function viewerFirstName() {
     var u = viewerUser();
     if (!u) return '';
-    return u.firstName || firstNameOf(u.jiraDisplayName || u.displayName || u.username);
+    if (u.firstName && !isLoginLikeName(u.firstName)) return u.firstName;
+    var full = u.greetingName || u.displayName || u.jiraDisplayName || '';
+    if (full && !isLoginLikeName(full)) return firstNameOf(full);
+    return '';
+}
+
+function viewerGreetingName() {
+    var u = viewerUser();
+    if (!u) return '';
+    if (u.greetingName && !isLoginLikeName(u.greetingName)) return u.greetingName;
+    var full = u.displayName || '';
+    if (full && !isLoginLikeName(full) && full !== u.username) return full;
+    var given = u.givenName || u.firstName || '';
+    var sur = u.surname || '';
+    var composed = [given, sur].filter(Boolean).join(' ').trim();
+    if (composed) return composed;
+    if (u.jiraDisplayName && !isLoginLikeName(u.jiraDisplayName)) return u.jiraDisplayName;
+    return viewerFirstName();
 }
 
 function samePerson(a, b) {
@@ -248,7 +279,10 @@ function viewerFact() {
         id: u.id,
         username: u.username,
         displayName: u.displayName || u.username,
+        givenName: u.givenName || '',
+        surname: u.surname || '',
         firstName: viewerFirstName(),
+        greetingName: viewerGreetingName(),
         role: u.role,
         jiraAccountId: u.jiraAccountId || '',
         jiraDisplayName: jiraName,
@@ -644,7 +678,10 @@ function parseQuestion(raw) {
             selfAsked: askedSelf
         };
     }
-    if (/kimde|icraci|is yuku|en cox tapsiriq|kim daha|yuk ve gecik/.test(qFold)) {
+    if (/is yuk|workload|en yuklu|en mesgul|kimde cox|hansi emekdas|en cox tapsiriq|kim daha|yuk ve gecik|icraci rein|icraci reyting/.test(qFold)) {
+        return { kind: 'people', sprint: allScope ? '' : current, names: names };
+    }
+    if (/kimde|icraci|is yuku/.test(qFold)) {
         return { kind: 'people', sprint: allScope ? '' : current, names: names };
     }
     if (qurum) {
@@ -745,7 +782,7 @@ function dayWish() {
 
 function greetingLine() {
     var wish = dayWish();
-    var name = viewerFirstName();
+    var name = viewerGreetingName() || viewerFirstName();
     var named = name ? (name + ', ') : '';
     var opts = [
         'Salam, ' + named + wish + ', sizə necə kömək edə bilərəm?',
@@ -1275,6 +1312,122 @@ function boardContext() {
     };
 }
 
+function rankCountMap(map, limit) {
+    return Object.keys(map || {}).map(function(name) {
+        return { name: name, total: map[name] || 0 };
+    }).sort(function(a, b) {
+        return (b.total - a.total) || String(a.name).localeCompare(String(b.name), 'az');
+    }).slice(0, limit || 12);
+}
+
+/** Panel kartları ilə eyni məntiq: iş yükü = assigneeChart (ekrandakı eyni pool) */
+function buildDashboardPanels() {
+    // İş yükü chart-ı assigneeChartTasks istifadə edir (assignee/priority filter tətbiq olunmur)
+    var source = state.assigneeChartTasks;
+    if (!source || !source.length) {
+        source = (state.filteredTasks && state.filteredTasks.length)
+            ? state.filteredTasks
+            : (state.allTasks || []);
+    }
+    var units = [];
+    try {
+        units = countableWorkUnits(source) || [];
+    } catch (e0) {
+        units = (source || []).filter(function(t) {
+            try { return isTaskOrSubtaskType(t); } catch (e1) { return !!(t && t.key); }
+        });
+    }
+    var workload = {};
+    var byPri = {};
+    var byStatus = {};
+    var byDir = {};
+    var byQurum = {};
+    var lateN = 0;
+    var blockedN = 0;
+    var openN = 0;
+    var doneN = 0;
+    var i;
+    for (i = 0; i < units.length; i++) {
+        var t = units[i];
+        if (!t || !t.fields) continue;
+        var person = t.fields.assignee ? (t.fields.assignee.displayName || '') : '';
+        var pri = '—';
+        try { pri = getTaskPriorityName(t) || '—'; } catch (e2) {
+            pri = (t.fields.priority && t.fields.priority.name) || '—';
+        }
+        var stName = (t.fields.status && t.fields.status.name) || '—';
+        var sg = getStatusGroup(stName) || 'other';
+        var stLabel = STATUS_LABELS[sg] || sg;
+        var dirName = 'İstiqamətsiz';
+        try {
+            var dObj = resolveDirection(t);
+            if (dObj && dObj.fields && dObj.fields.summary) dirName = dObj.fields.summary;
+            else if (dObj && dObj.key) dirName = dObj.key;
+        } catch (e3) {}
+        var qName = '';
+        try { qName = getQurumName(t) || ''; } catch (e4) { qName = ''; }
+
+        if (person) {
+            if (!workload[person]) workload[person] = { total: 0, byPriority: {}, open: 0, done: 0, late: 0, blocked: 0 };
+            workload[person].total += 1;
+            workload[person].byPriority[pri] = (workload[person].byPriority[pri] || 0) + 1;
+            if (sg === 'done') workload[person].done += 1;
+            else workload[person].open += 1;
+        }
+        byPri[pri] = (byPri[pri] || 0) + 1;
+        byStatus[stLabel] = (byStatus[stLabel] || 0) + 1;
+        byDir[dirName] = (byDir[dirName] || 0) + 1;
+        if (qName) byQurum[qName] = (byQurum[qName] || 0) + 1;
+
+        if (sg === 'done') doneN += 1;
+        else openN += 1;
+        try {
+            if (getDateStatus(t) === 'late') {
+                lateN += 1;
+                if (person && workload[person]) workload[person].late += 1;
+            }
+        } catch (e5) {}
+        try {
+            if (isBlockedUnit(t)) {
+                blockedN += 1;
+                if (person && workload[person]) workload[person].blocked += 1;
+            }
+        } catch (e6) {}
+    }
+    var people = Object.keys(workload).map(function(name) {
+        var row = workload[name];
+        return {
+            name: name,
+            total: row.total,
+            open: row.open,
+            done: row.done,
+            late: row.late,
+            blocked: row.blocked,
+            byPriority: row.byPriority
+        };
+    }).sort(function(a, b) {
+        return (b.total - a.total) || String(a.name).localeCompare(String(b.name), 'az');
+    });
+    var scope = boardContext();
+    return {
+        scope: scope,
+        totalUnits: units.length,
+        open: openN,
+        done: doneN,
+        late: lateN,
+        blocked: blockedN,
+        workload: {
+            people: people.slice(0, 25),
+            heaviest: people[0] || null,
+            lightest: people.length ? people[people.length - 1] : null
+        },
+        status: rankCountMap(byStatus, 12),
+        priority: rankCountMap(byPri, 10),
+        directions: rankCountMap(byDir, 15),
+        qurums: rankCountMap(byQurum, 15)
+    };
+}
+
 function formatAbout() {
     return '<p class="dash-chat-kicker">' + esc(BOT_NAME) + '</p>'
         + '<h4>Bu panel nə göstərir</h4>'
@@ -1298,13 +1451,15 @@ function formatThanks() {
 }
 
 function formatIdentity() {
-    var name = viewerFirstName();
+    var name = viewerGreetingName() || viewerFirstName();
     var jira = viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName) || '';
-    var lead = 'Gününüz xoş keçsin! Mən süni intellekt köməkçiniz AI Done-am.';
+    var lead = name
+        ? ('Gününüz xoş keçsin, ' + name + '! Mən süni intellekt köməkçiniz AI Done-am.')
+        : 'Gününüz xoş keçsin! Mən süni intellekt köməkçiniz AI Done-am.';
     if (name && jira) {
         lead += ' Sizi Jira-da «' + jira + '» kimi tanıyıram — «mənim işlərim» deyəndə sizin tapşırıqlarınıza baxıram.';
     } else if (name) {
-        lead += ' Sizi ' + name + ' kimi tanıyıram. Admin sizi Jira şəxsi ilə bağlayanda mənim işlərinizə də baxa bilərəm.';
+        lead += ' Admin sizi Jira şəxsi ilə bağlayanda mənim işlərinizə də baxa bilərəm.';
     } else {
         lead += ' Sizə necə kömək edə bilərəm? Tapşırıq, sprint, icraçı və qiymətləndirmə rəqəmlərini oxuyub izah edirəm.';
     }
@@ -2230,7 +2385,7 @@ export function syncAiBotNotifyFromState() {
 state.syncAiBotNotify = syncAiBotNotifyFromState;
 
 function welcomeHtml() {
-    var name = viewerFirstName();
+    var name = viewerGreetingName() || viewerFirstName();
     var jira = viewerAssigneeName() || (viewerUser() && viewerUser().jiraDisplayName) || '';
     var hello = name ? ('Gününüz xoş keçsin, ' + esc(name) + '!') : 'Gününüz xoş keçsin!';
     var extra = jira
@@ -2479,7 +2634,7 @@ function showTools(row) {
     });
 }
 
-function sendChatFeedback(chatId, vote, reason, box) {
+function markFeedbackSent(box, vote, taught) {
     if (!box) return;
     box.classList.add('is-sent');
     Array.prototype.forEach.call(box.querySelectorAll('.dash-chat-fb'), function(b) {
@@ -2488,14 +2643,69 @@ function sendChatFeedback(chatId, vote, reason, box) {
     });
     var reasons = box.querySelector('.dash-chat-fb-reasons');
     if (reasons) reasons.remove();
+    var teach = box.querySelector('.dash-chat-fb-teach');
+    if (teach) teach.remove();
     var label = box.querySelector('.dash-chat-feedback-label');
-    if (label) label.textContent = vote === 'up' ? 'Təşəkkürlər' : 'Qeyd olundu';
+    if (label) {
+        if (taught) label.textContent = 'Öyrədildi — növbəti oxşar sualda istifadə olunacaq';
+        else if (vote === 'up') label.textContent = 'Təşəkkürlər';
+        else label.textContent = 'Qeyd olundu';
+    }
+}
+
+function sendChatFeedback(chatId, vote, reason, box, correctAnswer) {
+    if (!box) return;
+    var taught = !!(correctAnswer && String(correctAnswer).trim());
+    markFeedbackSent(box, vote, taught);
     fetch('/api/chat/feedback', {
         credentials: 'same-origin',
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chatId: chatId, vote: vote, reason: reason || '' })
+        body: JSON.stringify({
+            chatId: chatId,
+            vote: vote,
+            reason: reason || '',
+            correctAnswer: taught ? String(correctAnswer).trim() : ''
+        })
+    }).then(function(res) {
+        return res.json().catch(function() { return {}; }).then(function(data) {
+            if (!res.ok) {
+                if (box) {
+                    var label = box.querySelector('.dash-chat-feedback-label');
+                    if (label) label.textContent = (data && data.error) || 'Saxlanmadı';
+                }
+                return;
+            }
+            if (data && data.taught) markFeedbackSent(box, vote, true);
+        });
     }).catch(function() {});
+}
+
+function showTeachPanel(box, chatId, reason) {
+    if (!box || box.querySelector('.dash-chat-fb-teach')) return;
+    var teach = document.createElement('div');
+    teach.className = 'dash-chat-fb-teach';
+    teach.innerHTML =
+        '<label class="dash-chat-fb-teach-label">Düzgün cavabı yaz — bot öyrənsin</label>'
+        + '<textarea class="dash-chat-fb-teach-input" rows="3" maxlength="1200" placeholder="Bu suala düzgün cavab nə olmalıdır?"></textarea>'
+        + '<div class="dash-chat-fb-teach-actions">'
+        + '<button type="button" class="dash-chat-fb-teach-save">Öyrət</button>'
+        + '<button type="button" class="dash-chat-fb-teach-skip">Yalnız qeyd et</button>'
+        + '</div>';
+    box.appendChild(teach);
+    var input = teach.querySelector('.dash-chat-fb-teach-input');
+    teach.querySelector('.dash-chat-fb-teach-save').onclick = function() {
+        var text = String((input && input.value) || '').trim();
+        if (!text) {
+            if (input) input.focus();
+            return;
+        }
+        sendChatFeedback(chatId, 'down', reason || '', box, text);
+    };
+    teach.querySelector('.dash-chat-fb-teach-skip').onclick = function() {
+        sendChatFeedback(chatId, 'down', reason || '', box, '');
+    };
+    if (input) setTimeout(function() { try { input.focus(); } catch (e) {} }, 0);
 }
 
 function attachFeedback(row, chatId) {
@@ -2506,34 +2716,47 @@ function attachFeedback(row, chatId) {
     box.classList.remove('hidden');
     box.innerHTML = '<span class="dash-chat-feedback-label">Cavab faydalı oldu?</span>'
         + '<button type="button" class="dash-chat-fb" data-vote="up" title="Yaxşı" aria-label="Yaxşı">👍</button>'
-        + '<button type="button" class="dash-chat-fb" data-vote="down" title="Zəif" aria-label="Zəif">👎</button>';
+        + '<button type="button" class="dash-chat-fb" data-vote="down" title="Səhv — düzəlt" aria-label="Səhv">👎</button>';
     box.onclick = function(e) {
+        if (box.classList.contains('is-sent')) return;
+        if (e.target.closest('.dash-chat-fb-teach')) return;
         var reasonBtn = e.target.closest('[data-reason]');
-        if (reasonBtn && !box.classList.contains('is-sent')) {
-            sendChatFeedback(chatId, 'down', reasonBtn.getAttribute('data-reason') || '', box);
+        if (reasonBtn) {
+            var reason = reasonBtn.getAttribute('data-reason') || '';
+            var reasons = box.querySelector('.dash-chat-fb-reasons');
+            if (reasons) reasons.remove();
+            showTeachPanel(box, chatId, reason);
             return;
         }
         var btn = e.target.closest('[data-vote]');
-        if (!btn || box.classList.contains('is-sent')) return;
+        if (!btn) return;
         var vote = btn.getAttribute('data-vote');
         if (vote === 'up') {
-            sendChatFeedback(chatId, 'up', '', box);
+            sendChatFeedback(chatId, 'up', '', box, '');
             return;
         }
-        // 👎: popup yox — inline səbəb seçimi
-        if (box.querySelector('.dash-chat-fb-reasons')) return;
+        // 👎: səbəb + düzgün cavab paneli
+        if (box.querySelector('.dash-chat-fb-reasons') || box.querySelector('.dash-chat-fb-teach')) return;
         Array.prototype.forEach.call(box.querySelectorAll('.dash-chat-fb'), function(b) {
             b.classList.toggle('is-on', b.getAttribute('data-vote') === 'down');
         });
-        var reasons = document.createElement('div');
-        reasons.className = 'dash-chat-fb-reasons';
-        reasons.innerHTML =
+        var reasonsEl = document.createElement('div');
+        reasonsEl.className = 'dash-chat-fb-reasons';
+        reasonsEl.innerHTML =
             '<button type="button" class="dash-chat-fb-reason" data-reason="sualı başa düşmədi">Başa düşmədi</button>'
             + '<button type="button" class="dash-chat-fb-reason" data-reason="yanlış rəqəm">Yanlış rəqəm</button>'
             + '<button type="button" class="dash-chat-fb-reason" data-reason="ümumi danışdı">Ümumi danışdı</button>'
-            + '<button type="button" class="dash-chat-fb-reason" data-reason="">Keç</button>';
-        box.appendChild(reasons);
+            + '<button type="button" class="dash-chat-fb-reason" data-reason="başqa">Başqa</button>';
+        box.appendChild(reasonsEl);
     };
+}
+
+function paintYield() {
+    return new Promise(function(resolve) {
+        requestAnimationFrame(function() {
+            requestAnimationFrame(function() { resolve(); });
+        });
+    });
 }
 
 function onSubmit(e) {
@@ -2549,7 +2772,13 @@ function onSubmit(e) {
     try { autosizeChatInput(); } catch (e0) {}
     addUser(q);
     chatLog('istifadəçi mesajı', q.slice(0, 80));
-    reply(q);
+    // Əvvəl mesajı ekranda göstər, sonra ağır snapshot/LLM işinə keç
+    var log = document.getElementById('dashChatLog');
+    if (log) {
+        try { void log.offsetHeight; } catch (e1) {}
+        log.scrollTop = log.scrollHeight;
+    }
+    setTimeout(function() { reply(q); }, 0);
 }
 
 function softFailHtml(question, detail) {
@@ -2617,7 +2846,7 @@ function assessmentScoreForCat(cat, t) {
 }
 
 function buildAssessmentSnapshotRows() {
-    var rows = [];
+    var collected = [];
     var source = state.allTasks || [];
     var i;
     for (i = 0; i < source.length; i++) {
@@ -2625,7 +2854,8 @@ function buildAssessmentSnapshotRows() {
         if (!t || !t.key) continue;
         var cat = '';
         try { cat = classifyAssessmentCategory(t) || ''; } catch (e0) { cat = ''; }
-        if (!cat || (cat !== 'diag' && cat !== 'exq' && cat !== 'isq' && cat !== 'self' && cat !== 'meqsed')) {
+        // meqsed rəyləri ayrıca (buildMeqsedOpinionRows) — burada qurum+bal collapse etmə
+        if (!cat || (cat !== 'diag' && cat !== 'exq' && cat !== 'isq' && cat !== 'self')) {
             continue;
         }
         var score = assessmentScoreForCat(cat, t);
@@ -2638,19 +2868,57 @@ function buildAssessmentSnapshotRows() {
             try { qurum = getQurumName(t) || ''; } catch (e3) { qurum = ''; }
         }
         var year = '';
+        var yearN = null;
         try {
             var y = getAssessmentYear(t);
-            if (y != null && isFinite(y)) year = String(y);
+            if (y != null && isFinite(y)) {
+                yearN = Number(y);
+                year = String(y);
+            }
         } catch (e4) {}
-        rows.push([
-            cat,
-            String(qurum || '').replace(/\|/g, '/').slice(0, 80),
-            score != null ? String(Math.round(score * 10) / 10) : '',
-            year,
-            String(t.key)
-        ].join('|'));
-        if (rows.length >= MAX_SNAPSHOT_ASSESS) break;
+        collected.push({
+            cat: cat,
+            qurum: String(qurum || '').replace(/\|/g, '/').slice(0, 120),
+            score: score,
+            year: year,
+            yearN: yearN,
+            key: String(t.key)
+        });
     }
+    // Hər cat+qurum üçün bir sətir: balı olan / daha yeni il üstün
+    var best = {};
+    collected.forEach(function(row) {
+        var qk = fold(row.qurum || '') || row.key;
+        var id = row.cat + '::' + qk;
+        var prev = best[id];
+        if (!prev) {
+            best[id] = row;
+            return;
+        }
+        var ps = prev.score != null ? 1 : 0;
+        var rs = row.score != null ? 1 : 0;
+        if (rs !== ps) {
+            if (rs > ps) best[id] = row;
+            return;
+        }
+        if (row.score != null && prev.score != null && row.score !== prev.score) {
+            if (row.score > prev.score) best[id] = row;
+            return;
+        }
+        var py = prev.yearN || 0;
+        var ry = row.yearN || 0;
+        if (ry > py) best[id] = row;
+    });
+    var rows = Object.keys(best).map(function(id) {
+        var row = best[id];
+        return [
+            row.cat,
+            row.qurum,
+            row.score != null ? String(Math.round(row.score * 10) / 10) : '',
+            row.year,
+            row.key
+        ].join('|');
+    });
     // Balı olan diaq/exq/isq əvvəl — truncate olanda itməsin
     rows.sort(function(a, b) {
         var pa = a.split('|');
@@ -2660,13 +2928,290 @@ function buildAssessmentSnapshotRows() {
         if (sa !== sb) return sb - sa;
         var ca = pa[0] === 'diag' ? 0 : 1;
         var cb = pb[0] === 'diag' ? 0 : 1;
-        return ca - cb;
+        if (ca !== cb) return ca - cb;
+        var na = parseFloat(pa[2] || '0') || 0;
+        var nb = parseFloat(pb[2] || '0') || 0;
+        return nb - na;
     });
     if (rows.length > MAX_SNAPSHOT_ASSESS) rows = rows.slice(0, MAX_SNAPSHOT_ASSESS);
     return rows;
 }
 
-function buildSnapshot() {
+function buildMeqsedOpinionRows() {
+    var rows = [];
+    var source = state.allTasks || [];
+    var i;
+    for (i = 0; i < source.length; i++) {
+        var t = source[i];
+        if (!t || !t.key) continue;
+        var cat = '';
+        try { cat = classifyAssessmentCategory(t) || ''; } catch (e0) { cat = ''; }
+        if (cat !== 'meqsed') continue;
+        var op = '';
+        try {
+            var info = getMeqsedInfo(t);
+            op = (info && info.opinionKind) || '';
+        } catch (e1) { op = ''; }
+        if (!op) continue;
+        var qurum = '';
+        try { qurum = getAssessmentQurumLabel(t) || getQurumName(t) || ''; } catch (e2) {
+            try { qurum = getQurumName(t) || ''; } catch (e3) { qurum = ''; }
+        }
+        var year = '';
+        try {
+            var y = getAssessmentYear(t);
+            if (y != null && isFinite(y)) year = String(y);
+        } catch (e4) {}
+        rows.push([
+            'meqsed',
+            String(qurum || '').replace(/\|/g, '/').slice(0, 120),
+            String(op),
+            year,
+            String(t.key)
+        ].join('|'));
+    }
+    // Müsbət/mənfi əvvəl — truncate olanda say itməsin
+    rows.sort(function(a, b) {
+        var oa = a.split('|')[2] || '';
+        var ob = b.split('|')[2] || '';
+        var ra = oa === 'pos' ? 0 : (oa === 'neg' ? 1 : 2);
+        var rb = ob === 'pos' ? 0 : (ob === 'neg' ? 1 : 2);
+        return ra - rb;
+    });
+    if (rows.length > MAX_SNAPSHOT_ASSESS) rows = rows.slice(0, MAX_SNAPSHOT_ASSESS);
+    return rows;
+}
+
+function deriveQurumAliases(name) {
+    var raw = String(name || '').trim();
+    if (!raw) return [];
+    var out = [];
+    var re = /\(\s*([A-Za-zÇçƏəĞğIıİiÖöŞşÜü0-9]{2,14})\s*\)/g;
+    var m;
+    while ((m = re.exec(raw))) {
+        if (m[1]) out.push(m[1].trim());
+    }
+    var full = raw.replace(/\(\s*[A-Za-zÇçƏəĞğIıİiÖöŞşÜü0-9]{2,14}\s*\)/g, ' ').replace(/\s+/g, ' ').trim();
+    if (full && full !== raw) out.push(full);
+    var folded = fold(full || raw);
+    var words = folded.split(' ').filter(function(w) {
+        return w.length >= 4
+            && !/^(dovlet|azerbaycan|respublikasi|ve|ile|nazirlik|agentlik|xidmet|komite|idare|birlik)$/.test(w);
+    });
+    words.forEach(function(w) {
+        if (w.length >= 5) out.push(w);
+    });
+    if (words.length >= 2) out.push(words.slice(0, 2).join(' '));
+    // initials
+    var initials = (full || raw).split(/[\s\-–,;/]+/).map(function(tok) {
+        tok = String(tok || '').trim();
+        if (!tok || tok.charAt(0) === '(') return '';
+        var ft = fold(tok);
+        if (!ft || ft.length < 2 || /^(ve|ile|ve)$/.test(ft)) return '';
+        return tok.charAt(0);
+    }).filter(Boolean);
+    if (initials.length >= 2 && initials.length <= 6) {
+        out.push(initials.join(''));
+        out.push(initials.join('').toUpperCase());
+    }
+    var seen = {};
+    return out.filter(function(a) {
+        var k = fold(a);
+        if (!k || k === folded || seen[k]) return false;
+        seen[k] = true;
+        return true;
+    }).slice(0, 10);
+}
+
+function buildQurumCatalog() {
+    var map = {};
+    function add(raw) {
+        var cleaned = String(raw || '').trim();
+        if (!cleaned || cleaned === 'Təyin edilməyib') return;
+        var parts = cleaned.split(/\s*,\s*/);
+        for (var i = 0; i < parts.length; i++) {
+            var part = parts[i].trim();
+            if (!part) continue;
+            var name = part;
+            try { name = canonicalQurumName(part) || part; } catch (e) { name = part; }
+            name = String(name || part).trim();
+            if (!name) continue;
+            var key = fold(name);
+            if (!key) continue;
+            if (!map[key]) {
+                map[key] = { name: name, aliases: {}, n: 0 };
+            }
+            map[key].n += 1;
+            if (name.length > String(map[key].name || '').length) map[key].name = name;
+            deriveQurumAliases(name).concat(deriveQurumAliases(part)).forEach(function(a) {
+                var ak = fold(a);
+                if (ak) map[key].aliases[a] = true;
+            });
+            // raw short form if different
+            if (fold(part) !== key) map[key].aliases[part] = true;
+        }
+    }
+    (state.allTasks || []).forEach(function(t) {
+        try { add(getQurumName(t)); } catch (e1) {}
+        try { add(getAssessmentQurumLabel(t)); } catch (e2) {}
+    });
+    try {
+        var idx = state.issueIndex || {};
+        Object.keys(idx).forEach(function(k) {
+            try { add(getQurumName(idx[k])); } catch (e3) {}
+        });
+    } catch (e4) {}
+    return Object.keys(map).map(function(k) {
+        var row = map[k];
+        return {
+            name: String(row.name || '').slice(0, 120),
+            aliases: Object.keys(row.aliases || {}).slice(0, 12)
+        };
+    }).sort(function(a, b) {
+        return String(a.name).localeCompare(String(b.name), 'az');
+    }).slice(0, 200);
+}
+
+export function persistQurumCatalog() {
+    var names = [];
+    try {
+        var cat = buildQurumCatalog();
+        names = (cat || []).map(function(r) { return (r && r.name) || ''; }).filter(Boolean);
+        var payload = JSON.stringify(names.slice(0, 200));
+        localStorage.setItem('aiDoneQurums', payload);
+        sessionStorage.setItem('aiDoneQurums', payload);
+        localStorage.setItem('aiDoneQurumCatalog', JSON.stringify((cat || []).slice(0, 200)));
+        window.__AI_DONE_QURUMS__ = names;
+    } catch (e) {}
+    return names;
+}
+
+function snapshotCacheHash() {
+    var n = (state.allTasks && state.allTasks.length) || 0;
+    var filt = (state.filteredTasks && state.filteredTasks.length) || 0;
+    var aw = (state.assigneeChartTasks && state.assigneeChartTasks.length) || 0;
+    var sp = '';
+    try { sp = getSelectedSprintName() || ''; } catch (e) {}
+    return [
+        n,
+        filt,
+        aw,
+        sp,
+        state.currentDirectionFilter || '',
+        state.currentQurumFilter || '',
+        state.currentAssigneeFilter || '',
+        state.currentStatusFilter || '',
+        state.currentPriorityFilter || ''
+    ].join('|');
+}
+
+function jiraValueText(val) {
+    if (val == null || val === '') return '';
+    if (typeof val === 'string' || typeof val === 'number' || typeof val === 'boolean') {
+        return String(val).trim();
+    }
+    if (Array.isArray(val)) {
+        return val.map(jiraValueText).filter(Boolean).join(', ');
+    }
+    if (typeof val === 'object') {
+        if (val.displayName) return String(val.displayName);
+        if (val.name) return String(val.name);
+        if (val.value) return String(val.value);
+        if (val.label) return String(val.label);
+        if (val.key) return String(val.key);
+        if (val.filename) return String(val.filename);
+    }
+    return '';
+}
+
+function buildTaskDetail(t) {
+    if (!t || !t.key) return null;
+    var f = t.fields || {};
+    var fields = {};
+    function put(label, value) {
+        var v = String(value || '').trim();
+        if (!v || v === '—') return;
+        fields[label] = v.slice(0, 400);
+    }
+    put('Status', f.status && f.status.name);
+    put('İcraçı', f.assignee && f.assignee.displayName);
+    put('Prioritet', f.priority && f.priority.name);
+    put('Tip', f.issuetype && f.issuetype.name);
+    try { put('Qurum', getQurumName(t)); } catch (e0) {}
+    try {
+        var dd = getTaskDueDate(t);
+        if (dd) put('Bitmə tarixi', formatDateObj(dd));
+    } catch (e1) {}
+    try {
+        var dObj = resolveDirection(t);
+        if (dObj && dObj.fields) put('İstiqamət', dObj.fields.summary || dObj.key);
+        else if (dObj) put('İstiqamət', dObj);
+    } catch (e2) {}
+    try {
+        var sn = getSprintNames(t);
+        if (sn && sn[0]) put('Sprint', sn[0]);
+    } catch (e3) {}
+    try {
+        var br = getBlockReason(t);
+        if (br) put('Blok səbəbi', br);
+    } catch (e4) {}
+    try {
+        var labs = (f.labels || []).map(function(lbl) {
+            return typeof lbl === 'object' ? (lbl.name || lbl.value || '') : String(lbl || '');
+        }).filter(Boolean);
+        if (labs.length) put('Etiketlər', labs.join(', '));
+    } catch (e5) {}
+    if (f.parent && (f.parent.key || (f.parent.fields && f.parent.fields.summary))) {
+        put('Parent', (f.parent.key || '') + (f.parent.fields && f.parent.fields.summary ? ' — ' + f.parent.fields.summary : ''));
+    }
+    // Jira custom field adları (paneldə görünən field-lər)
+    var names = state.jiraFieldNames || {};
+    var added = 0;
+    var id;
+    for (id in names) {
+        if (!Object.prototype.hasOwnProperty.call(names, id)) continue;
+        if (added >= 35) break;
+        if (!Object.prototype.hasOwnProperty.call(f, id)) continue;
+        var label = String(names[id] || '').trim();
+        if (!label || label.length < 2) continue;
+        var low = fold(label);
+        if (/description|şərh|sherh|comment|attachment|əlavə|elave/.test(low)) continue;
+        var text = jiraValueText(f[id]);
+        if (!text || text === '—' || text.length > 500) continue;
+        if (fields[label]) continue;
+        put(label, text);
+        added += 1;
+    }
+    var summary = String(f.summary || t.summary || '').slice(0, 200);
+    return {
+        key: String(t.key),
+        summary: summary,
+        status: (f.status && f.status.name) || '',
+        assignee: (f.assignee && f.assignee.displayName) || '',
+        qurum: fields['Qurum'] || '',
+        fields: fields
+    };
+}
+
+function collectFocusTaskDetails(question, hotTasks) {
+    var out = {};
+    var keys = String(question || '').match(/DGD-\d+/gi) || [];
+    var i;
+    for (i = 0; i < keys.length; i++) {
+        var t = findTaskByKey(keys[i]);
+        var d = buildTaskDetail(t);
+        if (d) out[d.key] = d;
+    }
+    var hot = hotTasks || [];
+    for (i = 0; i < hot.length && Object.keys(out).length < 25; i++) {
+        if (!hot[i] || !hot[i].key || out[hot[i].key]) continue;
+        var det = buildTaskDetail(hot[i]);
+        if (det) out[det.key] = det;
+    }
+    return out;
+}
+
+function buildSnapshot(question) {
     var truncated = false;
     var sprint = '';
     try { sprint = getSelectedSprintName() || currentSprintName() || ''; } catch (e) { sprint = ''; }
@@ -2706,14 +3251,32 @@ function buildSnapshot() {
     } catch (e3) { overview = {}; }
 
     var tasks = [];
+    var hotTasks = [];
     var source = state.allTasks || [];
+    // Prioritet: gecikən/blok → açıq → qalan (field sualları üçün də hot detail)
+    var ranked = [];
     var i;
     for (i = 0; i < source.length; i++) {
-        var t = source[i];
-        if (!t || !t.key) continue;
+        var t0 = source[i];
+        if (!t0 || !t0.key) continue;
         try {
-            if (!isTaskOrSubtaskType(t) && !isTaskType(t)) continue;
-        } catch (e4) {}
+            if (!isTaskOrSubtaskType(t0) && !isTaskType(t0)) continue;
+        } catch (e4) { continue; }
+        var rank = 2;
+        try {
+            if (getDateStatus(t0) === 'late') rank = 0;
+            else if (isBlockedUnit(t0)) rank = 0;
+            else {
+                var stName = (t0.fields && t0.fields.status && t0.fields.status.name) || '';
+                if (getStatusGroup(stName) !== 'done') rank = 1;
+            }
+        } catch (eR) {}
+        ranked.push({ t: t0, rank: rank });
+    }
+    ranked.sort(function(a, b) { return a.rank - b.rank; });
+
+    for (i = 0; i < ranked.length; i++) {
+        var t = ranked[i].t;
         var f = t.fields || {};
         var statusName = (f.status && f.status.name) || '';
         var asg = f.assignee ? (f.assignee.displayName || '') : '';
@@ -2741,18 +3304,27 @@ function buildSnapshot() {
         var overdue = 0;
         try { if (isBlockedUnit(t)) blocked = 1; } catch (e8) {}
         try { if (getDateStatus(t) === 'late') overdue = 1; } catch (e9) {}
+        var summary = '';
+        try { summary = String((f.summary || t.summary || '')).replace(/\|/g, '/').slice(0, 90); } catch (eSum) { summary = ''; }
+        var qurum = '';
+        try { qurum = String(getQurumName(t) || '').replace(/\|/g, '/').slice(0, 80); } catch (eQur) { qurum = ''; }
         var row = [
             String(t.key),
-            statusName,
-            asg,
-            pri,
-            due,
-            dir,
-            sp,
+            statusName.replace(/\|/g, '/'),
+            asg.replace(/\|/g, '/'),
+            pri.replace(/\|/g, '/'),
+            due.replace(/\|/g, '/'),
+            String(dir || '').replace(/\|/g, '/'),
+            String(sp || '').replace(/\|/g, '/'),
             String(blocked),
-            String(overdue)
+            String(overdue),
+            summary,
+            qurum
         ].join('|');
         tasks.push(row);
+        if (hotTasks.length < 20 && (blocked || overdue || ranked[i].rank <= 1)) {
+            hotTasks.push(t);
+        }
         if (tasks.length >= MAX_SNAPSHOT_TASKS) {
             truncated = true;
             break;
@@ -2760,7 +3332,21 @@ function buildSnapshot() {
     }
 
     var assessments = [];
-    try { assessments = buildAssessmentSnapshotRows(); } catch (eAssess) { assessments = []; }
+    try {
+        assessments = buildAssessmentSnapshotRows().concat(buildMeqsedOpinionRows());
+        if (assessments.length > MAX_SNAPSHOT_ASSESS) {
+            assessments = assessments.slice(0, MAX_SNAPSHOT_ASSESS);
+        }
+    } catch (eAssess) { assessments = []; }
+
+    var qurums = [];
+    try { qurums = buildQurumCatalog(); } catch (eQurCat) { qurums = []; }
+
+    var taskDetails = {};
+    try { taskDetails = collectFocusTaskDetails(question || '', hotTasks); } catch (eDet) { taskDetails = {}; }
+
+    var dashboards = null;
+    try { dashboards = buildDashboardPanels(); } catch (eDash) { dashboards = null; }
 
     var snap = {
         meta: {
@@ -2773,6 +3359,9 @@ function buildSnapshot() {
         overview: overview,
         tasks: tasks,
         assessments: assessments,
+        qurums: qurums,
+        taskDetails: taskDetails,
+        dashboards: dashboards,
         truncated: truncated
     };
     try {
@@ -2791,6 +3380,39 @@ function buildSnapshot() {
     return snap;
 }
 
+function getCachedSnapshot(question, forceRebuild) {
+    var hash = snapshotCacheHash();
+    var qKeys = String(question || '').match(/DGD-\d+/gi) || [];
+    var needFresh = forceRebuild || qKeys.length > 0;
+    if (
+        !needFresh
+        && _snapCache.snap
+        && _snapCache.hash === hash
+        && (Date.now() - _snapCache.at) < SNAP_CACHE_MS
+    ) {
+        // Cache hit olsa belə iş yükü rəqəmlərini paneldən yenilə (14≠4)
+        try {
+            _snapCache.snap.dashboards = buildDashboardPanels();
+        } catch (eDash) {}
+        try { window.__AI_DONE_SNAPSHOT__ = _snapCache.snap; } catch (e0) {}
+        return _snapCache.snap;
+    }
+    var snap = buildSnapshot(question || '');
+    // Sualda DGD varsa detail əlavə olunub — cache-ə əsas snap (detailsiz) saxlama
+    if (!qKeys.length) {
+        _snapCache = { hash: hash, at: Date.now(), snap: snap };
+    }
+    try { window.__AI_DONE_SNAPSHOT__ = snap; } catch (e) {}
+    return snap;
+}
+
+function warmSnapshotCache() {
+    try {
+        if (!hasData()) return;
+        getCachedSnapshot('', true);
+    } catch (e) {}
+}
+
 function detectHint(question) {
     var q = fold(question || '');
     if (/gecik/.test(q)) return 'late';
@@ -2799,10 +3421,19 @@ function detectHint(question) {
     if (/diaqnostika|qiymetlendir|exq|isq|meqsed|ozunuqiymet|reqemsal yetkin|en yuksek bal|en asagi bal|bal alan|qurum.*bal|bal.*qurum/.test(q)) {
         return 'assess';
     }
+    // Qurum / nazirlik / xidmət — şəxs workload-dan ƏVVƏL
+    if (/qurum|nazirlik|agentlik|xidmet|komite|miqrasiya|gomruk|dmx|dgk|rinn?\b/.test(q)
+        || findQurum(q)) {
+        return 'qurum';
+    }
     // «mənim işlərim» — self; adlı şəxs sorğusu people (get_my_tasks-ə düşməsin)
     if (/menim|oz islerim|taskim|tapsiriqim|tapsiriqlarim|islerim\b/.test(q)
         && !/\b[a-z]{3,}\s+[a-z]{3,}\b/.test(q.replace(/\b(menim|oz|islerim|tapsiriqlarim|taskim)\b/g, ''))) {
         return 'mine';
+    }
+    // İş yükü / panel kartları reytinqi — konkret addan əvvəl
+    if (/is yuk|workload|en yuklu|en mesgul|kimde cox|hansi emekdas|prioritet pay|status pay|istiqamet pay/.test(q)) {
+        return 'dashboard';
     }
     if (/is yuku|icraci|kimde|ustunde|baxir|baxir\?|nin is|nin tapsiriq|nin yuku/.test(q)) return 'people';
     if (/\b[a-z]{3,}\s+[a-z]{4,}\b/.test(q) && /is|task|tapsiriq|yuk|nece|hansi/.test(q)) return 'people';
@@ -2903,14 +3534,21 @@ function attachSuggestions(row, items) {
 }
 
 async function askServer(question, pending, signal) {
+    await paintYield();
     var hint = detectHint(question);
-    var snapshot = buildSnapshot();
+    var snapshot = getCachedSnapshot(question, false);
+    try {
+        // Qurum kataloqu hər mesajda localStorage yazmasın — Enter gecikməsin
+        if (!_snapCache.at || (Date.now() - _snapCache.at) < 500) {
+            setTimeout(function() { try { persistQurumCatalog(); } catch (eP) {} }, 50);
+        }
+    } catch (eSnap) {}
     var body = {
         question: question,
         draft: '',
         facts: { hint: hint, intent: hint, viewer: viewerFact() },
         snapshot: snapshot,
-        history: chatHistory.slice(0, -1).slice(-12),
+        history: chatHistory.slice(0, -1).slice(-8),
         stream: 1
     };
     chatLog('sorğu göndərilir', {
@@ -3031,11 +3669,11 @@ async function askServer(question, pending, signal) {
                 clearStatusLine(pending);
                 if (bubble) bubble.appendChild(mdTarget);
             }
-            var n = pump.queued.length > 220 ? 16 : (pump.queued.length > 70 ? 6 : 2);
+            var n = pump.queued.length > 120 ? 48 : (pump.queued.length > 40 ? 24 : 12);
             answer += pump.queued.slice(0, n);
             pump.queued = pump.queued.slice(n);
             paint();
-            await wait(12);
+            await wait(8);
         }
     })();
 
@@ -3077,8 +3715,18 @@ async function askServer(question, pending, signal) {
                     suggestions = ev.items || [];
                 } else if (ev.type === 'done') {
                     chatId = ev.id || chatId;
-                    if ((!pump.queued && !answer) && ev.answer) {
-                        pump.queued += String(ev.answer);
+                    if (ev.answer) {
+                        var finalAns = String(ev.answer);
+                        var streamedSoFar = answer + pump.queued;
+                        if (!streamedSoFar) {
+                            pump.queued = finalAns;
+                        } else if (streamedSoFar !== finalAns) {
+                            // Server düzəldibsə (məs. səhv bal) — stream əvəzinə final cavab
+                            pump.queued = '';
+                            answer = finalAns;
+                            paint();
+                            chatLog('done grounded', { id: chatId });
+                        }
                     }
                     chatLog('done', { id: chatId, model: ev.model, tokens: pump.tokens, ms: ev.duration_ms });
                 } else if (ev.type === 'error') {
@@ -3215,8 +3863,10 @@ async function reply(question) {
     if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(true);
     remember('user', question);
     renderHints();
+    await paintYield();
     var local = routeLocal(question);
     var pending = addBot(local ? local.html : '<p class="dash-chat-wait">Düşünürəm…</p>', !local);
+    await paintYield();
     var used = local ? local.text : '';
     var chatId = '';
     chatLog('reply start', { local: !!(local && local.kind), q: String(question || '').slice(0, 80) });
@@ -3310,6 +3960,15 @@ export function initChat(opts) {
     chatLlm = !!(opts && opts.hasChatLlm);
     chatLlmHint = String((opts && opts.chatLlmHint) || '').trim();
     ensureUi();
+    try { window.persistAiDoneQurums = persistQurumCatalog; } catch (e0) {}
+    try { persistQurumCatalog(); } catch (e1) {}
+    try {
+        if (window.requestIdleCallback) {
+            window.requestIdleCallback(function() { warmSnapshotCache(); }, { timeout: 2500 });
+        } else {
+            setTimeout(warmSnapshotCache, 1200);
+        }
+    } catch (eWarm) {}
     if (!chatLlm && chatLlmHint && !chatLlmWarned) {
         chatLlmWarned = true;
         chatWarn(chatLlmHint);

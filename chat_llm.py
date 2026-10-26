@@ -14,11 +14,14 @@ from chat_tools import (
     SOFT_FAIL,
     TOOL_LABELS,
     SnapshotTools,
+    fast_score_answer_from_payloads,
     gemini_function_declarations,
+    ground_assessment_answer,
     number_check,
     openai_tools,
     run_tool,
     snapshot_hash,
+    try_fast_panel_answer,
 )
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -26,18 +29,18 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 LAST_MODEL = ''
 LAST_ERROR = ''
 LAST_META: Dict[str, Any] = {}
-MAX_STEPS = 4
-HISTORY_LIMIT = 12
+MAX_STEPS = 3
+HISTORY_LIMIT = 8
 
 # Ən güclü mövcud model əvvəldə; açar/kvota buraxmasa növbətiyə düşür.
 GEMINI_STRONG = 'gemini-3.1-pro-preview'
 GEMINI_FALLBACKS = ('gemini-2.5-pro', 'gemini-2.0-flash')
-# Chat: əvvəl düşünən/pro modellər, sonra flash
+# Chat: əvvəl sürətli flash, sonra pro
 GEMINI_CHAT_FALLBACKS = (
-    'gemini-3.1-pro-preview',
-    'gemini-2.5-pro',
     'gemini-2.5-flash',
     'gemini-2.0-flash',
+    'gemini-2.5-pro',
+    'gemini-3.1-pro-preview',
 )
 
 _HTTP = None
@@ -199,14 +202,21 @@ def _system_prompt(user_name: str, today: str, sprint: str) -> str:
         'Rolun: ChatGPT/Claude səviyyəsində ağıllı, səmimi həmsöhbət + platformanın data analitiki.\n'
         '\n'
         'QAYDALAR\n'
-        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI, diaqnostika/qiymətləndirmə balı, qurum reytingi) haqqında sual olarsa — YALNIZ alətlərdən gələn məlumata əsaslan. Diaqnostika/EXQ/İSQ balı və «ən yüksək bal alan qurum» üçün get_assessment_scores çağır. Rəqəmi heç vaxt təxmin etmə və uydurma.\n'
-        '2. Ümumi sual olarsa (idarəetmə, texnologiya, yazı, hesablama, məsləhət, izah) — öz biliyinlə sərbəst və dolğun cavab ver. Panel mövzusuna məcbur etmə.\n'
-        '3. Qarışıq suallarda əvvəl faktı göstər, sonra təhlil və konkret təklif ver.\n'
-        '4. Cavabı bilmirsənsə və ya data yoxdursa: bunu açıq və səmimi de; nəyi bildiyini və nəyi bilmədiyini ayır; 1–2 faydalı alternativ təklif et. Heç vaxt uydurma.\n'
-        '5. Cavabı istifadəçinin dilində ver (default: Azərbaycan dili). Təbii, canlı, insan kimi yaz; robot şablonu və təkrar giriş cümlələri olmasın.\n'
-        '6. Format: qısa sual → 1–3 cümlə. Təhlil → qısa başlıq + siyahı. Markdown istifadə et, rəqəmləri **qalın** yaz. Uzatma.\n'
-        '7. Uyğun olduqda sonda 1 davam sualı təklif et.\n'
-        '8. Şəxsi/həssas məlumat və ya icazəsiz əməliyyat istənərsə, nəzakətlə imtina et.\n'
+        '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI, diaqnostika/qiymətləndirmə balı, qurum) — YALNIZ alətlərdən. Rəqəmi təxmin etmə.\n'
+        '2. QURUM (Nazirlik, Agentlik, Xidmət, Komitə, TƏBİB, DMX, Gömrük, Miqrasiya və s.) soruşulanda MÜTLƏQ get_qurum_stats çağır. '
+        'get_person_workload YALNIZ insan adı üçündür. Əvvəl aləti çağır; suggestions varsa onları göstər.\n'
+        '3. Diaqnostika/EXQ/İSQ balı → get_assessment_scores(qurum=…). Nəticədə matched.score / score sahəsini yaz. '
+        'Bir qurumun balını digərinə yapışdırma (məs. Vergi 51 ≠ Mədəniyyət 30).\n'
+        '3b. Məqsədəuyğunluq müsbət/mənfi rəy SAYI → get_meqsed_stats(year=…, opinion=pos|neg). '
+        'Bunu diaqnostika balı ilə qarışdırma.\n'
+        '3c. Tapşırıq/field (DGD-…, status, icraçı, blok səbəbi, custom field) → get_task(key=…). '
+        'fields obyektindən oxu; tapşırıq siyahısı üçün search_tasks.\n'
+        '3d. Panel kartları (iş yükü, status, prioritet, istiqamət, qurum payı) → get_dashboard(section=…). '
+        '«Kimdə iş çoxdur / ən yüklü məşğul» → section=workload. Konkret ad üçün get_person_workload.\n'
+        '4. Ümumi sual — öz biliyinlə cavab ver.\n'
+        '5. Bilmirsənsə açıq de; uydurma. «snapshot/truncated» demə.\n'
+        '6. Azərbaycan dilində, təbii yaz. Markdown; rəqəmləri **qalın**. Uzatma.\n'
+        '7. Uyğunsa sonda 1 davam sualı.\n'
     ).format(
         user_name=user_name or 'istifadəçi',
         today=today or '',
@@ -227,11 +237,24 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
     if re.search(
         r'diaqnostika|qiymətləndir|qiymetlendir|exq|isq|məqsəd|meqsed|'
         r'özünüqiymət|ozunuqiymet|ən yüksək bal|en yuksek bal|bal alan|'
-        r'qurum.*bal|bal.*qurum',
+        r'qurum.*bal|bal.*qurum|'
+        r'\bbal\b|\bbalı\b|\bbes\b|\bbəs\b',
         q,
     ):
         return 'assess'
+    if re.search(
+        r'qurum|nazirlik|agentlik|xidmət|xidmet|komitə|komite|'
+        r'miqrasiya|gömrük|gomruk|\bdmx\b|\bdgk\b|\brinn?\b|t[eə]bib|tabib',
+        q,
+    ):
+        return 'qurum'
     # Adlı şəxs («Sabina Mammadova…») — people; «mənim» isə mine
+    if re.search(
+        r'iş yük|is yuk|workload|ən yüklü|en yuklu|ən məşğul|en mesgul|'
+        r'istiqamət pay|prioritet pay|status üzrə|status uzre|panel kart',
+        q,
+    ):
+        return 'dashboard'
     if re.search(
         r'(iş yük|is yuk|icraçı|icraci|kimdə|kimde|üstündə|ustunde|'
         r'baxır|baxir|nın iş|nin is|nın tapşırıq|nin tapsiriq)',
@@ -251,7 +274,10 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'mine'
     if re.search(r'risk', q):
         return 'risk'
-    if re.search(r'DGD-\d+', question or '', re.I):
+    if re.search(r'DGD-\d+', question or '', re.I) or re.search(
+        r'\bfield\b|sahə|sahe|blok s[eə]b[eə]b|customfield',
+        q,
+    ):
         return 'issue'
     return 'open'
 
@@ -278,6 +304,8 @@ def _default_suggestions(question: str, tools_used: List[str]) -> List[str]:
     q = str(question or '').lower()
     if 'get_assessment_scores' in tools_used or 'diaqnost' in q or 'qiymət' in q or 'bal' in q:
         return ['Ən aşağı bal alan qurum', 'EXQ üzrə reyting', 'İSQ balları']
+    if 'get_qurum_stats' in tools_used or 'qurum' in q or 'miqrasiya' in q or 'nazirlik' in q:
+        return ['Bu qurumun gecikənləri', 'Diaqnostika balı', 'Digər qurumlar']
     if 'get_risks' in tools_used or 'gecik' in q or 'risk' in q:
         return ['Mənim gecikənlərim', 'Bloklanan işlər', 'İcraçılar üzrə yük']
     if 'get_person_workload' in tools_used or 'get_my_tasks' in tools_used:
@@ -331,16 +359,69 @@ def answer_chat_events(
     snapshot = snapshot if isinstance(snapshot, dict) else (facts.get('snapshot') if isinstance(facts.get('snapshot'), dict) else {})
     tools_ctx = SnapshotTools(snapshot)
     meta = tools_ctx.meta
+    viewer = facts.get('viewer') if isinstance(facts.get('viewer'), dict) else {}
     user_name = (
         meta.get('user')
-        or (facts.get('viewer') or {}).get('firstName')
-        or (facts.get('viewer') or {}).get('displayName')
+        or viewer.get('greetingName')
+        or viewer.get('firstName')
+        or viewer.get('displayName')
         or ''
     )
+    # Login üslubu (farid.osmanov) salamlamada istifadə olunmasın
+    if user_name and (' ' not in str(user_name)) and ('.' in str(user_name) or '_' in str(user_name)):
+        user_name = viewer.get('greetingName') or viewer.get('firstName') or ''
+        if user_name and (' ' not in str(user_name)) and ('.' in str(user_name) or '_' in str(user_name)):
+            user_name = ''
     system = _system_prompt(user_name, meta.get('today') or '', meta.get('sprint') or '')
     hint = _hint_intent(facts, q)
     gold = format_examples(examples_for(hint, q, limit=2))
     hist_items, hist_summary = _history_blocks(history)
+
+    # Panel balı/qurum — LLM gözləmədən dərhal cavab
+    fast = try_fast_panel_answer(hint, q, tools_ctx)
+    if fast:
+        answer, tools_used, payloads = fast
+        print('chat_llm fast_panel', hint, 'q=' + q[:60], flush=True)
+        yield {
+            'type': 'status',
+            'tool': tools_used[0] if tools_used else 'get_assessment_scores',
+            'label': TOOL_LABELS.get(tools_used[0] if tools_used else '', 'Paneldən oxuyuram…'),
+        }
+        yield {
+            'type': 'meta',
+            'tools_used': tools_used,
+            'tool_payloads': payloads,
+            'steps': 0,
+            'model': 'panel',
+        }
+        for chunk in _chunk_tokens(answer, size=40):
+            yield {'type': 'token', 'text': chunk}
+        suggestions = _default_suggestions(q, tools_used)
+        yield {'type': 'suggestions', 'items': suggestions[:3]}
+        duration_ms = int((time.time() - started) * 1000)
+        LAST_MODEL = 'panel'
+        LAST_META = {
+            'tools_used': tools_used,
+            'steps': 0,
+            'snapshot_hash': snapshot_hash(snapshot),
+            'number_check': 'ok',
+            'model': 'panel',
+            'duration_ms': duration_ms,
+            'suggestions': suggestions[:3],
+            'fast': True,
+        }
+        yield {
+            'type': 'done',
+            'answer': answer,
+            'tools_used': tools_used,
+            'steps': 0,
+            'model': 'panel',
+            'duration_ms': duration_ms,
+            'snapshot_hash': LAST_META['snapshot_hash'],
+            'number_check': 'ok',
+            'grounded': True,
+        }
+        return
 
     user_parts = []
     if hist_summary:
@@ -349,11 +430,22 @@ def answer_chat_events(
         user_parts.append('İpucu (məcburi deyil): ' + hint)
     draft_text = str(draft or '').strip()
     if draft_text:
-        user_parts.append('Lokal ipucu (məhdudlaşdırmır):\n' + draft_text[:800])
+        user_parts.append('Lokal ipucu (məhdudlaşdırmır):\n' + draft_text[:500])
     if gold:
         user_parts.append(gold)
+    # Qurum/bal suallarında qısa lüğət; digərlərində göndərmə (sürət)
+    if hint in ('qurum', 'assess'):
+        try:
+            glossary = tools_ctx.qurum_glossary_text(limit=40)
+            if glossary:
+                user_parts.append(glossary)
+        except Exception:
+            pass
     if tools_ctx.truncated:
-        user_parts.append('Qeyd: snapshot kəsilib (truncated=true); tam siyahı olmaya bilər.')
+        user_parts.append(
+            'Daxili qeyd (istifadəçiyə demə): panel məlumatı qismən göndərilib; '
+            'tapılmayan bal üçün «snapshot/kəsilib» demə — sadəcə «panelda görünmür» de.'
+        )
     user_parts.append('Sual:\n' + q[:2000])
     user_message = '\n\n'.join(user_parts)
 
@@ -382,6 +474,7 @@ def answer_chat_events(
         'q=' + q[:80],
         flush=True,
     )
+    yield {'type': 'status', 'label': 'Düşünürəm…'}
 
     last_err = ''
     for pname, key in providers:
@@ -389,6 +482,7 @@ def answer_chat_events(
             force_tools = hint in (
                 'mine', 'late', 'blocked', 'risk', 'people', 'kpi',
                 'overview', 'sprint', 'qurum', 'directions', 'issue', 'assess',
+                'dashboard',
             )
             if pname == 'gemini':
                 gen = _tool_loop_gemini(
@@ -424,6 +518,10 @@ def answer_chat_events(
                     LAST_ERROR = last_err
             answer = ''.join(answer_parts).strip()
             if answer:
+                grounded = ground_assessment_answer(answer, tool_payloads)
+                if grounded:
+                    print('chat_llm ground_assessment_answer', flush=True)
+                    answer = grounded
                 if not suggestions:
                     suggestions = _default_suggestions(q, tools_used)
                     yield {'type': 'suggestions', 'items': suggestions[:3]}
@@ -439,6 +537,7 @@ def answer_chat_events(
                     'model': LAST_MODEL,
                     'duration_ms': duration_ms,
                     'suggestions': suggestions[:3],
+                    'grounded': bool(grounded),
                 }
                 print(
                     'chat_llm ok',
@@ -458,6 +557,7 @@ def answer_chat_events(
                     'duration_ms': duration_ms,
                     'snapshot_hash': LAST_META['snapshot_hash'],
                     'number_check': ncheck,
+                    'grounded': bool(grounded),
                 }
                 return
             print('chat_llm empty answer', pname, 'last_err=' + str(last_err or LAST_ERROR), flush=True)
@@ -485,16 +585,42 @@ def _chunk_tokens(text: str, size: int = 12) -> List[str]:
     return chunks
 
 
+def _openai_chat_model() -> str:
+    return (
+        (os.environ.get('OPENAI_CHAT_MODEL') or '').strip()
+        or (os.environ.get('OPENAI_MODEL') or '').strip()
+        or 'gpt-4o-mini'
+    )
+
+
+def _emit_fast_from_tools(tools_used, tool_payloads, steps, model):
+    """Yield meta+tokens+return-signal if tool payloads already answer the score question."""
+    fast_text = fast_score_answer_from_payloads(tool_payloads)
+    if not fast_text:
+        return None
+    print('chat_llm fast_after_tools', model, flush=True)
+    return {
+        'meta': {
+            'type': 'meta',
+            'tools_used': tools_used,
+            'tool_payloads': tool_payloads,
+            'steps': steps,
+            'model': model,
+        },
+        'text': fast_text,
+    }
+
+
 def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: SnapshotTools, force_tools=False):
     global LAST_MODEL, LAST_ERROR
     base = (os.environ.get('OPENAI_BASE_URL') or 'https://api.openai.com/v1').rstrip('/')
-    model = os.environ.get('OPENAI_MODEL') or 'gpt-4o'
+    model = _openai_chat_model()
     messages: List[dict] = [{'role': 'system', 'content': system}]
     for item in hist_items:
         role = 'user' if item.get('role') == 'user' else 'assistant'
         content = str(item.get('content') or '').strip()
         if content:
-            messages.append({'role': role, 'content': content[:1500]})
+            messages.append({'role': role, 'content': content[:800]})
     messages.append({'role': 'user', 'content': user_message})
 
     tools_used: List[str] = []
@@ -511,12 +637,12 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
                 'Content-Type': 'application/json',
             }, json={
                 'model': model,
-                'temperature': 0.35,
-                'max_tokens': 1800,
+                'temperature': 0.25,
+                'max_tokens': 900,
                 'tools': openai_tools(),
                 'tool_choice': choice,
                 'messages': messages,
-            }, timeout=90)
+            }, timeout=45)
         except requests.exceptions.Timeout:
             LAST_ERROR = model + ' timeout'
             yield {'type': 'error', 'error': LAST_ERROR}
@@ -557,8 +683,16 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
                     messages.append({
                         'role': 'tool',
                         'tool_call_id': call.get('id') or name,
-                        'content': json.dumps(result, ensure_ascii=False)[:12000],
+                        'content': json.dumps(result, ensure_ascii=False)[:6000],
                     })
+            # Konkret bal cavabı artıq hazırdırsa — ikinci LLM çağırışını atla
+            bundled = _emit_fast_from_tools(tools_used, tool_payloads, steps, model)
+            if bundled:
+                LAST_MODEL = model
+                yield bundled['meta']
+                for chunk in _chunk_tokens(bundled['text'], size=40):
+                    yield {'type': 'token', 'text': chunk}
+                return
             continue
 
         text = str(msg.get('content') or '').strip()
@@ -570,7 +704,7 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
             'steps': steps,
             'model': model,
         }
-        for chunk in _chunk_tokens(text):
+        for chunk in _chunk_tokens(text, size=40):
             yield {'type': 'token', 'text': chunk}
         return
 
@@ -582,12 +716,12 @@ def _tool_loop_openai(key, system, user_message, hist_items, tools_ctx: Snapshot
         }, json={
             'model': model,
             'temperature': 0.3,
-            'max_tokens': 1200,
+            'max_tokens': 700,
             'messages': messages + [{
                 'role': 'user',
                 'content': 'Alət çağırışını dayandır və indiyə qədərki məlumatla cavab ver.',
             }],
-        }, timeout=60)
+        }, timeout=40)
         if res.status_code == 200:
             data = res.json()
             text = (((data.get('choices') or [{}])[0].get('message') or {}).get('content') or '').strip()
@@ -633,9 +767,10 @@ def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: Snapshot
                 + ':generateContent?key='
                 + key
             )
-            gen: Dict[str, Any] = {'maxOutputTokens': 2048, 'temperature': 0.35}
-            if _model_supports_thinking(model):
-                gen['thinkingConfig'] = {'thinkingLevel': 'MEDIUM'}
+            gen: Dict[str, Any] = {'maxOutputTokens': 1024, 'temperature': 0.25}
+            # Chat tool-loop: thinking yavaşladır — yalnız pro modellərdə LOW
+            if _model_supports_thinking(model) and 'flash' not in model.lower():
+                gen['thinkingConfig'] = {'thinkingLevel': 'LOW'}
             body = {
                 'systemInstruction': {'parts': [{'text': system}]},
                 'contents': local_contents,
@@ -646,7 +781,7 @@ def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: Snapshot
                 body['toolConfig'] = {
                     'functionCallingConfig': {'mode': 'ANY'},
                 }
-            timeout = 80 if _model_supports_thinking(model) else 60
+            timeout = 50 if 'pro' in model.lower() else 35
             try:
                 res = _http().post(url, json=body, timeout=timeout)
             except requests.exceptions.SSLError:
@@ -702,6 +837,13 @@ def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: Snapshot
                     })
                 if response_parts:
                     local_contents.append({'role': 'user', 'parts': response_parts})
+                bundled = _emit_fast_from_tools(tools_used, tool_payloads, steps, model)
+                if bundled:
+                    LAST_MODEL = model
+                    yield bundled['meta']
+                    for chunk in _chunk_tokens(bundled['text'], size=40):
+                        yield {'type': 'token', 'text': chunk}
+                    return
                 continue
 
             text = '\n'.join(texts).strip()
@@ -715,7 +857,7 @@ def _tool_loop_gemini(key, system, user_message, hist_items, tools_ctx: Snapshot
                     'steps': steps,
                     'model': model,
                 }
-                for chunk in _chunk_tokens(text):
+                for chunk in _chunk_tokens(text, size=40):
                     yield {'type': 'token', 'text': chunk}
                 return
             LAST_ERROR = model + ' boş cavab'
