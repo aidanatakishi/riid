@@ -80,6 +80,7 @@ var KPI_FOCUS = [
 ];
 
 var chatLlm = false;
+var chatLlmHint = '';
 var chatLlmWarned = false;
 var chatOpen = false;
 var chatBusy = false;
@@ -2551,9 +2552,22 @@ function onSubmit(e) {
     reply(q);
 }
 
-function softFailHtml(question) {
+function softFailHtml(question, detail) {
+    var note = SOFT_FAIL_HINT;
+    var d = String(detail || '').trim();
+    if (d) {
+        if (/açar|key|401|yoxdur/i.test(d)) {
+            note = 'Serverdə LLM açarı yoxdur: deploy serverində .env faylına OPENAI_API_KEY yazıb prosesi yenidən başladın.';
+        } else if (/timeout|vaxt/i.test(d)) {
+            note = 'Cavab vaxtı bitdi. Bir az sonra yenidən yoxlayın.';
+        } else if (/429|limit|quota/i.test(d)) {
+            note = 'LLM limiti dolub (429). Bir az sonra yenidən yoxlayın.';
+        } else {
+            note = d.slice(0, 220);
+        }
+    }
     return '<p class="dash-chat-lead">' + esc(SOFT_FAIL) + '</p>'
-        + '<p class="dash-chat-note">' + esc(SOFT_FAIL_HINT) + '</p>'
+        + '<p class="dash-chat-note">' + esc(note) + '</p>'
         + '<button type="button" class="dash-chat-retry" data-retry-q="' + esc(question) + '">Yenidən cəhd et</button>';
 }
 
@@ -2710,7 +2724,14 @@ function buildSnapshot() {
             if (dd) due = formatDateObj(dd) || '';
         } catch (e5) { due = ''; }
         var dir = '';
-        try { dir = resolveDirection(t) || ''; } catch (e6) { dir = ''; }
+        try {
+            var dObj = resolveDirection(t);
+            if (dObj && typeof dObj === 'object') {
+                dir = (dObj.fields && dObj.fields.summary) || dObj.key || '';
+            } else if (dObj) {
+                dir = String(dObj);
+            }
+        } catch (e6) { dir = ''; }
         var sp = '';
         try {
             var sn = getSprintNames(t);
@@ -2774,6 +2795,10 @@ function detectHint(question) {
     var q = fold(question || '');
     if (/gecik/.test(q)) return 'late';
     if (/blok|cetinlik/.test(q)) return 'blocked';
+    // Qiymətləndirmə/diaqnostika — people fuzzy-dən ƏVVƏL (hansi/qurum «people»ə düşməsin)
+    if (/diaqnostika|qiymetlendir|exq|isq|meqsed|ozunuqiymet|reqemsal yetkin|en yuksek bal|en asagi bal|bal alan|qurum.*bal|bal.*qurum/.test(q)) {
+        return 'assess';
+    }
     // «mənim işlərim» — self; adlı şəxs sorğusu people (get_my_tasks-ə düşməsin)
     if (/menim|oz islerim|taskim|tapsiriqim|tapsiriqlarim|islerim\b/.test(q)
         && !/\b[a-z]{3,}\s+[a-z]{3,}\b/.test(q.replace(/\b(menim|oz|islerim|tapsiriqlarim|taskim)\b/g, ''))) {
@@ -2782,9 +2807,6 @@ function detectHint(question) {
     if (/is yuku|icraci|kimde|ustunde|baxir|baxir\?|nin is|nin tapsiriq|nin yuku/.test(q)) return 'people';
     if (/\b[a-z]{3,}\s+[a-z]{4,}\b/.test(q) && /is|task|tapsiriq|yuk|nece|hansi/.test(q)) return 'people';
     if (/risk/.test(q)) return 'risk';
-    if (/diaqnostika|qiymetlendir|exq|isq|meqsed|ozunuqiymet|reqemsal yetkin|en yuksek bal|en asagi bal|bal alan/.test(q)) {
-        return 'assess';
-    }
     if (/kpi|faiz|tamamlan/.test(q)) return 'kpi';
     if (/dgd-\d+/i.test(question || '')) return 'issue';
     if (/veziyyet|icmal|xulase/.test(q)) return 'overview';
@@ -3092,14 +3114,54 @@ async function askServer(question, pending, signal) {
     await pumpTask;
     if (caret.parentNode) caret.remove();
     clearStatusLine(pending);
-    if (!answer && !pump.aborted) {
-        answer = SOFT_FAIL;
-        if (bubble) {
-            bubble.appendChild(mdTarget);
-            paint();
+    if ((!answer || isSoftFailText(answer)) && !pump.aborted) {
+        // Proxy SSE-ni kəsirsə — bir dəfə JSON (stream=0) cəhd et
+        chatWarn('SSE boş/soft — JSON fallback');
+        try {
+            var plain = await fetch('/api/chat?stream=0', {
+                credentials: 'same-origin',
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                signal: signal,
+                body: JSON.stringify({
+                    question: question,
+                    draft: '',
+                    facts: body.facts,
+                    snapshot: snapshot,
+                    history: body.history,
+                    stream: 0
+                })
+            });
+            if (plain.ok) {
+                var pdata = await plain.json();
+                chatLog('JSON fallback', {
+                    source: pdata && pdata.source,
+                    len: pdata && pdata.answer ? String(pdata.answer).length : 0,
+                    error: pdata && pdata.error
+                });
+                if (pdata && pdata.answer && !isSoftFailText(pdata.answer)) {
+                    return {
+                        answer: pdata.answer,
+                        chatId: pdata.chatId || '',
+                        suggestions: [],
+                        aborted: false,
+                        error: ''
+                    };
+                }
+                if (pdata && pdata.error) streamError = String(pdata.error);
+            }
+        } catch (fbErr) {
+            chatWarn('JSON fallback xətası', fbErr && fbErr.message);
         }
-        if (caret.parentNode) caret.remove();
-        chatWarn('boş cavab — soft_fail göstərilir');
+        if (!answer) {
+            answer = SOFT_FAIL;
+            if (bubble) {
+                bubble.appendChild(mdTarget);
+                paint();
+            }
+            if (caret.parentNode) caret.remove();
+        }
+        chatWarn('boş cavab — soft_fail göstərilir', streamError || '');
     } else {
         chatLog('cavab hazır', { len: answer.length, chatId: chatId, tokens: pump.tokens });
     }
@@ -3112,7 +3174,7 @@ async function askServer(question, pending, signal) {
     };
 }
 
-function paintSoftFail(pending, question) {
+function paintSoftFail(pending, question, detail) {
     /* 1) salam/təşəkkür 2) panel platforma ehtiyatı 3) soft_fail + Yenidən cəhd et */
     var local = routeLocal(question);
     if (local && local.html) {
@@ -3131,7 +3193,7 @@ function paintSoftFail(pending, question) {
     }
     pending.classList.remove('is-pending');
     clearStatusLine(pending);
-    pending.querySelector('.dash-chat-bubble').innerHTML = softFailHtml(question);
+    pending.querySelector('.dash-chat-bubble').innerHTML = softFailHtml(question, detail);
     attachSuggestions(pending, ['Mənim işlərim', 'Cari həftə risklər', 'Gecikən tapşırıqlar']);
     return SOFT_FAIL;
 }
@@ -3196,7 +3258,7 @@ async function reply(question) {
         chatId = result.chatId || '';
         if (!used || isSoftFailText(used) || result.error) {
             chatWarn('soft_fail UI', { error: result.error || '', usedLen: used.length });
-            used = paintSoftFail(pending, question);
+            used = paintSoftFail(pending, question, result.error || chatLlmHint || '');
             showTools(pending);
             if (typeof window.showToast === 'function') {
                 window.showToast(SOFT_FAIL, 'info');
@@ -3216,7 +3278,12 @@ async function reply(question) {
             return;
         }
         chatWarn('reply xətası', err && (err.code || err.message));
-        used = paintSoftFail(pending, question);
+        var errDetail = '';
+        if (err && err.code === 'timeout') errDetail = 'timeout';
+        else if (err && err.code === 'network') errDetail = 'network';
+        else if (err && err.status === 401) errDetail = '401';
+        else if (err && err.message) errDetail = String(err.message);
+        used = paintSoftFail(pending, question, errDetail || chatLlmHint || '');
         showTools(pending);
         remember('assistant', used);
         if (typeof window.showToast === 'function') {
@@ -3224,6 +3291,7 @@ async function reply(question) {
             if (err && err.code === 'timeout') toastMsg = 'Cavab vaxtı bitdi, yenidən cəhd edin';
             else if (err && err.code === 'network') toastMsg = 'Serverə qoşulmaq mümkün olmadı, yenidən cəhd edin';
             else if (err && err.status === 401) toastMsg = 'Giriş sessiyası bitib — yenidən daxil olun';
+            else if (chatLlmHint) toastMsg = chatLlmHint;
             window.showToast(toastMsg, 'info');
         }
     } finally {
@@ -3240,7 +3308,15 @@ async function reply(question) {
 
 export function initChat(opts) {
     chatLlm = !!(opts && opts.hasChatLlm);
+    chatLlmHint = String((opts && opts.chatLlmHint) || '').trim();
     ensureUi();
+    if (!chatLlm && chatLlmHint && !chatLlmWarned) {
+        chatLlmWarned = true;
+        chatWarn(chatLlmHint);
+        if (typeof window.showToast === 'function') {
+            window.showToast(chatLlmHint, 'info');
+        }
+    }
 }
 
 export function openDashChat() {

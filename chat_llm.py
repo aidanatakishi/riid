@@ -224,6 +224,13 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'late'
     if re.search(r'blok|çətinlik|cetinlik', q):
         return 'blocked'
+    if re.search(
+        r'diaqnostika|qiymətləndir|qiymetlendir|exq|isq|məqsəd|meqsed|'
+        r'özünüqiymət|ozunuqiymet|ən yüksək bal|en yuksek bal|bal alan|'
+        r'qurum.*bal|bal.*qurum',
+        q,
+    ):
+        return 'assess'
     # Adlı şəxs («Sabina Mammadova…») — people; «mənim» isə mine
     if re.search(
         r'(iş yük|is yuk|icraçı|icraci|kimdə|kimde|üstündə|ustunde|'
@@ -244,12 +251,6 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'mine'
     if re.search(r'risk', q):
         return 'risk'
-    if re.search(
-        r'diaqnostika|qiymətləndir|qiymetlendir|exq|isq|məqsəd|meqsed|'
-        r'özünüqiymət|ozunuqiymet|ən yüksək bal|en yuksek bal|bal alan',
-        q,
-    ):
-        return 'assess'
     if re.search(r'DGD-\d+', question or '', re.I):
         return 'issue'
     return 'open'

@@ -722,6 +722,10 @@ def get_client_config():
         'homeProjectKey': home_project_key(),
         'hasToken': has_jira_token(user),
         'hasChatLlm': chat_llm_ready(),
+        'chatLlmHint': (
+            '' if chat_llm_ready()
+            else 'Server .env faylında OPENAI_API_KEY və ya GEMINI_API_KEY yoxdur — chatbot cavab verə bilməz.'
+        ),
         'user': pub,
         'canSeeDiagnostics': can_see_diagnostics(),
         'canManageUsers': can_manage_users(user),
@@ -1036,6 +1040,10 @@ def api_chat_logs():
         ),
         'stats': chat_stats(200),
         'hasChatLlm': chat_llm_ready(),
+        'chatLlmHint': (
+            '' if chat_llm_ready()
+            else 'Server .env-də OPENAI_API_KEY / GEMINI_API_KEY yoxdur.'
+        ),
         'model': (os.environ.get('OPENAI_MODEL') or os.environ.get('GEMINI_CHAT_MODEL') or '').strip(),
     })
 
