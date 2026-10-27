@@ -51,6 +51,27 @@ export function animateValue(id, start, end, duration) {
     animFrames[id] = window.requestAnimationFrame(step);
 }
 
+/** Axtarış zamanı “Loading” yazısı olmadan spinner/şimmer göstərir. */
+export function setSearchUiBusy(anchor, on) {
+    var wrap = null;
+    if (!anchor) return null;
+    if (typeof anchor === 'string') {
+        var el = document.querySelector(anchor);
+        wrap = el && el.closest
+            ? (el.closest('.assess-search-wrap, .qurum-search-wrap') || el)
+            : el;
+    } else if (anchor.classList && (anchor.classList.contains('assess-search-wrap') || anchor.classList.contains('qurum-search-wrap'))) {
+        wrap = anchor;
+    } else if (anchor.closest) {
+        wrap = anchor.closest('.assess-search-wrap, .qurum-search-wrap');
+    }
+    if (!wrap) return null;
+    wrap.classList.toggle('is-searching', !!on);
+    if (on) wrap.setAttribute('aria-busy', 'true');
+    else wrap.removeAttribute('aria-busy');
+    return wrap;
+}
+
 var LOAD_TIPS = [
     { text: 'Salam! Panelı oyadıram…', mood: 'wave' },
     { text: 'Tapşırıqları yığıram!', mood: 'think' },

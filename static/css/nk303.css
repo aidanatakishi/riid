@@ -61,6 +61,109 @@ body.nk303-page #nk303Page { display: block !important; }
     from { opacity: 0.4; }
     to { opacity: 1; }
 }
+
+/* Məlumat yığılarkən — göz yormayan skeleton / şimmer (yazısız) */
+.nk303-wrap.is-gathering {
+    position: relative;
+}
+.nk303-gather-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    z-index: 30;
+    height: 3px;
+    margin: 0;
+    border-radius: 0;
+    background: linear-gradient(90deg, transparent 0%, #ddd6fe 22%, #a78bfa 50%, #ddd6fe 78%, transparent 100%);
+    background-size: 45% 100%;
+    background-repeat: no-repeat;
+    animation: nkGatherBar 1.35s ease-in-out infinite;
+    pointer-events: none;
+}
+@keyframes nkGatherBar {
+    0% { background-position: -30% 0; opacity: 0.55; }
+    50% { opacity: 1; }
+    100% { background-position: 130% 0; opacity: 0.55; }
+}
+.nk303-skel {
+    display: inline-block;
+    height: 0.92em;
+    max-width: 100%;
+    vertical-align: -0.12em;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #f1f5f9 0%, #e9e0ff 42%, #f1f5f9 84%);
+    background-size: 220% 100%;
+    animation: nkSkelShimmer 1.45s ease-in-out infinite;
+}
+.nk303-kpi .val .nk303-skel {
+    height: 1.15em;
+    margin-top: 0.15rem;
+}
+.nk303-skel-mute {
+    color: #cbd5e1 !important;
+    font-weight: 600;
+}
+.nk303-kpis.is-gathering .nk303-kpi {
+    animation: nkCardBreath 2.4s ease-in-out infinite;
+}
+.nk303-kpis.is-gathering .nk303-kpi:nth-child(2) { animation-delay: 0.12s; }
+.nk303-kpis.is-gathering .nk303-kpi:nth-child(3) { animation-delay: 0.24s; }
+.nk303-kpis.is-gathering .nk303-kpi:nth-child(4) { animation-delay: 0.36s; }
+.nk303-kpis.is-gathering .nk303-kpi:nth-child(5) { animation-delay: 0.48s; }
+.nk303-kpis.is-gathering .nk303-kpi:nth-child(6) { animation-delay: 0.6s; }
+@keyframes nkCardBreath {
+    0%, 100% { border-color: var(--nk-glass-edge); box-shadow: var(--nk-glass-shadow); }
+    50% { border-color: #e9e0ff; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 10px 24px -16px rgba(124, 58, 237, 0.18); }
+}
+@keyframes nkSkelShimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+}
+.nk303-gauge.is-gathering .nk303-gauge-box,
+.nk303-gauge-box.is-gathering,
+.nk303-chart.is-gathering {
+    position: relative;
+}
+.nk303-gauge-box.is-gathering::after,
+.nk303-chart.is-gathering::after {
+    content: '';
+    position: absolute;
+    inset: 12%;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, rgba(237, 233, 254, 0.75), rgba(255, 255, 255, 0.15) 62%);
+    animation: nkGaugePulse 1.8s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+.nk303-chart.is-gathering::after {
+    inset: 8%;
+    border-radius: 18px;
+    background: linear-gradient(120deg, rgba(248, 250, 252, 0.2) 0%, rgba(237, 233, 254, 0.55) 48%, rgba(248, 250, 252, 0.2) 100%);
+    background-size: 200% 100%;
+    animation: nkSkelShimmer 1.6s ease-in-out infinite;
+}
+@keyframes nkGaugePulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.96); }
+    50% { opacity: 0.75; transform: scale(1); }
+}
+.nk303-mini-bar.is-gathering i {
+    animation: nkBarPulse 1.4s ease-in-out infinite;
+}
+@keyframes nkBarPulse {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.85; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .nk303-gather-bar,
+    .nk303-skel,
+    .nk303-kpis.is-gathering .nk303-kpi,
+    .nk303-gauge-box.is-gathering::after,
+    .nk303-chart.is-gathering::after,
+    .nk303-mini-bar.is-gathering i {
+        animation: none !important;
+    }
+}
 .nk303-hub-body {
     min-height: 8rem;
 }

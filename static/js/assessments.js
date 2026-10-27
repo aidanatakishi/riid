@@ -1,5 +1,5 @@
 ﻿import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js?v=idda7';
+import { normalizeStr, showToast, setSearchUiBusy } from './utils.js?v=idda15';
 import {
     classifyAssessmentCategory,
     formatAssessmentFieldText,
@@ -5003,20 +5003,28 @@ export function showAssessFullList() {
 export function setAssessmentSearch(section, query) {
     if (section === 'meqsed' && document.body.classList.contains('nk303-hub-open') && typeof window.nk303MeqsedSearch === 'function') {
         window.nk303MeqsedSearch(query);
+        setSearchUiBusy('#assessSearchInput', false);
         return;
     }
-    if (SECTIONS.indexOf(section) === -1) return;
+    if (SECTIONS.indexOf(section) === -1) {
+        setSearchUiBusy('#assessSearchInput', false);
+        return;
+    }
     searchState[section] = query || '';
     pageState[section] = 1;
     if (section === activeTab) {
         syncSearchInput();
-        renderOne(section, { skipHubDash: true, skipYearSelect: true, skipListDash: true });
+        withListDashBusy(function() {
+            renderOne(section, { skipHubDash: true, skipYearSelect: true, skipListDash: true });
+        });
     }
+    setSearchUiBusy('#assessSearchInput', false);
 }
 
 export function onAssessmentSearchInput(value) {
     var clearBtn = document.getElementById('assessSearchClear');
     if (clearBtn) clearBtn.classList.toggle('hidden', !value);
+    setSearchUiBusy('#assessSearchInput', true);
     clearTimeout(searchDebounceTimer);
     searchDebounceTimer = setTimeout(function() {
         setAssessmentSearch(activeTab, value);
@@ -5030,7 +5038,11 @@ export function clearAssessmentSearch() {
     var clearBtn = document.getElementById('assessSearchClear');
     if (clearBtn) clearBtn.classList.add('hidden');
     pageState[activeTab] = 1;
-    renderOne(activeTab, { skipHubDash: true, skipYearSelect: true, skipListDash: true });
+    setSearchUiBusy('#assessSearchInput', true);
+    withListDashBusy(function() {
+        renderOne(activeTab, { skipHubDash: true, skipYearSelect: true, skipListDash: true });
+    });
+    setSearchUiBusy('#assessSearchInput', false);
 }
 
 export function setAssessmentYear(section, year) {

@@ -1,8 +1,8 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
-import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda14';
+import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda15';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda25';
-import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda54';
+import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda55';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
 var DEFAULT_PROJECT_KEY = 'DGD';
@@ -467,6 +467,9 @@ function scheduleBackgroundHydration(baseUrl, pat, projectKey, endYear, firstSou
                     var chunk = await fetchCreatedYear(baseUrl, pat, projectKey, year);
                     if (gen !== bgHydrateGen) return;
                     mergeFetchedIssues(chunk, { skipDashboardRefresh: true });
+                    if (typeof window.refreshNk303IfOpen === 'function') {
+                        window.refreshNk303IfOpen();
+                    }
                 });
                 if (gen !== bgHydrateGen) return;
                 var snap = null;

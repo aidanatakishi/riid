@@ -1,7 +1,7 @@
 ﻿import { state } from './state.js';
-import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue } from './utils.js?v=idda7';
+import { animateValue, getChangeFieldMeta, getInitials, getStatusColor, normalizeStr, truncateChangeValue, setSearchUiBusy } from './utils.js?v=idda15';
 import { belongsToDept, collectBacklogDashboardUnits, collectDueThisWeekPool, countableWorkUnits, jiraBoardWorkUnits, daysUntilDue, formatDateObj, getDateStatus, getDifficultyField, getEsdInnerStatus, getEsdKind, getReviewParty, getHistoricalStatus, getParentIssue, getSprintDateRange, getSprintNames, getStatusGroup, getTaskCompletedDay, getTaskPriorityName, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueSoon, isDueThisWeek, isNextWeekBoxTask, isSubtaskType, isTaskOrSubtaskType, isTaskType, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda26';
-import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda54';
+import { collectAllTasksListView, filterSprintComparison } from './filters.js?v=idda55';
 import { duePeriodLabel } from './report.js?v=idda34';
 
 export function renderStats(tasks) {
@@ -727,20 +727,31 @@ export function showTaskListKind(kind, ev) {
 }
 
 var taskListSearchTimer = 0;
+
+function setTaskListSearchBusy(on) {
+    setSearchUiBusy('#taskListSearchInput', on);
+    var body = document.querySelector('#taskListContent .tl-body');
+    if (body) body.classList.toggle('is-searching', !!on);
+}
+
 export function onTaskListSearchInput(value) {
     state.taskListSearch = value || '';
     state.currentPage = 1;
+    setTaskListSearchBusy(true);
     if (taskListSearchTimer) clearTimeout(taskListSearchTimer);
     taskListSearchTimer = setTimeout(function() {
         taskListSearchTimer = 0;
         renderTaskList(state.taskListSource, state.taskListTitle, { keepView: true });
+        setTaskListSearchBusy(false);
     }, 180);
 }
 
 export function clearTaskListSearch() {
     state.taskListSearch = '';
     state.currentPage = 1;
+    setTaskListSearchBusy(true);
     renderTaskList(state.taskListSource, state.taskListTitle, { keepView: true });
+    requestAnimationFrame(function() { setTaskListSearchBusy(false); });
 }
 
 export function resetTaskListFilter() {

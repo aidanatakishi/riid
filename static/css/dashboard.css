@@ -2925,6 +2925,43 @@ button.meqsed-ld-kpi:hover {
     top: auto;
     transform: none;
 }
+/* Axtarış busy: ikon → spinner + alt şimmer (yazısız) */
+.assess-search-wrap.is-searching .assess-search-icon,
+.qurum-search-wrap.is-searching .assess-search-icon {
+    display: none;
+}
+.assess-search-wrap.is-searching .assess-search-slot::after,
+.qurum-search-wrap.is-searching .assess-search-slot::after {
+    content: '';
+    display: block;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    border: 2px solid #ddd6fe;
+    border-top-color: #7c3aed;
+    animation: spin 0.7s linear infinite;
+}
+.assess-search-wrap.is-searching::after,
+.qurum-search-wrap.is-searching::after {
+    content: '';
+    position: absolute;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 1px;
+    height: 2px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, transparent 0%, #a78bfa 45%, #7c3aed 55%, transparent 100%);
+    background-size: 55% 100%;
+    background-repeat: no-repeat;
+    animation: searchBarShimmer 0.95s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 3;
+}
+@keyframes searchBarShimmer {
+    0% { background-position: -40% 0; opacity: 0.55; }
+    50% { opacity: 1; }
+    100% { background-position: 140% 0; opacity: 0.55; }
+}
 input[type="text"].assess-search-input,
 input.assess-search-input {
     width: 100%;
@@ -3820,8 +3857,61 @@ body.assess-modal-open { overflow: hidden; }
     background: #f5f3ff;
 }
 .tl-body {
+    position: relative;
     background: #fff;
     padding: 0.25rem 0 0.75rem;
+    min-height: 3.5rem;
+}
+.tl-body.is-searching::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    background: rgba(255, 255, 255, 0.48);
+    border-radius: 12px;
+    pointer-events: none;
+}
+.tl-body.is-searching::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 1.75rem;
+    z-index: 4;
+    width: 1.2rem;
+    height: 1.2rem;
+    margin-left: -0.6rem;
+    border-radius: 999px;
+    border: 2px solid #ddd6fe;
+    border-top-color: #7c3aed;
+    animation: spin 0.75s linear infinite;
+    pointer-events: none;
+}
+#qurumListContainer.is-searching {
+    position: relative;
+}
+#qurumListContainer.is-searching::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 42%;
+    z-index: 4;
+    width: 1.2rem;
+    height: 1.2rem;
+    margin-left: -0.6rem;
+    border-radius: 999px;
+    border: 2px solid #ddd6fe;
+    border-top-color: #7c3aed;
+    animation: spin 0.75s linear infinite;
+    pointer-events: none;
+}
+#qurumListContainer.is-searching::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    background: rgba(255, 255, 255, 0.4);
+    border-radius: inherit;
+    pointer-events: none;
 }
 .tl-row { border-bottom: 1px solid #f1f5f9; }
 .tl-row:last-child { border-bottom: none; }

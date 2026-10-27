@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda68';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda70';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -42,6 +42,22 @@ var NA = 'Məlumat mövcud deyil';
 var nkCharts = {};
 var nkHubCharts = {};
 var histBound = false;
+var nkSoftRefreshTimer = 0;
+
+/** İlk açılış / arxa plan hydrate — hələ məlumat yığılır. */
+function isNkDataPending() {
+    return !!(state.dashboardPartialLoad || state.dashboardBgHydrateBusy
+        || (state.dashboardFetchBusy && !state.hasLoadedDashboard));
+}
+
+function skelHtml(width) {
+    return '<span class="nk303-skel" style="width:' + (width || '3.25rem') + '" aria-hidden="true"></span>';
+}
+
+/** Boş göstərici: yüklənərkən skeleton, hazır olanda tire. */
+function pendingOrDash(width) {
+    return isNkDataPending() ? skelHtml(width || '3.25rem') : '—';
+}
 var excelStore = { files: [], orgs: [], loaded: false };
 var reportStore = { files: [], reports: [], loaded: false };
 var adminState = { isAdmin: false, bound: false };
@@ -699,10 +715,13 @@ function visPill(org) {
 function gaugeHtml(score) {
     var mat = maturityOf(score);
     var pos = scalePos(score);
-    return '<div class="nk303-gauge">'
-        + '<div class="nk303-gauge-box"><canvas id="nkGaugeChart"></canvas></div>'
+    var gathering = score == null && isNkDataPending();
+    return '<div class="nk303-gauge' + (gathering ? ' is-gathering' : '') + '">'
+        + '<div class="nk303-gauge-box' + (gathering ? ' is-gathering' : '') + '"><canvas id="nkGaugeChart"></canvas></div>'
         + (mat ? '<div class="nk303-mat is-' + mat.id + '">' + esc(mat.label) + '</div>'
-            : '<div class="nk303-mat is-none">' + esc(NA) + '</div>')
+            : (gathering
+                ? '<div class="nk303-mat is-gathering" aria-hidden="true">' + skelHtml('7.5rem') + '</div>'
+                : '<div class="nk303-mat is-none">' + esc(NA) + '</div>'))
         + '<div class="nk303-scale-col">'
         + (score == null ? '' : '<div class="nk303-scale-pointer" style="left:' + pos + '%" aria-hidden="true">▼</div>')
         + '<div class="nk303-scalebar">'
@@ -1472,7 +1491,11 @@ function pageHeadHtml(model) {
         ? '<div class="nk303-tools"><div class="nk303-filters">' + yearHtml + orgHtml + '</div></div>'
         : '';
     var back = backTarget();
-    return '<div class="nk303-wrap"><div class="nk303-head">'
+    var gathering = isNkDataPending();
+    return '<div class="nk303-wrap' + (gathering ? ' is-gathering' : '') + '"'
+        + (gathering ? ' aria-busy="true"' : '') + '>'
+        + (gathering ? '<div class="nk303-gather-bar" aria-hidden="true"></div>' : '')
+        + '<div class="nk303-head">'
         + '<div class="nk303-head-left">'
         + '<button type="button" class="nk303-home' + (inDetail || ui.hub ? ' nk303-home--back' : '') + '"'
         + ' onclick="nk303Call(\'back\'); return false;">'
@@ -1835,36 +1858,40 @@ function countryKpis(model) {
     var delta = model.delta;
     var strong = model.strongestDir;
     var weak = model.weakestDir;
+    var pending = isNkDataPending();
     var indexVal = model.countryAvg == null
-        ? '—'
+        ? (pending ? skelHtml('4.2rem') + ' <small class="nk303-skel-mute">/ 100</small>' : '—')
         : esc(fmt1(model.countryAvg)) + ' <small>/ 100</small>';
     var deltaHtml = delta == null
-        ? ''
+        ? (pending ? '<div class="sub">' + skelHtml('3.5rem') + '</div>' : '')
         : '<div class="sub ' + (delta < 0 ? 'is-down' : 'is-up') + '">'
             + (delta < 0 ? '↓ ' : '↑ +') + esc(fmt1(Math.abs(delta))) + ' bal</div>';
-    var strongName = strong && strong.avg != null ? esc(dirShort(strong)) : '—';
+    var strongName = strong && strong.avg != null ? esc(dirShort(strong)) : pendingOrDash('5.5rem');
     var strongSub = strong && strong.avg != null
         ? '<div class="sub is-up">' + esc(fmt1(strong.avg)) + ' bal</div>'
-        : '';
-    var weakName = weak && weak.avg != null ? esc(dirShort(weak)) : '—';
+        : (pending ? '<div class="sub">' + skelHtml('2.8rem') + '</div>' : '');
+    var weakName = weak && weak.avg != null ? esc(dirShort(weak)) : pendingOrDash('5.5rem');
     var weakSub = weak && weak.avg != null
         ? '<div class="sub is-down">' + esc(fmt1(weak.avg)) + ' bal</div>'
-        : '';
-    return '<div class="nk303-kpis">'
+        : (pending ? '<div class="sub">' + skelHtml('2.8rem') + '</div>' : '');
+    return '<div class="nk303-kpis' + (pending ? ' is-gathering' : '') + '">'
         + kpiCardHtml({
             ic: 'is-blue', icon: 'chart', label: 'Ölkə üzrə rəqəmsallaşma indeksi',
             valueHtml: indexVal, subHtml: deltaHtml
         })
         + kpiCardHtml({
             ic: 'is-blue', icon: 'building', label: 'Qiymətləndirilən qurumlar',
-            valueHtml: esc(String(total)), subHtml: '<div class="sub">cəmi qurum · kliklə, siyahıya bax</div>',
+            valueHtml: pending && !total ? skelHtml('2rem') : esc(String(total)),
+            subHtml: '<div class="sub">cəmi qurum · kliklə, siyahıya bax</div>',
             onclick: 'nk303Call(\'orgsList\')',
             on: ui.nav === 'orgs'
         })
         + kpiCardHtml({
             ic: 'is-green', icon: 'check', label: 'Tamamlanmış qiymətləndirmələr',
-            valueHtml: esc(String(done)) + ' <small>/ ' + esc(String(total)) + '</small>',
-            subHtml: '<div class="nk303-mini-bar is-green" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
+            valueHtml: pending && !total
+                ? skelHtml('3.2rem')
+                : esc(String(done)) + ' <small>/ ' + esc(String(total)) + '</small>',
+            subHtml: '<div class="nk303-mini-bar is-green' + (pending ? ' is-gathering' : '') + '" aria-hidden="true"><i style="width:' + donePct + '%"></i></div>',
             onclick: 'nk303Call(\'doneList\')',
             on: ui.nav === 'done'
         })
@@ -1878,7 +1905,7 @@ function countryKpis(model) {
         })
         + kpiCardHtml({
             ic: 'is-amber', icon: 'flag', label: 'Yüksək prioritetli boşluqlar',
-            valueHtml: esc(String(model.highGaps || 0)),
+            valueHtml: pending && model.highGaps == null ? skelHtml('2rem') : esc(String(model.highGaps || 0)),
             subHtml: '<div class="sub">sahə · kliklə, siyahıya bax</div>',
             onclick: 'nk303Call(\'highGaps\')',
             on: ui.nav === 'gaps',
@@ -2403,18 +2430,23 @@ function radarCompareHtml(model) {
         + '<p class="nk303-compare-side-label">Ölkə üzrə ümumi nəticə</p>'
         + '<article class="nk303-compare-stat">'
         + '<span>Mövcud vəziyyət</span>'
-        + '<b' + (now == null ? ' class="is-empty"' : ' style="color:' + nowCol + '"') + '>' + esc(fmtScore(now)) + '</b>'
+        + '<b' + (now == null ? ' class="is-empty"' : ' style="color:' + nowCol + '"') + '>'
+        + (now == null && isNkDataPending() ? skelHtml('2.6rem') : esc(fmtScore(now))) + '</b>'
         + '</article>'
         + '<article class="nk303-compare-stat is-goal">'
         + '<span>Hədəf olunan</span>'
-        + '<b' + (goal == null ? ' class="is-empty"' : ' style="color:' + goalCol + '"') + '>' + esc(fmtScore(goal)) + '</b>'
+        + '<b' + (goal == null ? ' class="is-empty"' : ' style="color:' + goalCol + '"') + '>'
+        + (goal == null && isNkDataPending() ? skelHtml('2.6rem') : esc(fmtScore(goal))) + '</b>'
         + '</article>'
         + '<article class="nk303-compare-stat is-gap">'
         + '<span>Fərq</span>'
-        + '<b' + (gap == null ? ' class="is-empty"' : '') + '>' + esc(fmtScore(gap)) + '</b>'
+        + '<b' + (gap == null ? ' class="is-empty"' : '') + '>'
+        + (gap == null && isNkDataPending() ? skelHtml('2.6rem') : esc(fmtScore(gap))) + '</b>'
         + '</article>'
         + '</div>'
-        + '<div class="nk303-chart nk303-chart--compare nk303-chart--spider"><canvas id="nkRadarChart" aria-label="Qiymətləndirmə meyarları üzrə spider chart"></canvas></div>'
+        + '<div class="nk303-chart nk303-chart--compare nk303-chart--spider'
+        + (now == null && isNkDataPending() ? ' is-gathering' : '')
+        + '"><canvas id="nkRadarChart" aria-label="Qiymətləndirmə meyarları üzrə spider chart"></canvas></div>'
         + '</div>'
         + '<div class="nk303-dir-tiles' + (useCrit ? ' nk303-dir-tiles--crit' : '') + '">' + tiles + '</div>'
         + '</section>';
@@ -4077,7 +4109,12 @@ function drawCharts(model) {
                 plugins: { legend: { display: false }, tooltip: { enabled: false } }
             },
             plugins: [centerTextPlugin('nkGaugeCenter', [
-                { text: score == null ? '—' : fmt1(score), color: '#0f2744', font: '800 26px Inter, system-ui, sans-serif', gap: 20 },
+                {
+                    text: score == null ? (isNkDataPending() ? '···' : '—') : fmt1(score),
+                    color: score == null && isNkDataPending() ? '#c4b5fd' : '#0f2744',
+                    font: '800 26px Inter, system-ui, sans-serif',
+                    gap: 20
+                },
                 { text: '/ 100', color: '#94a3b8', font: '600 12px Inter, system-ui, sans-serif', gap: 18 }
             ])]
         });
@@ -6954,5 +6991,16 @@ export function nk303MeqsedSearch(query) {
     nk303Call('hubSearch', query || '');
 }
 
+/** Arxa plan hydrate zamanı açıq diaqnostika səhifəsini yumşaq yenilə. */
+export function refreshNk303IfOpen() {
+    if (!ui.open) return;
+    if (nkSoftRefreshTimer) return;
+    nkSoftRefreshTimer = setTimeout(function() {
+        nkSoftRefreshTimer = 0;
+        if (ui.open) render({ soft: true });
+    }, 420);
+}
+
 window.nk303MeqsedFilter = nk303MeqsedFilter;
 window.nk303MeqsedSearch = nk303MeqsedSearch;
+window.refreshNk303IfOpen = refreshNk303IfOpen;

@@ -1,10 +1,10 @@
 ﻿import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js?v=idda7';
+import { normalizeStr, showToast, setSearchUiBusy } from './utils.js?v=idda15';
 import { collectBacklogDashboardUnits, collectDueThisWeekDoneTasks, collectDueThisWeekOpenTasks, collectDueThisWeekTasks, collectOtherDashboardUnits, countableWorkUnits, jiraBoardWorkUnits, boardListUnits, currentSprintName, formatDateObj, getDateStatus, getEsdInnerStatus, getEsdKind, esdKindById, esdStatusLabelById, getReviewParty, REVIEW_PARTY_OPTIONS, getHistoricalStatus, getQurumName, getTaskPriorityName, canonicalQurumName, sameQurum, getSprintDateRange, getSprintNames, issueBelongsToSprint, getStatusGroup, getTaskDueDate, getTaskStartDate, hasValidDifficulty, isActiveExecutionGroup, isDueInSelectedWeek, isDueInSprint, isDueThisWeek, isNextWeekBoxTask, isResolvedInDateRange, isTaskOrSubtaskType, isTaskType, matchesDashContextFilters, resolveDirection, sortSprintNames, wasCompletedInSprint } from './model.js?v=idda25';
 import { renderAssigneeChart, renderPriorityChart, renderDailyProgress, renderEpicChart, renderLabelChart, renderQurumChart, renderStatusChart, renderEsdStatusBreakdown, renderReviewPartyBreakdown, closeEsdStagePopup, closeReviewPartyPopup } from './charts.js?v=idda58';
-import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda19';
+import { openTaskListSection, renderDifficulties, renderPausedTasks, renderSprintComparison, renderStats, renderTaskList, renderWeeklyTasks, restoreNestedPanels, showUserActivity } from './render.js?v=idda20';
 import { updateReportButtonLabel, duePeriodLabel } from './report.js?v=idda34';
-import { renderAssessmentSections, paintAssessmentOverview } from './assessments.js?v=idda68';
+import { renderAssessmentSections, paintAssessmentOverview } from './assessments.js?v=idda70';
 
 var userChoseSprint = false;
 var filterPaintRaf = 0;
@@ -1397,11 +1397,18 @@ export function filterTasksByDateStatus(type) {
     openTaskListSection();
 }
 
-export function filterQurumList() {
+var qurumSearchBusyTimer = 0;
+
+export function filterQurumList(fromUser) {
     var input = document.getElementById('qurumSearch');
+    var list = document.getElementById('qurumListContainer');
     var searchStr = normalizeStr(input ? input.value : '');
     var clearBtn = document.getElementById('qurumSearchClear');
     if (clearBtn) clearBtn.classList.toggle('hidden', !searchStr);
+    if (fromUser) {
+        setSearchUiBusy('#qurumSearch', true);
+        if (list) list.classList.add('is-searching');
+    }
     var rows = document.querySelectorAll('#qurumTableBody tr');
     rows.forEach(function(row) {
         var nameCell = row.querySelector('td');
@@ -1409,12 +1416,20 @@ export function filterQurumList() {
         if (!searchStr || text.indexOf(searchStr) !== -1) row.classList.remove('hidden');
         else row.classList.add('hidden');
     });
+    if (fromUser) {
+        if (qurumSearchBusyTimer) clearTimeout(qurumSearchBusyTimer);
+        qurumSearchBusyTimer = setTimeout(function() {
+            qurumSearchBusyTimer = 0;
+            setSearchUiBusy('#qurumSearch', false);
+            if (list) list.classList.remove('is-searching');
+        }, 160);
+    }
 }
 
 export function clearQurumSearch() {
     var input = document.getElementById('qurumSearch');
     if (input) input.value = '';
-    filterQurumList();
+    filterQurumList(true);
 }
 
 export function filterSprintComparison(sprintName, type) {
