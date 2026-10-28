@@ -1956,7 +1956,7 @@ export async function exportTasksToWord(title) {
 
     function diagSubtaskInPeriod(child, info) {
         if (!child || !info) return false;
-        if (isDiagReportPrepSubtask(child)) return issueHasPhaseInPeriod(child, info);
+        if (isDiagReportPrepSubtask(child)) return diagReportPrepInPeriod(child, info);
         var bitme = diagSubtaskBitmeDate(child);
         return !!(bitme && isDateInReportPeriod(bitme, info.start, info.end));
     }
@@ -1967,7 +1967,7 @@ export async function exportTasksToWord(title) {
         });
     }
 
-    /** Jira alt-tapşırıq adından qurum/abbrev/diaqnostika prefiksini təmizlə. */
+    /** Jira alt-tapşırıq adından qurum/abbrev prefiksini təmizlə; «diaqnostika çərçivəsində» saxlanılır. */
     function cleanDiagActivityTitle(raw, org) {
         var name = cleanReportProse(raw);
         if (!name) return '';
@@ -1975,10 +1975,80 @@ export async function exportTasksToWord(title) {
         name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}(?:-da|-də|-nda|-ndə)?\s+diaqnostika\s*[-–:]\s*/i, '');
         name = name.replace(/^diaqnostika\s*[-–:]\s*/i, '');
         name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}(?:-da|-də|-nda|-ndə)\s+/i, '');
-        name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}\s+(?=[A-ZÇƏĞIİÖŞÜƏ])/i, '');
+        // «Diaqnostika Çərçivəsində…» abbrev strip-ə düşməsin (Diaqnostika ≤12 hərf).
+        if (!/^diaqnostika\b/i.test(name)) {
+            name = name.replace(/^[A-ZÇƏĞIİÖŞÜ0-9]{2,12}\s+(?=[A-ZÇƏĞIİÖŞÜƏ])/i, '');
+        }
         name = cleanReportProse(name);
-        name = name.replace(/\bgörüşü\s*$/i, 'görüş');
+        if (/^çərçivəsində\b/i.test(name)) name = 'diaqnostika ' + name;
+        // «diaqnostika prosesi ilə bağlı/əlaqəli» → rəsmi «diaqnostika çərçivəsində»
+        name = name.replace(/\bdiaqnostika\s+prosesi\s+ilə\s+(bağlı|əlaqəli)\s+/gi, 'diaqnostika çərçivəsində ');
+        name = name.replace(/\bdiaqnostika\s+üzrə\s+/gi, 'diaqnostika çərçivəsində ');
+        // Rəsmi hesabat forması: «süni intellekt və məlumat idarəetməsi» → «məlumat idarəetməsi»
+        name = name.replace(/\bsüni\s+intellekt\s+və\s+(?=məlumat\s+idarəetmə)/gi, '');
+        name = name.replace(/\byerində\s+baxışın\s+keçirilməsi\b/gi, 'yerində baxışlar');
+        name = name.replace(/\byerində\s+baxışların\s+keçirilməsi\b/gi, 'yerində baxışlar');
+        name = name.replace(/\bgörüşünün\s+keçirilməsi\b/gi, 'görüş');
+        name = name.replace(/\bgörüşün\s+keçirilməsi\b/gi, 'görüş');
+        name = name.replace(/\bgörüşü$/i, 'görüş');
         return name;
+    }
+
+    function isDiagMeetingLikeText(s) {
+        var f = normalizeStr(s);
+        return f.indexOf('görüş') !== -1 || f.indexOf('yerində baxış') !== -1 || f.indexOf('yerinde baxis') !== -1;
+    }
+
+    function isDiagMeetingSubtask(t) {
+        return isDiagMeetingLikeText(taskSummary(t));
+    }
+
+    function isDiagStatusCloserText(s) {
+        var f = normalizeStr(s);
+        if (!f) return false;
+        // normalizeStr Az hərflərini saxlayır — həm ı/ə, həm ascii variantları yoxlanır
+        if (/t[eə]sdiqedici\s+s[eə]n[eə]d/.test(f)) return true;
+        if (/haz[iı]rda\s+hesabat\s+haz[iı]rlanma/.test(f)) return true;
+        if (/hesabat\s+haz[iı]rlanma\s+m[eə]rh[eə]l[eə]sind[eə]dir/.test(f) && f.indexOf('tarixind') === -1) return true;
+        if (/yerind[eə]\s+bax[iı][sş].*t[eə]qdim.*hesabat\s+haz[iı]rlanma/.test(f)) return true;
+        return false;
+    }
+
+    /** Diaqnostika üçün yalnız seçilmiş ayın mərhələləri (əvvəlki aya düşmə). */
+    function issueDiagPhaseEntriesInPeriod(t, info) {
+        if (!t || !info) return [];
+        var collected = (getDatedPhaseEntries(t) || [])
+            .concat(getRawPhaseEntries(t, info.start, info.end) || [])
+            .concat(issueNarrativeExtras(t, info));
+        var expanded = [];
+        collected.forEach(function(e) {
+            expandPhaseEntry(e).forEach(function(p) { expanded.push(p); });
+        });
+        var unique = uniqueMonthlyPhaseEntries(expanded);
+        return unique.filter(function(entry) {
+            return entry && entry.date && isDateInReportPeriod(entry.date, info.start, info.end);
+        }).sort(function(a, b) {
+            var da = a.date ? a.date.getTime() : 0;
+            var db = b.date ? b.date.getTime() : 0;
+            if (da !== db) return da - db;
+            return phaseFieldIndex(a) - phaseFieldIndex(b);
+        });
+    }
+
+    function parseLeadingDiagDate(text) {
+        var m = String(text || '').match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+        if (!m) return null;
+        var d = new Date(parseInt(m[3], 10), parseInt(m[2], 10) - 1, parseInt(m[1], 10));
+        d.setHours(0, 0, 0, 0);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    function splitDiagSentences(text) {
+        var raw = stripEndPunct(cleanReportProse(text));
+        if (!raw) return [];
+        var chunks = raw.split(/(?<=[.!?])\s+(?=[A-ZÇƏĞIİÖŞÜƏ0-9"«])/);
+        if (chunks.length < 2) chunks = raw.split(/(?<=\.)\s+/);
+        return chunks.map(function(c) { return finishOfficialSentence(c); }).filter(Boolean);
     }
 
     function formatDiagBitmeNameLine(child, org) {
@@ -1989,31 +2059,67 @@ export async function exportTasksToWord(title) {
         if (/(keçirilməsi|aparılması|hazırlanması|təhlil edilməsi|qiymətləndirilməsi|göndərilməsi|verilməsi|başlanılması|yoxlanılması|razılaşdırılması|müzakirə edilməsi|icra edilməsi|formalaşdırılması|əlavə edilməsi)$/i.test(core)) {
             core = stripEndPunct(verbalizeActionTitle(core));
         }
-        if (!/(ilmiş|ılmış|ülmüş|ulmuş|miş|mış|müş|muş|dir|dır|dur|dür)$/i.test(core)) {
-            core += ' keçirilmişdir';
+        var hasCerceve = /diaqnostika\s+ç[əe]rçiv[əe]sind[əe]/i.test(core);
+        var hasProses = /diaqnostika\s+prosesi/i.test(core);
+        if (isDiagMeetingLikeText(core) && !hasCerceve && !hasProses && !/^ç[əe]rçiv[əe]sind[əe]/i.test(core)) {
+            core = 'diaqnostika çərçivəsində ' + lowercaseFirst(core);
+        }
+        core = core.replace(/(?:diaqnostika\s+ç[əe]rçiv[əe]sind[əe]\s*){2,}/gi, 'diaqnostika çərçivəsində ');
+        if (/\b(nəzərdə tutulur|mərhələsindədir|sorğulanmışdır|razılaşdırılmışdır|keçirilmişdir|aparılmışdır)\b/i.test(core)) {
+            /* artıq bitmiş feil / status */
+        } else if (!/(ilmiş|ılmış|ülmüş|ulmuş|miş|mış|müş|muş|dir|dır|dur|dür)$/i.test(core)) {
+            if (/yerində baxış$/i.test(core)) core = core.replace(/yerində baxış$/i, 'yerində baxışlar keçirilmişdir');
+            else if (/yerində baxışlar$/i.test(core)) core += ' keçirilmişdir';
+            else if (/\bgörüş(?:ü|lər|ləri)?$/i.test(core)) core += ' keçirilmişdir';
+            else core += ' keçirilmişdir';
         } else {
             core = addFiniteCopula(core);
         }
         var body;
         if (bitme) {
-            var ds = pad2(bitme.getDate()) + '.' + pad2(bitme.getMonth() + 1) + '.' + bitme.getFullYear();
-            body = ds + ' tarixində ' + core;
+            body = formatDiagBitmeDate(bitme) + ' tarixində ' + core;
         } else {
             body = core;
         }
+        body = String(body || '').replace(/(?:diaqnostika\s+ç[əe]rçiv[əe]sind[əe]\s*){2,}/gi, 'diaqnostika çərçivəsində ');
         return finishOfficialSentence(body);
     }
 
-    function formatDiagPrepPhaseLines(child, info) {
-        return (issueMonthPhaseEntries(child, info) || []).map(function(entry) {
-            return finishOfficialSentence(formatEntryLine(entry));
-        }).filter(Boolean);
+    /** Alt-tapşırıq adından istiqamət adı (görüş/yerində baxış pref/suffiksini at). */
+    function extractDiagMeetingDirection(activity) {
+        var s = stripEndPunct(cleanReportProse(activity));
+        if (!s) return '';
+        s = s.replace(/\bdiaqnostika\s+prosesi\s+ilə\s+(bağlı|əlaqəli)\s+/gi, '');
+        s = s.replace(/\bdiaqnostika\s+çərçivəsində\s+/gi, '');
+        s = s.replace(/\s+üzrə\s+(yerində\s+baxış(?:\s+görüş(?:ü|ləri)?)?|görüş(?:ü|lər)?)\b.*$/i, '');
+        s = s.replace(/\s+(yerində\s+baxış(?:\s+görüş(?:ü|ləri)?)?|görüş(?:ü|lər)?)\b.*$/i, '');
+        s = s.replace(/\s+istiqaməti?\s+üzrə\b.*$/i, '');
+        s = s.replace(/\s+istiqaməti?$/i, '');
+        s = s.replace(/\s+üzrə$/i, '');
+        return stripEndPunct(cleanReportProse(s));
     }
 
-    function diagOrgBodyFromSubtasks(parent, info) {
-        var org = registryOrgName(resolvePhaseQurum(parent));
-        var parts = [];
-        var kids = diagChildIssues(parent).slice().sort(function(a, b) {
+    function formatDiagBitmeDate(bitme) {
+        if (!bitme) return '';
+        return pad2(bitme.getDate()) + '.' + pad2(bitme.getMonth() + 1) + '.' + bitme.getFullYear();
+    }
+
+    /**
+     * Yalnız görüş/yerində baxış alt-tapşırıqları və hamısı cari ayda Done+bitmə:
+     * tarix + istiqamətlər ardıcıl, sonda vahid bağlayıcı cümlə.
+     */
+    function areAllDiagMeetingsDoneInPeriod(others, info) {
+        if (!others || !others.length || !info) return false;
+        if (!others.every(isDiagMeetingSubtask)) return false;
+        return others.every(function(child) {
+            if (!isIssueDone(child)) return false;
+            var bitme = diagSubtaskBitmeDate(child);
+            return !!(bitme && isDateInReportPeriod(bitme, info.start, info.end));
+        });
+    }
+
+    function formatDiagAllMeetingsSentence(others, org) {
+        var sorted = (others || []).slice().sort(function(a, b) {
             var da = diagSubtaskBitmeDate(a);
             var db = diagSubtaskBitmeDate(b);
             var ta = da ? da.getTime() : 0;
@@ -2021,18 +2127,136 @@ export async function exportTasksToWord(title) {
             if (ta !== tb) return ta - tb;
             return taskSummary(a).localeCompare(taskSummary(b), 'az');
         });
-        kids.forEach(function(child) {
-            if (!diagSubtaskInPeriod(child, info)) return;
-            if (isDiagReportPrepSubtask(child)) {
+        var groups = [];
+        var byDate = {};
+        sorted.forEach(function(child) {
+            var bitme = diagSubtaskBitmeDate(child);
+            var ds = formatDiagBitmeDate(bitme);
+            if (!ds) return;
+            var dir = extractDiagMeetingDirection(cleanDiagActivityTitle(taskSummary(child), org));
+            if (!dir) return;
+            if (!byDate[ds]) {
+                byDate[ds] = { date: ds, dirs: [], seen: {} };
+                groups.push(byDate[ds]);
+            }
+            var key = normalizeStr(dir);
+            if (byDate[ds].seen[key]) return;
+            byDate[ds].seen[key] = true;
+            byDate[ds].dirs.push(dir);
+        });
+        if (!groups.length) return '';
+        var chunks = groups.map(function(g) {
+            return g.date + ' tarixində ' + g.dirs.join(', ');
+        });
+        var body = chunks.join(', ') + ' istiqamətləri üzrə görüşlər keçirilmiş və təqdim edilməsi zəruri olan məlumatlar sorğulanmışdır';
+        return finishOfficialSentence(body);
+    }
+
+    function formatDiagPrepPhaseLines(child, info) {
+        return (issueDiagPhaseEntriesInPeriod(child, info) || []).map(function(entry) {
+            return finishOfficialSentence(formatEntryLine(entry));
+        }).filter(Boolean);
+    }
+
+    function diagReportPrepInPeriod(child, info) {
+        return !!(child && info && issueDiagPhaseEntriesInPeriod(child, info).length);
+    }
+
+    /** Tarixə görə az→çox; yalnız cari ay tarixləri; status bağlayıcıları sonda. */
+    function joinDiagDatedParts(parts, info) {
+        var dated = [];
+        var closers = [];
+        var undated = [];
+        var seen = {};
+        (parts || []).forEach(function(line) {
+            splitDiagSentences(line).forEach(function(t) {
+                if (!t) return;
+                var key = normalizeStr(t);
+                if (!key || seen[key]) return;
+                seen[key] = true;
+                var d = parseLeadingDiagDate(t);
+                var inPeriod = !!(d && info && isDateInReportPeriod(d, info.start, info.end));
+                // Əvvəlki aya aid tarixli status cümləsi → tarixsiz bağlayıcı
+                if (d && info && !inPeriod && isDiagStatusCloserText(t.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:-c[ıiuü])?(?:\s+il)?(?:\s+tarixində)?\s*/i, ''))) {
+                    var stripped = finishOfficialSentence(t.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:-c[ıiuü])?(?:\s+il)?(?:\s+tarixində)?\s*/i, ''));
+                    if (stripped) closers.push(stripped);
+                    return;
+                }
+                if (d && info && !inPeriod) return;
+                if (isDiagStatusCloserText(t) || (d && isDiagStatusCloserText(t.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:-c[ıiuü])?(?:\s+il)?(?:\s+tarixində)?\s*/i, '')))) {
+                    if (d && /hesabat hazırlanma|yerində baxış və təqdim/i.test(t)) {
+                        closers.push(finishOfficialSentence(t.replace(/^\d{1,2}[./]\d{1,2}[./]\d{4}(?:-c[ıiuü])?(?:\s+il)?(?:\s+tarixində)?\s*/i, '')));
+                    } else {
+                        closers.push(t);
+                    }
+                    return;
+                }
+                if (d) dated.push({ ms: d.getTime(), text: t });
+                else undated.push(t);
+            });
+        });
+        dated.sort(function(a, b) {
+            if (a.ms !== b.ms) return a.ms - b.ms;
+            return a.text.localeCompare(b.text, 'az');
+        });
+        closers.sort(function(a, b) {
+            function closerRank(t) {
+                var f = normalizeStr(t);
+                if (/t[eə]sdiqedici/.test(f)) return 0;
+                if (/haz[iı]rda\s+hesabat/.test(f)) return 1;
+                if (/hesabat\s+haz[iı]rlanma/.test(f)) return 1;
+                return 2;
+            }
+            var ra = closerRank(a);
+            var rb = closerRank(b);
+            if (ra !== rb) return ra - rb;
+            return a.localeCompare(b, 'az');
+        });
+        var out = dated.map(function(x) { return x.text; }).concat(undated).concat(closers);
+        return joinCompleteSentences(out);
+    }
+
+    function appendPendingReportCloser(parts, split) {
+        if (!split || !split.reportPrep || !split.reportPrep.length) return;
+        if (!split.reportPrep.some(function(c) { return !isIssueDone(c); })) return;
+        var hasCloser = (parts || []).some(function(p) {
+            return isDiagStatusCloserText(p) || /hesabat\s+hazırlanma\s+mərhələsindədir/i.test(String(p || ''));
+        });
+        if (hasCloser) return;
+        parts.push('Yerində baxış və təqdim edilmiş məlumatlar əsasında hesabat hazırlanma mərhələsindədir.');
+    }
+
+    function diagOrgBodyFromSubtasks(parent, info) {
+        var org = registryOrgName(resolvePhaseQurum(parent));
+        var parts = [];
+        var split = splitDiagChildren(parent);
+
+        if (areAllDiagMeetingsDoneInPeriod(split.others, info)) {
+            var consolidated = formatDiagAllMeetingsSentence(split.others, org);
+            if (consolidated) parts.push(consolidated);
+            split.reportPrep.forEach(function(child) {
+                if (!diagReportPrepInPeriod(child, info)) return;
                 formatDiagPrepPhaseLines(child, info).forEach(function(line) {
                     if (line) parts.push(line);
                 });
-            } else {
-                var line = formatDiagBitmeNameLine(child, org);
-                if (line) parts.push(line);
-            }
+            });
+            appendPendingReportCloser(parts, split);
+            return joinDiagDatedParts(parts, info);
+        }
+
+        split.others.forEach(function(child) {
+            if (!diagSubtaskInPeriod(child, info)) return;
+            var line = formatDiagBitmeNameLine(child, org);
+            if (line) parts.push(line);
         });
-        return joinCompleteSentences(parts);
+        split.reportPrep.forEach(function(child) {
+            if (!diagReportPrepInPeriod(child, info)) return;
+            formatDiagPrepPhaseLines(child, info).forEach(function(line) {
+                if (line) parts.push(line);
+            });
+        });
+        appendPendingReportCloser(parts, split);
+        return joinDiagDatedParts(parts, info);
     }
 
     function splitDiagChildren(parent) {

@@ -39,8 +39,8 @@ import {
     getTaskDueDate,
     countableWorkUnits,
     getTaskPriorityName
-} from './model.js?v=idda10';
-import { exportTasksToWord } from './report.js?v=idda34';
+} from './model.js?v=idda26';
+import { exportTasksToWord } from './report.js?v=idda49';
 import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda8';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
