@@ -2273,6 +2273,21 @@ button.nk303-kpi {
     padding: 0;
     list-style: none;
 }
+.nk303-rank.is-crit {
+    max-height: 16.5rem;
+    overflow: auto;
+    padding-right: 0.15rem;
+}
+.nk303-rank.is-crit li {
+    grid-template-columns: 1.35rem minmax(0, 1fr) 2.6rem 2.6rem;
+    font-size: 0.72rem;
+}
+.nk303-rank.is-crit b,
+.nk303-rank.is-crit em {
+    text-align: right;
+    min-width: 2.4rem;
+    font-variant-numeric: tabular-nums;
+}
 .nk303-rank li {
     display: grid;
     grid-template-columns: 1.35rem minmax(0, 1fr) auto auto;

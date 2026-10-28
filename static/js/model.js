@@ -2110,7 +2110,7 @@ export var DIAG_CRITERIA_DEFS = [
     { id: 'svc_access', dirId: 'xidmetler', title: 'Əlçatanlıq və istifadəçi təcrübəsi', short: 'Əlçatanlıq', needles: ['elcatanliq ve istifadeci', 'elcatanliq', 'istifadeci tecrubesi'] },
     { id: 'svc_org', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlərin təşkili və təkmilləşdirilməsi', short: 'Xidmət təşkili', needles: ['xidmetlerin teskili ve tekmillesdirilmesi', 'xidmetlerin teskili'] },
     { id: 'tech_infra', dirId: 'texniki', title: 'İnformasiya infrastrukturu', short: 'İnfrastruktur', needles: ['informasiya infrastrukturu'] },
-    { id: 'tech_ai', dirId: 'texniki', title: 'Süni intellekt həllərinin tətbiqi, hazırlıq və analitika', short: 'Süni intellekt', needles: ['suni intellekt hellerinin', 'suni intellekt'] },
+    { id: 'tech_ai', dirId: 'texniki', title: 'Süni intellekt həllərinin tətbiqinə hazırlıq və analitika', short: 'Süni intellekt', needles: ['suni intellekt hellerinin tetbiqine hazirliq', 'suni intellekt hellerinin tetbiqi', 'suni intellekt hellerinin', 'suni intellekt'] },
     { id: 'tech_data', dirId: 'texniki', title: 'Məlumat idarəetməsi', short: 'Məlumat', needles: ['melumat idareetmesi'] },
     { id: 'tech_coop', dirId: 'texniki', title: 'Əməkdaşlıq və inteqrasiya', short: 'İnteqrasiya', needles: ['emekdasliq ve inteqrasiya'] },
     { id: 'tech_auto', dirId: 'texniki', title: 'Daxili idarəetmə proseslərinin avtomatlaşdırılması', short: 'Avtomatlaşdırma', needles: ['daxili idareetme proseslerinin', 'daxili proseslerin avtomatlasdirilmasi'] },
@@ -2965,6 +2965,11 @@ function qurumFromDescendants(t) {
 
 export function classifyAssessmentCategory(t) {
     if (!t || !isTaskOrSubtaskType(t)) return null;
+    // Self etiketi / haystack — istiqamət «diaqnostika» olsa belə özünüqiymət qalsın
+    if (taskOrAncestorHasSelfLabel(t) || hasSelfLabel(t)) return 'self';
+    try {
+        if (matchesSelfAssessHay(collectAssessmentHaystack(t))) return 'self';
+    } catch (e0) {}
     return mapActivityDirectionToCategory(readActivityDirectionValue(t));
 }
 
@@ -3142,26 +3147,71 @@ function canonicalNeticeLabel(raw) {
     return String(raw || '').replace(/^§\s*/, '').replace(/:\s*$/, '').trim();
 }
 
+function headingLineRest(s) {
+    var colon = String(s || '').indexOf(':');
+    if (colon === -1) return '';
+    return String(s).slice(colon + 1).trim();
+}
+
+/** «Altmeyar: 44» / «Strategiya üzrə nəticə (bal):0» sətirlərini sink-ə ötür. */
+function ingestColonScoreLines(text, sink) {
+    var s = String(text || '');
+    if (!s || s.indexOf(':') === -1) return false;
+    var any = false;
+    var lines = s.split(/\r?\n|;/);
+    var i;
+    for (i = 0; i < lines.length; i++) {
+        var line = String(lines[i] || '').trim();
+        if (!line || line.indexOf(':') === -1) continue;
+        var hit = matchHeadingLine(line);
+        if (!hit || !hit.label) continue;
+        var rest = hit.rest != null ? String(hit.rest).trim() : '';
+        if (!rest) {
+            var colon = line.indexOf(':');
+            rest = colon !== -1 ? line.slice(colon + 1).trim() : '';
+        }
+        if (!rest && coerceScoreNumber(rest) == null) continue;
+        var n = coerceScoreNumber(rest);
+        if (n == null && !/^\d+([.,]\d+)?%?$/.test(rest)) continue;
+        sink(hit.label, rest, n != null ? n : rest);
+        any = true;
+    }
+    return any;
+}
+
 function matchHeadingLine(line) {
     var t = String(line || '').trim();
     if (!t) return null;
     var marked = t.charAt(0) === '§';
     var s = t.replace(/^§\s*/, '').replace(/^h[1-6]\.\s*/i, '').replace(/^#{1,6}\s*/, '');
-    var fs = foldAz(s);
+    var labelPart = s;
+    var colon = s.indexOf(':');
+    if (colon !== -1) labelPart = s.slice(0, colon).trim();
+    labelPart = labelPart.replace(/\(\s*bal\s*\)\s*$/i, '').trim();
+    var fs = foldAz(labelPart || s);
     var i;
     for (i = 0; i < DIAG_NETICE_HEADINGS.length; i++) {
         var known = DIAG_NETICE_HEADINGS[i];
         var fk = foldAz(known);
-        if (fs === fk || fs.indexOf(fk + ' ') === 0) {
-            var rest = '';
-            var colon = s.indexOf(':');
-            if (colon !== -1) rest = s.slice(colon + 1).trim();
-            return { label: known, rest: rest };
+        if (fs === fk || fs.indexOf(fk + ' ') === 0 || foldAz(s).indexOf(fk + ' ') === 0 || foldAz(s) === fk) {
+            return { label: known, rest: headingLineRest(s) };
         }
     }
-    var m = s.match(/^(.{3,90}üzrə\s+n[əe]tic[əe])\s*:?\s*(.*)$/i)
-        || s.match(/^(.{3,90}uzre\s+netice)\s*:?\s*(.*)$/i);
-    if (m && s.length < 140) return { label: canonicalNeticeLabel(m[1]), rest: m[2] || '' };
+    var crit = matchDiagCriterion(labelPart);
+    if (crit && (fs === foldAz(crit.title) || foldAz(s).indexOf(foldAz(crit.title)) === 0)) {
+        return { label: crit.title, rest: headingLineRest(s) };
+    }
+    if (isOverallNeticeLabel(labelPart) || isOverallNeticeLabel(s)) {
+        return { label: 'Diaqnostika Ümumi Nəticəsi', rest: headingLineRest(s) };
+    }
+    var m = s.match(/^(.{3,90}üzrə\s+n[əe]tic[əe](?:\s*\(\s*bal\s*\))?)\s*:?\s*(.*)$/i)
+        || s.match(/^(.{3,90}uzre\s+netice(?:\s*\(\s*bal\s*\))?)\s*:?\s*(.*)$/i);
+    if (m && s.length < 160) {
+        return {
+            label: canonicalNeticeLabel(String(m[1]).replace(/\(\s*bal\s*\)/i, '').trim()),
+            rest: m[2] || ''
+        };
+    }
     if (marked) return { label: canonicalNeticeLabel(s.replace(/:\s*$/, '')), rest: '' };
     return null;
 }
@@ -3919,6 +3969,10 @@ export function parseDiagUmumiNetice(raw) {
     if (raw && typeof raw === 'object' && isAdfDoc(raw)) {
         ingestTabAndWikiTables(adfToMarkedText(raw), sink);
     }
+    ingestColonScoreLines(
+        typeof raw === 'string' ? stripMarkupToText(raw) : jiraValuePlainText(raw),
+        sink
+    );
     var blocks = parseAssessmentNetice(raw);
     var bi;
     for (bi = 0; bi < blocks.length; bi++) {
@@ -4184,6 +4238,27 @@ export function parseTaskUmumiNetice(t) {
     return parseDiagUmumiNetice(readUmumiNeticeRaw(t));
 }
 
+function readSelfNeticeRaw(t) {
+    var umumi = readUmumiNeticeRaw(t);
+    if (!isEmptyJiraValue(umumi)) return umumi;
+    var nearby = ['customfield_17318', 'customfield_17320', 'customfield_17315'];
+    var i;
+    for (i = 0; i < nearby.length; i++) {
+        var raw = readIssueField(t, nearby[i]);
+        if (isEmptyJiraValue(raw)) continue;
+        var plain = jiraValuePlainText(raw) || '';
+        if (plain && (plain.indexOf(':') !== -1 || plain.length > 40)) return raw;
+    }
+    var desc = t && t.fields ? t.fields.description : null;
+    if (!isEmptyJiraValue(desc)) {
+        var dPlain = jiraValuePlainText(desc) || '';
+        if (dPlain && (matchDiagCriterion(dPlain.split(/\n/)[0] || '') || /üzrə\s+n[əe]tic/i.test(dPlain))) {
+            return desc;
+        }
+    }
+    return umumi;
+}
+
 export function getSelfAssessInfo(t) {
     if (memoHas('self', t)) return memoGet('self', t);
     var overallSlot = selfScoreSlot(t, SELF_OVERALL_FIELD);
@@ -4192,31 +4267,88 @@ export function getSelfAssessInfo(t) {
         return { title: d.title, score: slot.score, text: slot.text, fieldId: d.id };
     });
     var fieldIds = [SELF_OVERALL_FIELD].concat(SELF_DIR_FIELDS.map(function(d) { return d.id; }));
+    var parsed = parseDiagUmumiNetice(readSelfNeticeRaw(t));
+    var dirMap = {};
+    directions.forEach(function(d) {
+        dirMap[d.title] = { score: d.score, text: d.text || '' };
+    });
+    (parsed.directions || []).forEach(function(d) {
+        if (!d || !d.title) return;
+        dirMap[d.title] = mergeDirSlot(dirMap[d.title], d.score, d.text);
+    });
+    directions = SELF_DIR_FIELDS.map(function(d) {
+        var slot = dirMap[d.title] || { score: '—', text: '' };
+        var text = slot.text || '';
+        if (isHeaderOnlyText(text) || isOverallTitleDump(text)) text = '';
+        return {
+            title: d.title,
+            score: slot.score || '—',
+            text: text,
+            fieldId: d.id
+        };
+    });
+    var overallScore = overallSlot.score;
+    var overallText = overallSlot.text || '';
+    if ((!overallScore || overallScore === '—') && parsed.overall && parsed.overall.score) {
+        overallScore = parsed.overall.score;
+    }
+    if (!overallText && parsed.overall && parsed.overall.text) {
+        overallText = parsed.overall.text;
+    }
+    if (isHeaderOnlyText(overallText) || isOverallTitleDump(overallText)) overallText = '';
+    var critMap = {};
+    (parsed.extras || []).forEach(function(e) {
+        var crit = (e.critId && DIAG_CRITERIA_DEFS.filter(function(c) { return c.id === e.critId; })[0])
+            || matchDiagCriterion(e.title);
+        if (!crit) return;
+        critMap[crit.id] = mergeDirSlot(critMap[crit.id], e.score, e.text);
+    });
+    var criteria = DIAG_CRITERIA_DEFS.map(function(c) {
+        var slot = critMap[c.id] || { score: '—', text: '' };
+        return {
+            id: c.id,
+            dirId: c.dirId,
+            title: c.title,
+            short: c.short,
+            score: slot.score || '—',
+            text: slot.text || ''
+        };
+    });
+    var extras = (parsed.extras || []).filter(function(e) {
+        return !e.critId && !matchDiagCriterion(e.title);
+    });
     var parsedUmumi = {
-        overall: { score: overallSlot.score, text: overallSlot.text },
+        overall: { score: overallScore || '—', text: overallText || '' },
         directions: directions,
-        extras: [],
-        unmapped: []
+        extras: extras,
+        unmapped: parsed.unmapped || []
     };
     var blocks = [];
-    if (overallSlot.score !== '—' || overallSlot.text) {
+    if ((overallScore && overallScore !== '—') || overallText) {
         blocks.push({
             label: 'Ümumi nəticə',
-            value: overallSlot.score !== '—' ? overallSlot.score : overallSlot.text
+            value: (overallScore && overallScore !== '—') ? overallScore : overallText
         });
     }
     directions.forEach(function(d) {
-        if (d.score !== '—' || d.text) {
-            blocks.push({ label: d.title, value: d.score !== '—' ? d.score : d.text });
+        if ((d.score && d.score !== '—') || d.text) {
+            blocks.push({ label: d.title, value: (d.score && d.score !== '—') ? d.score : d.text });
+        }
+    });
+    criteria.forEach(function(c) {
+        if ((c.score && c.score !== '—') || c.text) {
+            blocks.push({ label: c.title, value: (c.score && c.score !== '—') ? c.score : c.text });
         }
     });
     return memoSet('self', t, {
-        score: overallSlot.score,
+        score: overallScore || '—',
         blocks: blocks,
         detailName: 'Ümumi nəticə',
         fieldIds: fieldIds,
         parsedUmumi: parsedUmumi,
         directions: directions,
+        criteria: criteria,
+        extras: extras,
         overall: parsedUmumi.overall
     });
 }

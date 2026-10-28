@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda70';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda75';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -26,7 +26,7 @@ import {
     exqStarColor,
     exqStarLabel,
     EXQ_DIGIT_STAGES
-} from './model.js?v=idda24';
+} from './model.js?v=idda28';
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda4';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { state } from './state.js';
@@ -5491,12 +5491,15 @@ function hubBodyHtml(view) {
     var isRadar = view.section === 'diag' || view.section === 'self' || view.section === 'isq';
     var isqRadarTarget = view.section === 'isq' && st.radarHasTarget !== false;
     if (isRadar) {
-        rankHtml = '<ol class="nk303-rank">'
+        rankHtml = '<ol class="nk303-rank' + ((st.dirRadar || []).length > 4 ? ' is-crit' : '') + '">'
             + (st.dirRadar || []).map(function(d, i) {
                 var goal = view.section === 'isq'
                     ? (isqRadarTarget ? (d.target != null ? d.target : exqStarTarget(d.avg)) : null)
                     : maturityTarget(d.avg);
-                return '<li title="Mövcud: ' + esc(d.avg == null ? '—' : fmt1(d.avg))
+                var fullName = d.title || d.short || '';
+                return '<li title="' + esc(fullName)
+                    + (fullName ? ' · ' : '')
+                    + 'Mövcud: ' + esc(d.avg == null ? '—' : fmt1(d.avg))
                     + (goal == null ? '' : (' · Hədəf: ' + esc(fmt1(goal)))) + '">'
                     + '<i>' + (i + 1) + '</i>'
                     + '<span>' + esc(d.short || d.title) + '</span>'
@@ -5535,11 +5538,10 @@ function hubBodyHtml(view) {
         : (view.section === 'exq' ? 'Yekun nəticə' : 'Ümumi nəticə');
     var midRightTitle = view.section === 'isq'
         ? (st.radarTitle || 'Ulduz səviyyələri')
-        : (view.section === 'diag'
-            ? (st.radarTitle || 'Qiymətləndirmə meyarları')
-            : (isRadar ? 'Rəqəmsallaşma istiqamətləri'
-                : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
-                    : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu'))));
+        : (view.section === 'diag' || view.section === 'self'
+            ? (st.radarTitle || (view.section === 'self' ? 'Rəqəmsallaşma istiqamətləri' : 'Qiymətləndirmə meyarları'))
+            : (view.section === 'exq' ? 'Qurumların yekun nəticəsi'
+                : (view.section === 'meqsed' ? 'Müraciət növü üzrə nəticə' : 'Bal diapazonu')));
     var radarLegend = view.section === 'isq'
         ? (isqRadarTarget
             ? compareLegendHtml(ISQ_RADAR_NOW, ISQ_RADAR_GOAL)
