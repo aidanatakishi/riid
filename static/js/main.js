@@ -1,14 +1,14 @@
 import { state } from './state.js';
 import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown, markDashboardBooted } from './utils.js?v=idda15';
-import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda28';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda61';
+import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda29';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda62';
 import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterEsdKind, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda55';
 import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda58';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda20';
 import { loadDocxLib, exportTasksToWord } from './report.js?v=idda49';
-import { renderAssessmentSections, paintAssessmentOverview, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda75';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch, refreshNk303IfOpen } from './nk303.js?v=idda165';
-import { initChat } from './chat.js?v=idda91';
+import { renderAssessmentSections, paintAssessmentOverview, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda76';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch, refreshNk303IfOpen } from './nk303.js?v=idda167';
+import { initChat } from './chat.js?v=idda107';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda17';
 
 
@@ -174,15 +174,15 @@ function placeNk303LaunchInHeader() {
         if (extras[i] !== link) extras[i].remove();
     }
     var analyticsHtml = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19V5m0 14h16M8 15v4m5-8v8m5-11v11"/></svg>'
-        + '<span class="app-head-tool-label">Qiymətləndirmə analitikası</span>';
+        + '<span class="app-head-tool-label">Qiym?tl?ndirm? analitikasi</span>';
     if (!link) {
         link = document.createElement('a');
         link.href = '/diaqnostika';
         link.id = 'analyticsLaunchBtn';
         link.className = 'app-head-tool app-head-tool--labeled nk303-launch';
         link.removeAttribute('title');
-        link.setAttribute('data-tip', 'Qiymətləndirmə analitikası');
-        link.setAttribute('aria-label', 'Qiymətləndirmə analitikası');
+        link.setAttribute('data-tip', 'Qiym?tl?ndirm? analitikasi');
+        link.setAttribute('aria-label', 'Qiym?tl?ndirm? analitikasi');
         link.innerHTML = analyticsHtml;
         link.addEventListener('click', function(ev) {
             ev.preventDefault();
@@ -191,8 +191,8 @@ function placeNk303LaunchInHeader() {
     } else {
         link.className = 'app-head-tool app-head-tool--labeled nk303-launch';
         link.removeAttribute('title');
-        link.setAttribute('data-tip', 'Qiymətləndirmə analitikası');
-        link.setAttribute('aria-label', link.getAttribute('aria-label') || 'Qiymətləndirmə analitikası');
+        link.setAttribute('data-tip', 'Qiym?tl?ndirm? analitikasi');
+        link.setAttribute('aria-label', link.getAttribute('aria-label') || 'Qiym?tl?ndirm? analitikasi');
         if (!link.querySelector('.app-head-tool-label') || !link.querySelector('svg')) {
             link.innerHTML = analyticsHtml;
         }
@@ -259,7 +259,7 @@ window.onload = async function() {
     try {
         serverCfg = await loadServerConfig() || {};
     } catch (e) {
-        console.error('Server konfiqi yüklənmədi:', e);
+        console.error('Server konfiqi y�kl?nm?di:', e);
     }
     try { applySessionChrome(serverCfg); } catch (e) { console.error(e); }
     try {
@@ -281,8 +281,8 @@ window.onload = async function() {
     }
     var baseUrl = baseElNow ? baseElNow.value : '';
     var projectKey = projectEl ? projectEl.value : '';
-    // Token serverdədir (sessiya). hasToken bayrağı geciksə belə yükləməyə cəhd et —
-    // əks halda səhv "token yoxdur" toast-ı və boş panel alınır.
+    // Token serverd?dir (sessiya). hasToken bayragi geciks? bel? y�kl?m?y? c?hd et �
+    // ?ks halda s?hv "token yoxdur" toast-i v? bos panel alinir.
     if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey)) {
         fetchDashboardData().catch(function (err) {
             console.error(err);

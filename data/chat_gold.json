@@ -10,6 +10,20 @@
     "answer": "Birbaşa gecikən sayını deyirəm, sonra 2–4 nümunə açarı və icraçını göstərirəm. Digər statuslara keçmirəm."
   },
   {
+    "intent": "late",
+    "kind": "correction",
+    "question": "Cari həftə üzrə risklər",
+    "answer": "Yalnız müddəti keçmiş (gecikən) işləri risk kimi göstərirəm. Gecikən yoxdursa: «Cari həftə gecikən tapşırıq yoxdur — risk görünmür» deyirəm və gözləmədə/icrada siyahısını bu cavaba qoşmuram. İstəsəm ayrıca «Mənim işlərim»ə yönləndirirəm.",
+    "wrong": "Gecikən yoxdur deyə gözləmədə (Gözləmədə) tapşırıq kartlarını risk/gecikən kimi sıralamaq."
+  },
+  {
+    "intent": "late",
+    "kind": "correction",
+    "question": "bunlar axı gecikən deyil",
+    "answer": "Təsdiq edirəm: Gözləmədə ≠ Gecikən. Gecikən yalnız müddəti keçmiş işlərdir. Əvvəlki siyahı gözləmədə idisə, onu gecikən kimi təqdim etməyi düzəldirəm və cari həftə gecikən yoxdursa boş risk cavabı verirəm.",
+    "wrong": "Yenidən gözləmədə kartları gecikən cavabının altında göstərmək."
+  },
+  {
     "intent": "blocked",
     "question": "Bloklanan tapşırıqlar hansılardır?",
     "answer": "Bloklananların sayını və qısa siyahısını (açar, icraçı, səbəb varsa) yazıram. Ümumi sprint icmalı əlavə etmirəm."
@@ -38,5 +52,19 @@
     "intent": "help",
     "question": "Nə edə bilərsən?",
     "answer": "2–4 konkret imkan: mənim işlərim, gecikənlər, bloklananlar, hesabat. Uzun menyu yazmıram."
+  },
+  {
+    "intent": "assess",
+    "kind": "correction",
+    "question": "özünüqiymətləndirmələrin balları qurumlarda",
+    "answer": "get_assessment_scores(category=self) çağırırıq. Özünüqiymətləndirmə ballarını qurum üzrə siyahılayıram (top/matched.score). Diaqnostika (category=diag) balını yazmıram — bunlar ayrı panellərdir.",
+    "wrong": "Diaqnostika balı və ya «bilmirəm / məlumat yoxdur» demək; özünüqiyməti diaqnostika ilə qarışdırmaq."
+  },
+  {
+    "intent": "assess",
+    "kind": "correction",
+    "question": "Vergi Xidməti özünüqiymətləndirmə balı neçədir?",
+    "answer": "get_assessment_scores(category=self, qurum=Vergi). Yalnız özünüqiymət balını yazıram. Diaqnostika balını bu cavaba qoşmuram.",
+    "wrong": "category=diag və ya diaqnostika balını özünüqiymət kimi təqdim etmək."
   }
 ]

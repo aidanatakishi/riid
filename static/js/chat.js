@@ -33,15 +33,21 @@ import {
     collectOtherDashboardUnits,
     isNextWeekBoxTask,
     getDateStatus,
+    daysUntilDue,
     hasValidDifficulty,
     isActiveExecutionGroup,
     getBlockReason,
     getTaskDueDate,
     countableWorkUnits,
-    getTaskPriorityName
-} from './model.js?v=idda26';
+    getTaskPriorityName,
+    getDiagProcessInfo,
+    getEsdInnerStatus,
+    getEsdKind,
+    getReviewParty
+} from './model.js?v=idda32';
 import { exportTasksToWord } from './report.js?v=idda49';
-import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda8';
+import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda17';
+import { mountAIDone, getAIDone } from './aid_done.js?v=idda9';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {
@@ -2298,72 +2304,338 @@ function el(html) {
     return wrap.firstElementChild;
 }
 
-function ensureUi() {
-    if (document.getElementById('dashChatRoot')) {
-        mountDoneBotWidget();
-        return;
+function aidDueText(t, dateSt) {
+    var due = null;
+    try { due = getTaskDueDate(t); } catch (e) { due = null; }
+    if (!due) return 'Müddət yoxdur';
+    var days = null;
+    try { days = daysUntilDue(t); } catch (e2) { days = null; }
+    if (dateSt === 'late') {
+        var lateDays = days == null ? null : Math.abs(days);
+        if (lateDays == null) return 'Gecikir';
+        if (lateDays === 0) return 'Bu gün gecikir';
+        if (lateDays === 1) return '1 gün gecikir';
+        return lateDays + ' gün gecikir';
     }
-    var root = el(
-        '<div id="dashChatRoot" class="dash-chat">'
-        + '<section id="dashChatPanel" class="dash-chat-panel hidden" hidden role="dialog" aria-labelledby="dashChatTitle">'
-        + '<header class="dash-chat-head">'
-        + '<div class="dash-chat-head-id">'
-        + '<span class="dash-chat-mark" aria-hidden="true">AI</span>'
-        + '<div><p class="dash-chat-brand">Süni intellekt köməkçiniz</p><h2 id="dashChatTitle">AI Done xidmətinizdədir!</h2></div>'
-        + '</div>'
-        + '<div class="dash-chat-head-actions">'
-        + '<button type="button" id="dashChatClear" class="dash-chat-iconbtn" title="Söhbəti təmizlə" aria-label="Söhbəti təmizlə">'
-        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg></button>'
-        + '<button type="button" id="dashChatClose" class="dash-chat-iconbtn" title="Bağla" aria-label="Bağla">'
-        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
-        + '</div></header>'
-        + '<div class="dash-chat-body">'
-        + '<div id="dashChatLog" class="dash-chat-log" role="log" aria-live="polite"></div>'
-        + '<div id="dashChatShow" class="dash-chat-show hidden" hidden>'
-        + '<div class="dash-chat-show-bar">'
-        + '<strong>Hesabat</strong>'
-        + '<div class="dash-chat-show-bar-actions">'
-        + '<button type="button" id="dashChatShowDl" class="dash-chat-report-btn is-primary">Yüklə</button>'
-        + '<button type="button" id="dashChatShowClose" class="dash-chat-iconbtn is-light" title="Bağla" aria-label="Önizləməni bağla">'
-        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
-        + '</div></div>'
-        + '<div id="dashChatShowBody" class="dash-chat-show-body"></div>'
-        + '</div></div>'
-        + '<div id="dashChatHints" class="dash-chat-hints"></div>'
-        + '<form id="dashChatForm" class="dash-chat-form">'
-        + '<label class="sr-only" for="dashChatInput">Sual</label>'
-        + '<textarea id="dashChatInput" rows="2" placeholder="Sualınızı yazın"></textarea>'
-        + '<button type="submit" id="dashChatSend" class="dash-chat-send" title="Göndər" aria-label="Göndər">'
-        + '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22 11 13 2 9 22 2z"/></svg>'
-        + '</button></form></section></div>'
-    );
-    document.body.appendChild(root);
-    document.getElementById('dashChatClose').addEventListener('click', closeChat);
-    document.getElementById('dashChatClear').addEventListener('click', resetChat);
-    document.getElementById('dashChatForm').addEventListener('submit', onSubmit);
-    document.getElementById('dashChatLog').addEventListener('click', onChatAction);
-    document.getElementById('dashChatShowClose').addEventListener('click', closeReportPreview);
-    document.getElementById('dashChatShowDl').addEventListener('click', downloadChatReport);
-    document.getElementById('dashChatInput').addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            document.getElementById('dashChatForm').requestSubmit();
+    if (days === 0) return 'Bu gün';
+    if (days === 1) return 'Sabah';
+    try {
+        var formatted = formatDateObj(due);
+        if (formatted) return formatted;
+    } catch (e3) {}
+    return 'Müddət təyin olunub';
+}
+
+function aidProgressPct(t, group) {
+    var f = t && t.fields ? t.fields : {};
+    var p = f.progress && f.progress.percent != null ? Number(f.progress.percent) : null;
+    if (p == null && f.aggregateprogress && f.aggregateprogress.percent != null) {
+        p = Number(f.aggregateprogress.percent);
+    }
+    if (p != null && isFinite(p)) return Math.max(0, Math.min(100, Math.round(p)));
+    var byGroup = { progress: 55, esd: 60, review: 75, planned: 15, paused: 30, blocked: 35, other: 20 };
+    return byGroup[group] != null ? byGroup[group] : 25;
+}
+
+/** Map Jira issue → AI Done task card shape {k,t,s,d,n}. */
+function toAidTask(t) {
+    if (!t || !t.key || !t.fields) return null;
+    var f = t.fields;
+    var statusName = (f.status && f.status.name) || '';
+    var group = getStatusGroup(statusName) || 'other';
+    if (group === 'done' || group === 'rejected') return null;
+    var dateSt = 'upcoming';
+    try { dateSt = getDateStatus(t); } catch (e) { dateSt = 'upcoming'; }
+    var s = 'p';
+    if (dateSt === 'late') s = 'l';
+    else if (group === 'paused' || group === 'blocked' || group === 'review' || group === 'planned' || group === 'other') s = 'w';
+    else s = 'p';
+    return {
+        k: String(t.key),
+        t: clip(f.summary || 'Başlıqsız', 88),
+        s: s,
+        d: aidDueText(t, dateSt),
+        n: aidProgressPct(t, group)
+    };
+}
+
+function collectAidTasks() {
+    var name = viewerAssigneeName();
+    var source = [];
+    try { source = countableWorkUnits(state.allTasks || []); } catch (e) { source = state.allTasks || []; }
+    var out = [];
+    var i;
+    for (i = 0; i < source.length; i++) {
+        var t = source[i];
+        if (!t || !t.key) continue;
+        if (name) {
+            var asg = t.fields && t.fields.assignee ? t.fields.assignee.displayName : '';
+            if (!samePerson(asg, name)) continue;
+        }
+        var mapped = toAidTask(t);
+        if (mapped) out.push(mapped);
+        if (out.length >= 48) break;
+    }
+    /* No Jira assignee link: use open board units so chips still answer from panel data */
+    if (!out.length && !name) {
+        for (i = 0; i < source.length; i++) {
+            var m2 = toAidTask(source[i]);
+            if (m2) out.push(m2);
+            if (out.length >= 40) break;
+        }
+    }
+    return out;
+}
+
+function pushAidTasks() {
+    var aid = getAIDone() || window.AIDone;
+    if (!aid || typeof aid.setTasks !== 'function') return;
+    aid.setTasks(collectAidTasks());
+}
+
+function foldAidQ(question) {
+    return String(question || '').toLowerCase()
+        .replace(/ə/g, 'e').replace(/ı/g, 'i').replace(/ö/g, 'o')
+        .replace(/ü/g, 'u').replace(/ğ/g, 'g').replace(/ş/g, 's').replace(/ç/g, 'c');
+}
+
+/** Intents that must use expandable AI Done task cards when listing work. */
+function isAidTaskCardIntent(question) {
+    var fold = foldAidQ(question);
+    if (/menim\s+is|islerim|tapshiriqlarim|oz\s+is|tasklarim/.test(fold)) return true;
+    if (/cari\s+hefte.*risk|hefte\s+uzre\s+risk|riskler/.test(fold)) return true;
+    if (/geciken|gozlemede|^icrada|siyahi|sirala|siralama|goster.*tapshiriq|tapshiriq.*goster/.test(fold)) return true;
+    if (/tapshiriqlar|aktiv\s+is|aciq\s+is|nece\s+gedir/.test(fold)) return true;
+    return false;
+}
+
+function aidTasksFromKeys(keys) {
+    var out = [];
+    var seen = {};
+    (keys || []).forEach(function(key) {
+        var k = String(key || '').toUpperCase();
+        if (!k || seen[k]) return;
+        seen[k] = true;
+        var full = null;
+        try {
+            var all = state.allTasks || [];
+            for (var i = 0; i < all.length; i++) {
+                if (all[i] && String(all[i].key).toUpperCase() === k) { full = all[i]; break; }
+            }
+        } catch (e) {}
+        var mapped = full ? toAidTask(full) : null;
+        if (mapped) out.push(mapped);
+    });
+    return out;
+}
+
+function isLateRiskQuestion(question) {
+    var fold = foldAidQ(question);
+    /* "gecikən deyil" / correction — not a fresh late listing request */
+    if (/gecik/.test(fold) && /deyil|yanlis|sehv|axi|axı|sehvdir|yanlış/.test(fold)) return false;
+    return /gecik|risk/.test(fold) && !/gozlemede|gozle\b/.test(fold);
+}
+
+function pickAidCardsForQuestion(question, html) {
+    pushAidTasks();
+    var fold = foldAidQ(question);
+    var intent = detectChatIntent(question, '');
+    var cards = [];
+    /* Never invent waiting cards for a late/risk ask — empty means empty */
+    if (isLateRiskQuestion(question) || intent === 'late') {
+        cards = collectAidTasks().filter(function(t) { return t.s === 'l'; });
+        return cards.slice(0, 12);
+    }
+    if (intent === 'mine' || /menim|islerim|tapshiriqlarim|nece\s+gedir/.test(fold)) {
+        cards = collectAidTasks();
+    } else if (intent === 'blocked' || /gozle|blok/.test(fold)) {
+        cards = collectAidTasks().filter(function(t) { return t.s === 'w'; });
+    } else if (/icrada/.test(fold)) {
+        cards = collectAidTasks().filter(function(t) { return t.s === 'p'; });
+    } else if (/siyahi|sirala|siralama|tapshiriq|goster/.test(fold)) {
+        cards = collectAidTasks();
+    }
+    if (!cards.length && html && !/yoxdur|görünmür|gorunmur|tapılmadı|tapilmadi/i.test(String(html))) {
+        var keys = [];
+        String(html).replace(/\b([A-Z][A-Z0-9]+-\d+)\b/g, function(_, k) { keys.push(k); return _; });
+        cards = aidTasksFromKeys(keys);
+    }
+    return cards.slice(0, 12);
+}
+
+/** Replace plain task lists with the designed expandable cards whenever possible. */
+function withAidTaskCards(question, payload) {
+    var aid = getAIDone() || window.AIDone;
+    if (!aid || typeof aid.tasksHtml !== 'function') return payload;
+
+    var intro = '';
+    var existingCards = '';
+    if (Array.isArray(payload)) {
+        intro = payload[0] || '';
+        existingCards = payload[1] || '';
+        if (existingCards && /aid__tasks/.test(existingCards)) return payload;
+        /* Local/default late answer already chose "no cards" — do not backfill waiting tasks */
+        if (isLateRiskQuestion(question) && !String(existingCards || '').trim()) {
+            return payload;
+        }
+    } else {
+        intro = String(payload || '');
+    }
+    if (/aid__tasks/.test(intro)) return payload;
+    if (/gecikən tapşırıq yoxdur|geciken tapsiriq yoxdur|risk görünmür|risk gorunmur/i.test(intro)) {
+        return Array.isArray(payload) ? payload : [intro, ''];
+    }
+
+    var wants = isAidTaskCardIntent(question) || /dash-chat-items/.test(intro) || detectChatIntent(question, '') === 'mine';
+    if (!wants) return payload;
+
+    var cards = pickAidCardsForQuestion(question, intro);
+    if (!cards.length) return payload;
+
+    intro = String(intro)
+        .replace(/<ul class="dash-chat-items">[\s\S]*?<\/ul>/gi, '')
+        .replace(/<p class="dash-chat-sub">[\s\S]*?<\/p>/gi, function(m) {
+            return /iş|tapşırıq|gecik|baxın|nümunə|konkret|açıq|risk|siyah/i.test(m) ? '' : m;
+        });
+    if (!String(intro).replace(/<[^>]+>/g, '').trim()) {
+        if (isLateRiskQuestion(question)) {
+            intro = '<p>Cari həftə <b>gecikən</b> tapşırıqlar:</p>';
+        } else {
+            intro = '<p>Aktiv tapşırıqlarınız <b>' + cards.length + '</b>-dir. Ətraflı baxmaq üçün karta toxunun:</p>';
+        }
+    }
+    return [intro, aid.tasksHtml(cards)];
+}
+
+/**
+ * Smart answers for the new AI Done panel — same brain as the old chat:
+ * task-card chips → local greetings → /api/chat LLM → panel fallback (answerQuestion).
+ */
+async function resolveAidReply(question) {
+    remember('user', question);
+    pushAidTasks();
+    if (isAidTaskCardIntent(question)) {
+        var aidCards = getAIDone() || window.AIDone;
+        if (aidCards && typeof aidCards.answer === 'function') {
+            var pair = withAidTaskCards(question, aidCards.answer(question));
+            if (Array.isArray(pair) && pair.length) {
+                remember('assistant', stripHtml(pair[0] || ''));
+                return pair;
+            }
+        }
+    }
+    var local = routeLocal(question);
+    if (local && local.html) {
+        var localOut = withAidTaskCards(question, local.html);
+        remember('assistant', local.text || stripHtml(Array.isArray(localOut) ? localOut[0] : localOut));
+        return localOut;
+    }
+
+    chatBusy = true;
+    chatAbort = new AbortController();
+    var epoch = chatEpoch;
+    var thinkingApi = getDoneBot() || window.DoneBot;
+    if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(true);
+
+    var pending = document.createElement('div');
+    pending.className = 'dash-chat-msg is-bot is-pending';
+    pending.innerHTML = '<div class="dash-chat-bubble"></div>';
+
+    try {
+        if (!chatLlm) {
+            try {
+                var cfgRes = await fetch('/api/config', { credentials: 'same-origin' });
+                if (cfgRes.ok) {
+                    var cfg = await cfgRes.json();
+                    if (cfg && cfg.hasChatLlm) chatLlm = true;
+                }
+            } catch (cfgErr) {}
+        }
+
+        var result = await askServer(question, pending, chatAbort.signal);
+        if (epoch !== chatEpoch) return '';
+        if (result.aborted) {
+            var partial = result.answer || '';
+            if (partial) {
+                remember('assistant', partial);
+                return withAidTaskCards(question, '<div class="dash-chat-md">' + renderMarkdownSafe(partial) + '</div>');
+            }
+            return '';
+        }
+
+        var used = result.answer || '';
+        if (!used || isSoftFailText(used) || result.error) {
+            var soft = paintSoftFail(pending, question, result.error || chatLlmHint || '');
+            remember('assistant', soft);
+            var softHtml = pending.querySelector('.dash-chat-bubble');
+            var softOut = softHtml ? softHtml.innerHTML : ('<p>' + esc(SOFT_FAIL) + '</p>');
+            return withAidTaskCards(question, softOut);
+        }
+
+        remember('assistant', used);
+        return withAidTaskCards(question, '<div class="dash-chat-md">' + renderMarkdownSafe(used) + '</div>');
+    } catch (err) {
+        if (err && err.name === 'AbortError') return '';
+        if (epoch !== chatEpoch) return '';
+        chatWarn('aid reply xətası', err && (err.code || err.message));
+        var detail = '';
+        if (err && err.code === 'timeout') detail = 'timeout';
+        else if (err && err.code === 'network') detail = 'network';
+        else if (err && err.status === 401) detail = '401';
+        else if (err && err.message) detail = String(err.message);
+        var fail = paintSoftFail(pending, question, detail || chatLlmHint || '');
+        remember('assistant', fail);
+        var failHtml = pending.querySelector('.dash-chat-bubble');
+        return withAidTaskCards(question, failHtml ? failHtml.innerHTML : ('<p>' + esc(SOFT_FAIL) + '</p>'));
+    } finally {
+        chatBusy = false;
+        chatAbort = null;
+        if (thinkingApi && typeof thinkingApi.setThinking === 'function') thinkingApi.setThinking(false);
+    }
+}
+
+function ensureUi() {
+    mountAIDone({
+        startOpen: false,
+        externalLauncher: true,
+        reply: resolveAidReply,
+        onReset: function() {
+            chatEpoch += 1;
+            if (chatAbort) {
+                try { chatAbort.abort(); } catch (e) {}
+            }
+            chatHistory = [];
+            try { sessionStorage.removeItem(CHAT_THREAD_KEY); } catch (e2) {}
+            chatBusy = false;
         }
     });
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape' && chatOpen) closeChat();
-    });
     mountDoneBotWidget();
+    pushAidTasks();
     syncAiBotNotifyFromState();
-    if (!restoreThread()) addBot(welcomeHtml(), false);
-    renderHints();
+}
+
+function parkBotToFab() {
+    var api = getDoneBot() || window.DoneBot;
+    if (api && typeof api.parkToFab === 'function') api.parkToFab({ silent: true });
 }
 
 function mountDoneBotWidget() {
+    var openGuard = 0;
+    /* 3D click → open chat + star-vanish to design fab; fab toggles chat */
     mountDoneBot({
         userName: viewerFirstName() || '',
         onOpen: function() {
+            var now = Date.now();
+            if (now - openGuard < 450) return;
+            openGuard = now;
+            var aid = getAIDone() || window.AIDone;
+            var isOpen = !!(aid && typeof aid.isOpen === 'function' && aid.isOpen());
+            if (isOpen || chatOpen) {
+                closeChat();
+                return;
+            }
             openChat();
+            parkBotToFab();
         },
         onClose: function() {
             if (chatOpen) closeChat();
@@ -2376,7 +2648,13 @@ function mountDoneBotWidget() {
 }
 
 export function syncAiBotNotifyFromState() {
+    pushAidTasks();
     var n = (state.todayTasks && state.todayTasks.length) || 0;
+    var aid = getAIDone() || window.AIDone;
+    chatOpen = !!(aid && typeof aid.isOpen === 'function' && aid.isOpen());
+    if (aid && typeof aid.setAlert === 'function') {
+        aid.setAlert(n > 0 && !chatOpen);
+    }
     var api = getDoneBot() || window.DoneBot;
     if (api && typeof api.setAlert === 'function') {
         api.setAlert(n > 0 && !chatOpen);
@@ -2466,34 +2744,39 @@ function renderHints() {
 }
 
 function toggleChat() {
+    var aid = getAIDone() || window.AIDone;
+    if (aid && typeof aid.toggle === 'function') {
+        chatOpen = !!aid.toggle();
+        syncAiBotNotifyFromState();
+        return;
+    }
     if (chatOpen) closeChat();
     else openChat();
 }
 
 function openChat() {
+    var aid = getAIDone() || window.AIDone;
+    if (aid && typeof aid.open === 'function') {
+        aid.open();
+        chatOpen = true;
+        if (aid.setAlert) aid.setAlert(false);
+        syncAiBotNotifyFromState();
+        return;
+    }
     chatOpen = true;
-    var panel = document.getElementById('dashChatPanel');
-    if (!panel) return;
-    panel.classList.remove('hidden');
-    panel.hidden = false;
-    document.getElementById('dashChatRoot').classList.add('is-open');
-    var api = getDoneBot() || window.DoneBot;
-    if (api && typeof api.setAlert === 'function') api.setAlert(false);
-    syncAiBotNotifyFromState();
-    setTimeout(function() {
-        var input = document.getElementById('dashChatInput');
-        if (input) input.focus();
-    }, 50);
 }
 
 function closeChat() {
+    var aid = getAIDone() || window.AIDone;
+    if (aid && typeof aid.close === 'function') {
+        aid.close();
+        chatOpen = false;
+        parkBotToFab();
+        syncAiBotNotifyFromState();
+        return;
+    }
     chatOpen = false;
-    var panel = document.getElementById('dashChatPanel');
-    if (!panel) return;
-    panel.classList.add('hidden');
-    panel.hidden = true;
-    document.getElementById('dashChatRoot').classList.remove('is-open');
-    syncAiBotNotifyFromState();
+    parkBotToFab();
 }
 
 function resetChat() {
@@ -2502,11 +2785,8 @@ function resetChat() {
     chatHistory = [];
     try { sessionStorage.removeItem(CHAT_THREAD_KEY); } catch (e) {}
     lastReportPreview = '';
-    closeReportPreview();
-    var log = document.getElementById('dashChatLog');
-    if (log) log.innerHTML = '';
-    addBot(welcomeHtml(), false);
-    renderHints();
+    var aid = getAIDone() || window.AIDone;
+    if (aid && typeof aid.reset === 'function') aid.reset();
 }
 
 function remember(role, content) {
@@ -2845,6 +3125,84 @@ function assessmentScoreForCat(cat, t) {
     return null;
 }
 
+function buildDiagProcessSnapshotRows() {
+    var collected = [];
+    var source = state.allTasks || [];
+    var i;
+    for (i = 0; i < source.length; i++) {
+        var t = source[i];
+        if (!t || !t.key) continue;
+        var cat = '';
+        try { cat = classifyAssessmentCategory(t) || ''; } catch (e0) { cat = ''; }
+        if (cat !== 'diag') continue;
+        var info = null;
+        try { info = getDiagProcessInfo(t); } catch (e1) { info = null; }
+        if (!info) continue;
+        var qurum = '';
+        try { qurum = getAssessmentQurumLabel(t) || getQurumName(t) || ''; } catch (e2) {
+            try { qurum = getQurumName(t) || ''; } catch (e3) { qurum = ''; }
+        }
+        var yearN = null;
+        try {
+            var y = getAssessmentYear(t);
+            if (y != null && isFinite(y)) yearN = Number(y);
+        } catch (e4) {}
+        var score = assessmentScoreForCat('diag', t);
+        collected.push({
+            qurum: String(qurum || '').slice(0, 120),
+            key: String(t.key),
+            year: yearN,
+            score: score,
+            status: info.status || '',
+            statusGroup: info.statusGroup || '',
+            visLabel: info.visLabel || '',
+            processIdx: info.processIdx,
+            processStage: info.processStage || '',
+            hasResult: !!info.hasResult,
+            assignee: info.assignee || '',
+            esdStatus: info.esdStatus || '',
+            esdKind: info.esdKind || '',
+            reviewParty: info.reviewParty || '',
+            reviewRole: info.reviewRole || '',
+            reviewUnit: info.reviewUnit || '',
+            letterNumber: info.letterNumber || '',
+            letterDate: info.letterDate || '',
+            openSubtasks: info.openSubtasks || []
+        });
+    }
+    // Eyni qurum: daha yeni il / aktiv mərhələ üstün
+    var best = {};
+    collected.forEach(function(row) {
+        var qk = fold(row.qurum || '') || row.key;
+        var prev = best[qk];
+        if (!prev) {
+            best[qk] = row;
+            return;
+        }
+        var py = prev.year || 0;
+        var ry = row.year || 0;
+        if (ry !== py) {
+            if (ry > py) best[qk] = row;
+            return;
+        }
+        var pd = prev.statusGroup === 'done' ? 1 : 0;
+        var rd = row.statusGroup === 'done' ? 1 : 0;
+        if (rd !== pd) {
+            if (rd < pd) best[qk] = row; // açıq prosesi saxla
+            return;
+        }
+        if ((row.processIdx || 0) > (prev.processIdx || 0)) best[qk] = row;
+    });
+    var rows = Object.keys(best).map(function(k) { return best[k]; });
+    rows.sort(function(a, b) {
+        var aa = a.statusGroup === 'done' ? 1 : 0;
+        var bb = b.statusGroup === 'done' ? 1 : 0;
+        if (aa !== bb) return aa - bb;
+        return String(a.qurum || '').localeCompare(String(b.qurum || ''), 'az');
+    });
+    return rows.slice(0, Math.min(120, MAX_SNAPSHOT_ASSESS || 80));
+}
+
 function buildAssessmentSnapshotRows() {
     var collected = [];
     var source = state.allTasks || [];
@@ -2862,6 +3220,7 @@ function buildAssessmentSnapshotRows() {
         var hasRes = false;
         try { hasRes = !!hasAssessmentResult(cat, t); } catch (e1) { hasRes = score != null; }
         // Ballı və ya nəticəsi olanları göndər — «ən yüksək bal» üçün score lazımdır
+        // Mərhələ/ESD üçün ayrıca diagProcesses (buildDiagProcessSnapshotRows)
         if (score == null && !hasRes) continue;
         var qurum = '';
         try { qurum = getAssessmentQurumLabel(t) || getQurumName(t) || ''; } catch (e2) {
@@ -3156,6 +3515,27 @@ function buildTaskDetail(t) {
         if (br) put('Blok səbəbi', br);
     } catch (e4) {}
     try {
+        var sg = getStatusGroup((f.status && f.status.name) || '');
+        if (sg === 'esd') {
+            var esdInner = getEsdInnerStatus(t);
+            var esdKind = getEsdKind(t);
+            if (esdInner && esdInner.label) put('ESD Statusu', esdInner.label);
+            if (esdKind && esdKind.label) put('ESD növü', esdKind.label);
+        }
+        if (sg === 'review') {
+            var party = getReviewParty(t);
+            if (party && party.label) put('Rəy verən tərəf', party.label);
+        }
+        var diagInfo = getDiagProcessInfo(t);
+        if (diagInfo && diagInfo.processStage) {
+            put('Diaqnostika mərhələsi', diagInfo.processStage);
+            if (diagInfo.visLabel) put('İcra vəziyyəti', diagInfo.visLabel);
+            if (diagInfo.letterNumber || diagInfo.letterDate) {
+                put('ESD məktubu', [diagInfo.letterNumber, diagInfo.letterDate].filter(Boolean).join(' / '));
+            }
+        }
+    } catch (eEsd) {}
+    try {
         var labs = (f.labels || []).map(function(lbl) {
             return typeof lbl === 'object' ? (lbl.name || lbl.value || '') : String(lbl || '');
         }).filter(Boolean);
@@ -3339,6 +3719,9 @@ function buildSnapshot(question) {
         }
     } catch (eAssess) { assessments = []; }
 
+    var diagProcesses = [];
+    try { diagProcesses = buildDiagProcessSnapshotRows(); } catch (eDiag) { diagProcesses = []; }
+
     var qurums = [];
     try { qurums = buildQurumCatalog(); } catch (eQurCat) { qurums = []; }
 
@@ -3359,6 +3742,7 @@ function buildSnapshot(question) {
         overview: overview,
         tasks: tasks,
         assessments: assessments,
+        diagProcesses: diagProcesses,
         qurums: qurums,
         taskDetails: taskDetails,
         dashboards: dashboards,
@@ -3376,6 +3760,11 @@ function buildSnapshot(question) {
             snap.truncated = true;
             blob = JSON.stringify(snap);
         }
+        while (blob.length > MAX_SNAPSHOT_CHARS && (snap.diagProcesses || []).length > 20) {
+            snap.diagProcesses = snap.diagProcesses.slice(0, Math.floor(snap.diagProcesses.length * 0.7));
+            snap.truncated = true;
+            blob = JSON.stringify(snap);
+        }
     } catch (e10) {}
     return snap;
 }
@@ -3389,6 +3778,7 @@ function getCachedSnapshot(question, forceRebuild) {
         && _snapCache.snap
         && _snapCache.hash === hash
         && (Date.now() - _snapCache.at) < SNAP_CACHE_MS
+        && Array.isArray(_snapCache.snap.diagProcesses)
     ) {
         // Cache hit olsa belə iş yükü rəqəmlərini paneldən yenilə (14≠4)
         try {
@@ -3417,6 +3807,13 @@ function detectHint(question) {
     var q = fold(question || '');
     if (/gecik/.test(q)) return 'late';
     if (/blok|cetinlik/.test(q)) return 'blocked';
+    // Diaqnostika mərhələsi / ESD / rəy / viza — baldan əvvəl
+    if (
+        (/merhele|esd|reyde|vizad|yerinde bax|tehlil merhele|hesabat fealiyy/.test(q) && /diaqnost|reqemsallas|qurum|nazirlik|agentlik|xidmet|miqrasiya|tabib|dmx/.test(q))
+        || /hans[iı] merhele|diaqnost.*harada|harada.*diaqnost/.test(q)
+    ) {
+        return 'diag_stage';
+    }
     // Qiymətləndirmə/diaqnostika — people fuzzy-dən ƏVVƏL (hansi/qurum «people»ə düşməsin)
     if (/diaqnostika|qiymetlendir|exq|isq|meqsed|ozunuqiymet|reqemsal yetkin|en yuksek bal|en asagi bal|bal alan|qurum.*bal|bal.*qurum/.test(q)) {
         return 'assess';
@@ -3526,8 +3923,17 @@ function attachSuggestions(row, items) {
         if (!btn || chatBusy) return;
         var q = btn.getAttribute('data-q');
         if (!q) return;
-        document.getElementById('dashChatInput').value = q;
-        document.getElementById('dashChatForm').requestSubmit();
+        var aid = getAIDone() || window.AIDone;
+        if (aid && typeof aid.ask === 'function') {
+            aid.ask(q);
+            return;
+        }
+        var input = document.getElementById('dashChatInput');
+        var form = document.getElementById('dashChatForm');
+        if (input && form) {
+            input.value = q;
+            form.requestSubmit();
+        }
     };
     var col = row.querySelector('.dash-chat-msg-col') || row;
     col.appendChild(box);

@@ -205,10 +205,17 @@ def _system_prompt(user_name: str, today: str, sprint: str) -> str:
         '1. Platforma datası (tapşırıq, say, insan, sprint, risk, KPI, diaqnostika/qiymətləndirmə balı, qurum) — YALNIZ alətlərdən. Rəqəmi təxmin etmə.\n'
         '2. QURUM (Nazirlik, Agentlik, Xidmət, Komitə, TƏBİB, DMX, Gömrük, Miqrasiya və s.) soruşulanda MÜTLƏQ get_qurum_stats çağır. '
         'get_person_workload YALNIZ insan adı üçündür. Əvvəl aləti çağır; suggestions varsa onları göstər.\n'
-        '3. Diaqnostika/EXQ/İSQ balı → get_assessment_scores(qurum=…). Nəticədə matched.score / score sahəsini yaz. '
+        '2b. Diaqnostika MƏRHƏLƏSİ («hansı mərhələdədir», «ESD-dədirmi», «kimdə rəydə/vizadadır», '
+        'yerində baxış/təhlil/hesabat) → get_diag_status(qurum=…). '
+        'Cavabda processStage, visLabel/status, ESD-dirsə esdStatus+esdKind (kimdə viza/rəy), '
+        'Rəydədirsə reviewParty, icraçı, məktub nömrəsi/tarixi yaz. Yalnız bal yazma.\n'
+        '3. Qiymətləndirmə balları → get_assessment_scores(category=…, qurum=…). '
+        'category MÜTLƏQ seç: özünüqiymətləndirmə/özünü qiymət → self; '
+        'diaqnostika/rəqəmsallaşma yetkinliyi → diag; EXQ → exq; İSQ → isq. '
+        'Özünüqiyməti diaqnostika ilə qarışdırma. Nəticədə matched.score / top siyahısını yaz. '
         'Bir qurumun balını digərinə yapışdırma (məs. Vergi 51 ≠ Mədəniyyət 30).\n'
         '3b. Məqsədəuyğunluq müsbət/mənfi rəy SAYI → get_meqsed_stats(year=…, opinion=pos|neg). '
-        'Bunu diaqnostika balı ilə qarışdırma.\n'
+        'Bunu diaqnostika/özünüqiymət balı ilə qarışdırma.\n'
         '3c. Tapşırıq/field (DGD-…, status, icraçı, blok səbəbi, custom field) → get_task(key=…). '
         'fields obyektindən oxu; tapşırıq siyahısı üçün search_tasks.\n'
         '3d. Panel kartları (iş yükü, status, prioritet, istiqamət, qurum payı) → get_dashboard(section=…). '
@@ -217,6 +224,10 @@ def _system_prompt(user_name: str, today: str, sprint: str) -> str:
         '5. Bilmirsənsə açıq de; uydurma. «snapshot/truncated» demə.\n'
         '6. Azərbaycan dilində, təbii yaz. Markdown; rəqəmləri **qalın**. Uzatma.\n'
         '7. Uyğunsa sonda 1 davam sualı.\n'
+        '8. GECİKƏN ≠ GÖZLƏMƏDƏ. «Gecikən / risk» = yalnız müddəti keçmiş işlər. '
+        'Gözləmədə/paused/review işlərini gecikən kimi göstərmə. '
+        'Gecikən yoxdursa açıq de: «cari həftə gecikən yoxdur»; gözləmədə siyahısını əvəzinə qoşma. '
+        'İstəsən ayrıca təklif et: «Mənim işlərim» / gözləmədə.\n'
     ).format(
         user_name=user_name or 'istifadəçi',
         today=today or '',
@@ -234,6 +245,12 @@ def _hint_intent(facts: Optional[dict], question: str) -> str:
         return 'late'
     if re.search(r'blok|çətinlik|cetinlik', q):
         return 'blocked'
+    if re.search(
+        r'mərhələ|merhele|esd|rəydə|reyde|vizad|hansı mərhələ|hansi merhele|'
+        r'yerində bax|yerinde bax|təhlil mərhələ|tehlil merhele',
+        q,
+    ) and re.search(r'diaqnost|qurum|nazirlik|agentlik|xidmət|xidmet|miqrasiya|t[eə]bib|\bdmx\b', q):
+        return 'diag_stage'
     if re.search(
         r'diaqnostika|qiymətləndir|qiymetlendir|exq|isq|məqsəd|meqsed|'
         r'özünüqiymət|ozunuqiymet|ən yüksək bal|en yuksek bal|bal alan|'
@@ -303,6 +320,8 @@ def _history_blocks(history: Optional[list]) -> Tuple[List[dict], str]:
 
 def _default_suggestions(question: str, tools_used: List[str]) -> List[str]:
     q = str(question or '').lower()
+    if 'get_diag_status' in tools_used or 'mərhələ' in q or 'merhele' in q:
+        return ['ESD-də kimdədir?', 'Diaqnostika balı', 'Digər qurumlar']
     if 'get_assessment_scores' in tools_used or 'diaqnost' in q or 'qiymət' in q or 'bal' in q:
         return ['Ən aşağı bal alan qurum', 'EXQ üzrə reyting', 'İSQ balları']
     if 'get_qurum_stats' in tools_used or 'qurum' in q or 'miqrasiya' in q or 'nazirlik' in q:
@@ -435,7 +454,7 @@ def answer_chat_events(
     if gold:
         user_parts.append(gold)
     # Qurum/bal suallarında qısa lüğət; digərlərində göndərmə (sürət)
-    if hint in ('qurum', 'assess'):
+    if hint in ('qurum', 'assess', 'diag_stage'):
         try:
             glossary = tools_ctx.qurum_glossary_text(limit=40)
             if glossary:
@@ -483,7 +502,7 @@ def answer_chat_events(
             force_tools = hint in (
                 'mine', 'late', 'blocked', 'risk', 'people', 'kpi',
                 'overview', 'sprint', 'qurum', 'directions', 'issue', 'assess',
-                'dashboard',
+                'dashboard', 'diag_stage',
             )
             if pname == 'gemini':
                 gen = _tool_loop_gemini(
