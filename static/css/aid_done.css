@@ -26,7 +26,9 @@
 
 /* Panel */
 .aid{position:absolute;right:0;bottom:calc(100% + 12px);width:min(372px,calc(100vw - 32px));height:min(640px,calc(100dvh - 104px));display:flex;flex-direction:column;background:#fff;border-radius:28px;overflow:hidden;box-shadow:0 0 0 1px rgba(46,16,101,.06),0 32px 80px -12px rgba(46,16,101,.38);transform-origin:100% 100%;opacity:0;visibility:hidden;transform:translateY(16px) scale(.92);pointer-events:none;transition:opacity .25s,transform .35s cubic-bezier(.2,.9,.3,1.1),visibility .25s}
-.aid-root.open .aid,.open .aid{opacity:1;visibility:visible;transform:none;pointer-events:auto}
+.aid-root.open>.aid,.aid-root.open .aid,.open>.aid{
+  opacity:1!important;visibility:visible!important;transform:none!important;pointer-events:auto!important
+}
 
 /* Header */
 .aid__header{position:relative;overflow:hidden;padding:14px 12px 30px 14px;color:#fff;background:radial-gradient(rgba(255,255,255,.16) 1px,transparent 1.3px) 0 0/14px 14px,linear-gradient(135deg,#2E1065 0%,#4C1D95 55%,#5B21B6 100%)}

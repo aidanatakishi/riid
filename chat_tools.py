@@ -23,6 +23,7 @@ TOOL_LABELS = {
     'get_task': 'Tapşırığa baxıram…',
     'get_assessment_scores': 'Qiymətləndirmə ballarına baxıram…',
     'get_meqsed_stats': 'Məqsədəuyğunluq rəylərinə baxıram…',
+    'get_diag_status': 'Diaqnostika mərhələsinə baxıram…',
     'lookup_knowledge': 'Bilik bazasına baxıram…',
 }
 
@@ -203,6 +204,67 @@ def _parse_assess_row(row: Any) -> Optional[dict]:
     }
 
 
+def _parse_diag_process_row(row: Any) -> Optional[dict]:
+    """Frontend diagProcesses sətiri (dict)."""
+    if not isinstance(row, dict):
+        return None
+    qurum = str(row.get('qurum') or row.get('org') or '').strip()
+    key = str(row.get('key') or '').strip()
+    if not qurum and not key:
+        return None
+    year = None
+    if row.get('year') not in (None, ''):
+        try:
+            year = int(float(row.get('year')))
+        except (TypeError, ValueError):
+            year = None
+    score = None
+    if row.get('score') not in (None, ''):
+        try:
+            score = float(row.get('score'))
+        except (TypeError, ValueError):
+            score = None
+    process_idx = None
+    if row.get('processIdx') not in (None, ''):
+        try:
+            process_idx = int(row.get('processIdx'))
+        except (TypeError, ValueError):
+            process_idx = None
+    open_subs: List[dict] = []
+    raw_subs = row.get('openSubtasks') if isinstance(row.get('openSubtasks'), list) else []
+    for sub in raw_subs[:8]:
+        if not isinstance(sub, dict):
+            continue
+        open_subs.append({
+            'key': str(sub.get('key') or '')[:40],
+            'summary': str(sub.get('summary') or '')[:120],
+            'status': str(sub.get('status') or '')[:80],
+            'statusGroup': str(sub.get('statusGroup') or '')[:40],
+            'assignee': str(sub.get('assignee') or '')[:80],
+        })
+    return {
+        'qurum': qurum[:120],
+        'key': key[:40],
+        'year': year,
+        'score': score,
+        'status': str(row.get('status') or '')[:80],
+        'statusGroup': str(row.get('statusGroup') or '')[:40],
+        'visLabel': str(row.get('visLabel') or '')[:80],
+        'processIdx': process_idx,
+        'processStage': str(row.get('processStage') or '')[:120],
+        'hasResult': _truthy(row.get('hasResult')),
+        'assignee': str(row.get('assignee') or '')[:80],
+        'esdStatus': str(row.get('esdStatus') or '')[:160],
+        'esdKind': str(row.get('esdKind') or '')[:120],
+        'reviewParty': str(row.get('reviewParty') or '')[:160],
+        'reviewRole': str(row.get('reviewRole') or '')[:120],
+        'reviewUnit': str(row.get('reviewUnit') or '')[:120],
+        'letterNumber': str(row.get('letterNumber') or '')[:80],
+        'letterDate': str(row.get('letterDate') or '')[:40],
+        'openSubtasks': open_subs,
+    }
+
+
 def normalize_snapshot(raw: Any) -> dict:
     if not isinstance(raw, dict):
         raw = {}
@@ -280,6 +342,16 @@ def normalize_snapshot(raw: Any) -> dict:
             'qurum': str(val.get('qurum') or '')[:120],
             'fields': fields_out,
         }
+    diag_raw = raw.get('diagProcesses') if isinstance(raw.get('diagProcesses'), list) else []
+    diag_processes: List[dict] = []
+    for row in diag_raw:
+        parsed_d = _parse_diag_process_row(row)
+        if parsed_d:
+            diag_processes.append(parsed_d)
+            name = str(parsed_d.get('qurum') or '').strip()
+            if name and fold(name) not in seen_q:
+                seen_q.add(fold(name))
+                qurums.append({'name': name[:120], 'aliases': derive_aliases(name)[:12]})
     return {
         'meta': {
             'user': str(meta.get('user') or ''),
@@ -291,6 +363,7 @@ def normalize_snapshot(raw: Any) -> dict:
         'overview': overview,
         'tasks': tasks,
         'assessments': assessments,
+        'diagProcesses': diag_processes,
         'qurums': qurums,
         'taskDetails': task_details,
         'dashboards': raw.get('dashboards') if isinstance(raw.get('dashboards'), dict) else {},
@@ -483,19 +556,46 @@ def _normalize_assess_cat(raw: str) -> str:
     f = fold(raw)
     if not f or f in ('all', 'hamisi', 'umumi'):
         return ''
-    if 'diag' in f or 'diaqnost' in f or 'yetkin' in f or 'reqemsallas' in f:
-        return 'diag'
+    # Özünüqiymət ƏVVƏL — «ilkin diaqnostika (özünüqiymətləndirmə)» diaq-a düşməsin
+    if (
+        'ozunuqiymet' in f
+        or 'ozunu qiymet' in f
+        or re.search(r'\bself\b', f)
+        or 'selfassess' in f
+        or 'self assess' in f
+    ):
+        return 'self'
     if f == 'exq' or 'elektron xidmet' in f:
         return 'exq'
     if f == 'isq' or 'informasiya ehtiyat' in f or 'sistemlerin qiymet' in f:
         return 'isq'
-    if 'self' in f or 'ozunuqiymet' in f:
-        return 'self'
     if 'meqsed' in f:
         return 'meqsed'
+    if 'diag' in f or 'diaqnost' in f or 'yetkin' in f or 'reqemsallas' in f:
+        return 'diag'
     if f in ASSESS_LABELS:
         return f
     return f
+
+
+def infer_assess_category(question: str, default: str = 'diag') -> str:
+    """Sual mətnindən qiymətləndirmə kateqoriyası (özünüqiymət ≠ diaqnostika)."""
+    f = fold(question or '')
+    if not f:
+        return default
+    cat = _normalize_assess_cat(f)
+    if cat in ASSESS_LABELS and cat != 'meqsed':
+        return cat
+    # Aydın açar sözlər
+    if re.search(r'ozunuqiymet|ozunu\s*qiymet|\bself\s*assess', f):
+        return 'self'
+    if re.search(r'\bexq\b|elektron xidmet', f):
+        return 'exq'
+    if re.search(r'\bisq\b|informasiya ehtiyat|sistemlerin qiymet', f):
+        return 'isq'
+    if re.search(r'diaqnost|reqemsallas|yetkinlik', f):
+        return 'diag'
+    return default
 
 
 class SnapshotTools:
@@ -503,6 +603,7 @@ class SnapshotTools:
         self.snap = normalize_snapshot(snapshot)
         self.tasks = self.snap['tasks']
         self.assessments = self.snap.get('assessments') or []
+        self.diag_processes = self.snap.get('diagProcesses') or []
         self.qurum_catalog = self.snap.get('qurums') or []
         self.task_details = self.snap.get('taskDetails') or {}
         self.dashboards = self.snap.get('dashboards') if isinstance(self.snap.get('dashboards'), dict) else {}
@@ -794,6 +895,7 @@ class SnapshotTools:
                 'year': a.get('year'),
                 'key': a.get('key') or '',
             })
+        diag = self._diag_for_qurum(match)
         return {
             'qurum': match,
             'total': len(mine),
@@ -808,6 +910,7 @@ class SnapshotTools:
             'sample': [_task_brief(t) for t in mine[:lim]],
             'assessments': scores[:12],
             'diagScore': next((s.get('score') for s in scores if fold(s.get('cat')) == 'diag'), None),
+            'diagProcess': diag,
             'emptyTasks': len(mine) == 0,
             'hint': (
                 (
@@ -821,6 +924,126 @@ class SnapshotTools:
                     if len(mine) == 0 else ''
                 )
             ),
+        }
+
+    def _diag_for_qurum(self, match: str) -> Optional[dict]:
+        if not match:
+            return None
+        best = None
+        for row in self.diag_processes:
+            if not _qurum_matches(row.get('qurum') or '', match):
+                continue
+            if best is None:
+                best = row
+                continue
+            by = int(best.get('year') or 0)
+            ry = int(row.get('year') or 0)
+            if ry > by:
+                best = row
+                continue
+            if ry == by:
+                bd = 1 if fold(best.get('statusGroup')) == 'done' else 0
+                rd = 1 if fold(row.get('statusGroup')) == 'done' else 0
+                if rd < bd:
+                    best = row
+                elif rd == bd and int(row.get('processIdx') or 0) > int(best.get('processIdx') or 0):
+                    best = row
+        return dict(best) if best else None
+
+    def get_diag_status(self, qurum: str = '', year: Any = None) -> dict:
+        """Qurumun diaqnostika mərhələsi, ESD/rəy/viza detalları."""
+        match, suggestions = self._resolve_qurum(qurum)
+        if not match:
+            return {
+                'error': 'not_found',
+                'field': 'qurum',
+                'query': qurum,
+                'suggestions': suggestions[:8] or self._qurum_candidates()[:8],
+                'hint': 'Qurumun qısa və ya tam adını yazın (məs. TƏBİB, Miqrasiya, DMX).',
+            }
+        year_n = None
+        if year not in (None, ''):
+            try:
+                year_n = int(float(year))
+            except (TypeError, ValueError):
+                year_n = None
+        rows = [
+            r for r in self.diag_processes
+            if _qurum_matches(r.get('qurum') or '', match)
+            and (year_n is None or r.get('year') == year_n)
+        ]
+        if not rows and year_n is not None:
+            rows = [r for r in self.diag_processes if _qurum_matches(r.get('qurum') or '', match)]
+        if not rows:
+            return {
+                'qurum': match,
+                'empty': True,
+                'matched': None,
+                'hint': (
+                    f'«{match}» üçün diaqnostika prosesi panelda görünmür. '
+                    'Diaqnostika səhifəsini yoxlayın.'
+                ),
+            }
+        rows.sort(
+            key=lambda r: (
+                -(int(r.get('year') or 0)),
+                0 if fold(r.get('statusGroup')) != 'done' else 1,
+                -(int(r.get('processIdx') or 0)),
+            )
+        )
+        matched = dict(rows[0])
+        hint_parts = [
+            f'CAVAB: «{match}» diaqnostika mərhələsi — {matched.get("processStage") or "—"}.',
+            f'İcra vəziyyəti: {matched.get("visLabel") or matched.get("status") or "—"}.',
+        ]
+        sg = fold(matched.get('statusGroup'))
+        if sg == 'esd':
+            hint_parts.append('ESD-dədir.')
+            if matched.get('esdStatus'):
+                hint_parts.append(f'ESD statusu: {matched.get("esdStatus")}.')
+            if matched.get('esdKind'):
+                hint_parts.append(f'ESD növü: {matched.get("esdKind")}.')
+        elif sg == 'review':
+            hint_parts.append('Rəydədir.')
+            if matched.get('reviewParty'):
+                hint_parts.append(f'Rəy verən tərəf: {matched.get("reviewParty")}.')
+        if matched.get('assignee'):
+            hint_parts.append(f'İcraçı: {matched.get("assignee")}.')
+        if matched.get('letterNumber') or matched.get('letterDate'):
+            hint_parts.append(
+                'ESD məktubu: '
+                + ' / '.join(
+                    x for x in [matched.get('letterNumber'), matched.get('letterDate')] if x
+                )
+                + '.'
+            )
+        hint_parts.append('Bütün bu detalları yaz; yalnız bal yazma.')
+        return {
+            'qurum': match,
+            'empty': False,
+            'matched': matched,
+            'processStage': matched.get('processStage'),
+            'status': matched.get('status'),
+            'statusGroup': matched.get('statusGroup'),
+            'visLabel': matched.get('visLabel'),
+            'esdStatus': matched.get('esdStatus'),
+            'esdKind': matched.get('esdKind'),
+            'reviewParty': matched.get('reviewParty'),
+            'assignee': matched.get('assignee'),
+            'score': matched.get('score'),
+            'key': matched.get('key'),
+            'year': matched.get('year'),
+            'others': [
+                {
+                    'qurum': r.get('qurum'),
+                    'year': r.get('year'),
+                    'processStage': r.get('processStage'),
+                    'status': r.get('status'),
+                    'key': r.get('key'),
+                }
+                for r in rows[1:4]
+            ],
+            'hint': ' '.join(hint_parts),
         }
 
     def search_tasks(
@@ -1463,6 +1686,10 @@ def run_tool(name: str, args: Optional[dict], tools: SnapshotTools) -> dict:
             opinion=str(args.get('opinion') or args.get('result') or ''),
             qurum=str(args.get('qurum') or ''),
         ),
+        'get_diag_status': lambda: tools.get_diag_status(
+            qurum=str(args.get('qurum') or args.get('name') or ''),
+            year=args.get('year'),
+        ),
         'get_task': lambda: tools.get_task(str(args.get('key') or '')),
         'lookup_knowledge': lambda: tools.lookup_knowledge(
             str(args.get('query') or args.get('q') or args.get('text') or ''),
@@ -1552,8 +1779,9 @@ def tool_declarations() -> List[dict]:
             'name': 'get_qurum_stats',
             'description': (
                 'Qurum (Nazirlik, Agentlik, Xidmət) üzrə iş sayı, gecikən, blok, nümunə tapşırıqlar '
-                'və qiymətləndirmə balları. «Dövlət Miqrasiya Xidməti», «DMX», «Miqrasiya», '
-                '«Gömrük», «RİN» kimi adlar üçün bunu çağır. Şəxs adı üçün deyil.'
+                'və qiymətləndirmə balları. Diaqnostika mərhələsi üçün get_diag_status. '
+                '«Dövlət Miqrasiya Xidməti», «DMX», «Miqrasiya», «Gömrük», «RİN» — bunu çağır. '
+                'Şəxs adı üçün deyil.'
             ),
             'parameters': {
                 'type': 'object',
@@ -1610,16 +1838,19 @@ def tool_declarations() -> List[dict]:
         {
             'name': 'get_assessment_scores',
             'description': (
-                'Diaqnostika/EXQ/İSQ/özünüqiymətləndirmə BALLARI. '
-                'Məqsədəuyğunluq müsbət/mənfi rəy SAYI üçün get_meqsed_stats istifadə et — bunu yox. '
-                'Konkret qurum soruşulanda qurum parametrini ver. category: diag|exq|isq|self.'
+                'Qurumların qiymətləndirmə BALLARI. '
+                '«özünüqiymətləndirmə / özünü qiymət» → category=self (diaqnostika DEYİL). '
+                '«diaqnostika / rəqəmsallaşma yetkinliyi» → diag. '
+                'EXQ → exq, İSQ → isq. '
+                'Məqsədəuyğunluq müsbət/mənfi rəy SAYI üçün get_meqsed_stats — bunu yox. '
+                'Konkret qurum soruşulanda qurum parametrini ver.'
             ),
             'parameters': {
                 'type': 'object',
                 'properties': {
                     'category': {
                         'type': 'string',
-                        'description': 'diag (default), exq, isq, self',
+                        'description': 'self=özünüqiymətləndirmə; diag=diaqnostika; exq; isq',
                     },
                     'sort': {
                         'type': 'string',
@@ -1651,6 +1882,24 @@ def tool_declarations() -> List[dict]:
                     },
                     'qurum': {'type': 'string'},
                 },
+            },
+        },
+        {
+            'name': 'get_diag_status',
+            'description': (
+                'Qurumun RƏQƏMSALLAŞMA DİAQNOSTİKASI proses mərhələsi. '
+                '«hansı mərhələdədir», «ESD-dədirmi», «kimdə rəydə / vizadadır», '
+                'yerində baxış / təhlil / hesabat — BUNU çağır (bal üçün deyil). '
+                'Cavabda processStage, status/visLabel, esdStatus, esdKind, '
+                'reviewParty, assignee, məktub nömrəsi/tarixi yaz.'
+            ),
+            'parameters': {
+                'type': 'object',
+                'properties': {
+                    'qurum': {'type': 'string', 'description': 'Qurum adı / qısaltma'},
+                    'year': {'type': 'integer'},
+                },
+                'required': ['qurum'],
             },
         },
         {
@@ -1810,6 +2059,9 @@ def fast_score_answer_from_payloads(tool_payloads: List[Any]) -> Optional[str]:
         meq = format_meqsed_answer(payload)
         if meq:
             return meq
+        rank = format_assessment_rank_answer(payload)
+        if rank and not payload.get('qurum'):
+            return rank
         if payload.get('section') and (
             payload.get('workload') is not None
             or payload.get('directions') is not None
@@ -1880,12 +2132,18 @@ def ground_assessment_answer(answer: str, tool_payloads: List[Any]) -> Optional[
 
 
 _RANK_RE = re.compile(
-    r'ən yüksək|en yuksek|ən aşağı|en asagi|reyting|orta bal|neçə qurum|nece qurum|siyahı|siyahi',
+    r'ən yüksək|en yuksek|ən aşağı|en asagi|reyting|orta bal|neçə qurum|nece qurum|'
+    r'siyahı|siyahi|ballar[iı]?|ballarini|qurumlarda|hans[iı] qurum',
     re.I,
 )
 _ORG_SCORE_RE = re.compile(
-    r'\bbal\b|\bbalı\b|diaqnost|\bbes\b|\bbəs\b|'
+    r'\bbal\b|\bbal[iı]\b|ballar|diaqnost|ozunuqiymet|ozunu\s*qiymet|\bself\b|'
+    r'\bexq\b|\bisq\b|\bbes\b|\bbəs\b|'
     r'tabib|t[eə]bib|\bdmx\b|\bdgx\b|nazirlik|agentlik|miqrasiya|vergi|mədəniyyət|medeniyyet',
+    re.I,
+)
+_SELF_ASSESS_Q_RE = re.compile(
+    r'ozunuqiymet|ozunu\s*qiymet|self\s*assess|selfassess|\bözünüqiymət',
     re.I,
 )
 _MEQSED_Q_RE = re.compile(
@@ -1893,6 +2151,81 @@ _MEQSED_Q_RE = re.compile(
     r'rəy\s*veril|rey\s*veril',
     re.I,
 )
+_DIAG_STAGE_Q_RE = re.compile(
+    r'(?:diaqnost|reqemsallas).{0,40}(?:m[eə]rh[eə]l|merhele|esd|r[eə]yd|reyde|viza|harada)|'
+    r'(?:m[eə]rh[eə]l|merhele|esd|r[eə]yd|reyde|vizad).{0,40}(?:diaqnost|reqemsallas)|'
+    r'hans[iı]\s*m[eə]rh[eə]l|hans[iı]\s*merhele|'
+    r'(?:esd[- ]?d[eə]|esdde|r[eə]yd[eə]|reyde|vizad[aə]d).{0,30}(?:qurum|nazirlik|agentlik|xidmet|diaqnost)|'
+    r'kimd[eə]\s*(?:r[eə]y|viza|esd)|'
+    r'yerind[eə]\s*bax.{0,20}(?:diaqnost|qurum)|'
+    r'(?:diaqnost).{0,20}(?:yerind[eə]|s[eə]n[eə]d|t[eə]hlil|hesabat|t[eə]qdim)',
+    re.I,
+)
+
+
+def format_diag_status_answer(payload: dict) -> Optional[str]:
+    """Qurum diaqnostika mərhələsi — ESD/rəy/viza detallı cavab."""
+    if not isinstance(payload, dict) or payload.get('error'):
+        return None
+    qurum = str(payload.get('qurum') or '').strip() or 'Qurum'
+    if payload.get('empty') or not payload.get('matched'):
+        return (
+            f'«{qurum}» üçün diaqnostika prosesi panelda görünmür. '
+            'Diaqnostika səhifəsini yoxlayın.'
+        )
+    m = payload.get('matched') if isinstance(payload.get('matched'), dict) else {}
+    stage = str(m.get('processStage') or payload.get('processStage') or '').strip() or '—'
+    vis = str(m.get('visLabel') or payload.get('visLabel') or '').strip()
+    status = str(m.get('status') or payload.get('status') or '').strip()
+    sg = fold(m.get('statusGroup') or payload.get('statusGroup') or '')
+    lines = [f'**{qurum}** diaqnostikası hazırda **{stage}** mərhələsindədir.']
+    if vis or status:
+        lines.append(f'İcra vəziyyəti: **{vis or status}**' + (f' ({status})' if vis and status and vis != status else '') + '.')
+    if sg == 'esd':
+        lines.append('Tapşırıq **ESD**-dədir.')
+        esd_st = str(m.get('esdStatus') or payload.get('esdStatus') or '').strip()
+        esd_kind = str(m.get('esdKind') or payload.get('esdKind') or '').strip()
+        if esd_st:
+            lines.append(f'ESD statusu: **{esd_st}**.')
+        if esd_kind:
+            lines.append(f'ESD növü: {esd_kind}.')
+    elif sg == 'review':
+        lines.append('Tapşırıq **rəydə**dir.')
+        party = str(m.get('reviewParty') or payload.get('reviewParty') or '').strip()
+        if party:
+            lines.append(f'Rəy verən tərəf: **{party}**.')
+    assignee = str(m.get('assignee') or payload.get('assignee') or '').strip()
+    if assignee:
+        lines.append(f'İcraçı: {assignee}.')
+    letter_n = str(m.get('letterNumber') or '').strip()
+    letter_d = str(m.get('letterDate') or '').strip()
+    if letter_n or letter_d:
+        lines.append('ESD məktubu: **' + ' / '.join(x for x in [letter_n, letter_d] if x) + '**.')
+    score = m.get('score')
+    if score is not None:
+        sc_disp = int(score) if isinstance(score, (int, float)) and score == int(score) else score
+        lines.append(f'Diaqnostika balı: **{sc_disp}**.')
+    key = str(m.get('key') or payload.get('key') or '').strip()
+    year = m.get('year') or payload.get('year')
+    meta_bits = []
+    if key:
+        meta_bits.append(key)
+    if year:
+        meta_bits.append(str(year))
+    if meta_bits:
+        lines.append('(' + ', '.join(meta_bits) + ')')
+    open_subs = m.get('openSubtasks') if isinstance(m.get('openSubtasks'), list) else []
+    if open_subs and sg not in ('done',):
+        lines.append('Açıq alt tapşırıqlar:')
+        for sub in open_subs[:5]:
+            if not isinstance(sub, dict):
+                continue
+            bit = sub.get('summary') or sub.get('key') or '—'
+            st = sub.get('status') or ''
+            asg = sub.get('assignee') or ''
+            extra = ', '.join(x for x in [st, asg] if x)
+            lines.append(f'- {bit}' + (f' — {extra}' if extra else ''))
+    return '\n'.join(lines)
 
 
 def _extract_year(question: str) -> Optional[int]:
@@ -1903,6 +2236,49 @@ def _extract_year(question: str) -> Optional[int]:
         return int(m.group(1))
     except ValueError:
         return None
+
+
+def format_assessment_rank_answer(payload: dict) -> Optional[str]:
+    """Özünüqiymət/diaqnostika üzrə qurum reytinqi (top siyahı)."""
+    if not isinstance(payload, dict) or payload.get('error'):
+        return None
+    cat = payload.get('category') or ''
+    if cat == 'meqsed' or payload.get('section'):
+        return None
+    if not (payload.get('top') or payload.get('withScore') is not None):
+        return None
+    # Konkret qurum cavabı ayrı funksiyadır
+    if payload.get('qurum') and payload.get('matched'):
+        return None
+    label = payload.get('categoryLabel') or ASSESS_LABELS.get(cat, 'Qiymətləndirmə')
+    top = payload.get('top') if isinstance(payload.get('top'), list) else []
+    with_score = int(payload.get('withScore') or 0)
+    if payload.get('empty') or with_score == 0 or not top:
+        return (
+            f'{label} üzrə paneldə balı olan qurum yoxdur. '
+            f'Qiymətləndirmə → {label} bölməsini yoxlayın.'
+        )
+    sort = payload.get('sort') or 'highest'
+    head = (
+        f'**{label}** üzrə ən aşağı ballar:'
+        if sort == 'lowest'
+        else f'**{label}** üzrə qurum balları (yüksəkdən):'
+    )
+    lines = [head]
+    for i, row in enumerate(top[:10], 1):
+        if not isinstance(row, dict):
+            continue
+        sc = row.get('score')
+        sc_disp = int(sc) if isinstance(sc, (int, float)) and sc == int(sc) else sc
+        yr = row.get('year')
+        yr_bit = f' ({yr})' if yr else ''
+        lines.append(f'{i}. **{row.get("qurum") or "—"}** — **{sc_disp}**{yr_bit}')
+    avg = payload.get('avgScore')
+    if avg is not None and with_score > 1:
+        lines.append(f'\nOrta bal: **{avg}** ({with_score} qurum).')
+    else:
+        lines.append(f'\nCəmi balı olan: **{with_score}** qurum.')
+    return '\n'.join(lines)
 
 
 def format_meqsed_answer(payload: dict) -> Optional[str]:
@@ -2157,20 +2533,69 @@ def try_fast_panel_answer(hint: str, question: str, tools: 'SnapshotTools') -> O
             return text, ['get_meqsed_stats'], [result]
         return None
 
-    if _RANK_RE.search(qf):
+    # Diaqnostika mərhələsi / ESD / rəy / viza — baldan ƏVVƏL
+    if _DIAG_STAGE_Q_RE.search(q) or _DIAG_STAGE_Q_RE.search(qf):
+        year_n = _extract_year(q)
+        result = tools.get_diag_status(qurum=q, year=year_n)
+        if result.get('error') != 'not_found' or result.get('qurum'):
+            text = format_diag_status_answer(result)
+            if text:
+                return text, ['get_diag_status'], [result]
+        # Qurum tapılmadıysa bal cavabına düşmə — None qaytar ki LLM suggestions göstərsin
+        if result.get('error') == 'not_found':
+            sugg = result.get('suggestions') or []
+            if sugg:
+                text = (
+                    'Qurum adı dəqiq uyğun gəlmədi. Bənzərlər: '
+                    + ', '.join(str(s) for s in sugg[:5])
+                    + '.'
+                )
+                return text, ['get_diag_status'], [result]
         return None
-    # Yalnız aydın qurum+bal sualları — bütün cümləni qurum kimi fuzzy-ləmə
-    if not _ORG_SCORE_RE.search(qf):
-        return None
-    if hint not in ('assess', 'qurum', 'open', ''):
-        return None
-    result = tools.get_assessment_scores(category='diag', qurum=q, limit=1)
-    if result.get('error') == 'not_found':
-        return None
-    if result.get('qurum'):
-        text = format_qurum_score_answer(result, force=True)
-        if text:
-            return text, ['get_assessment_scores'], [result]
+
+    # Özünüqiymət / diaqnostika / EXQ / İSQ — kateqoriyanı sualdan seç
+    assess_cat = infer_assess_category(q, default='')
+    wants_assess = bool(
+        assess_cat
+        or _SELF_ASSESS_Q_RE.search(q)
+        or _SELF_ASSESS_Q_RE.search(qf)
+        or re.search(r'diaqnost|\bexq\b|\bisq\b|qiymetlendir.*bal|bal.*qiymet', qf)
+    )
+    if wants_assess or (hint in ('assess', 'qurum') and _ORG_SCORE_RE.search(qf)):
+        cat = assess_cat or infer_assess_category(q, default='diag')
+        year_n = _extract_year(q)
+        # Reyting / ümümi ballar (konkret qurum yox)
+        if _RANK_RE.search(qf) or (
+            _SELF_ASSESS_Q_RE.search(qf) and not re.search(r'nazirlik|agentlik|xidmet|tabib|təbib|\bdmx\b|vergi', qf)
+        ):
+            sort = 'bottom' if re.search(r'asagi|aşağı|lowest|az\b|en az', qf) else 'top'
+            result = tools.get_assessment_scores(
+                category=cat, sort=sort, limit=10, year=year_n,
+            )
+            text = format_assessment_rank_answer(result)
+            if text:
+                return text, ['get_assessment_scores'], [result]
+        # Konkret qurum + bal
+        if _ORG_SCORE_RE.search(qf) or hint in ('assess', 'qurum', 'open', ''):
+            if hint not in ('assess', 'qurum', 'open', '') and not wants_assess:
+                return None
+            result = tools.get_assessment_scores(category=cat, qurum=q, limit=1, year=year_n)
+            if result.get('error') == 'not_found':
+                # Bəlkə ranking sualıdır
+                if wants_assess:
+                    result = tools.get_assessment_scores(category=cat, sort='top', limit=10, year=year_n)
+                    text = format_assessment_rank_answer(result)
+                    if text:
+                        return text, ['get_assessment_scores'], [result]
+                return None
+            if result.get('qurum'):
+                text = format_qurum_score_answer(result, force=True)
+                if text:
+                    return text, ['get_assessment_scores'], [result]
+            elif wants_assess:
+                text = format_assessment_rank_answer(result)
+                if text:
+                    return text, ['get_assessment_scores'], [result]
     return None
 
 

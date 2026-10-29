@@ -1,9 +1,10 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda75';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda80';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
     getDiagHeadline,
     getDiagScore,
+    getSelfAssessInfo,
     DIAG_CRITERIA_DEFS,
     matchDiagCriterion,
     getStatusGroup,
@@ -26,7 +27,7 @@ import {
     exqStarColor,
     exqStarLabel,
     EXQ_DIGIT_STAGES
-} from './model.js?v=idda28';
+} from './model.js?v=idda29';
 import { KIND, MATURITY, STATUS, VIS, OPINION } from './palette.js?v=idda4';
 import { normalizeStr, showToast } from './utils.js?v=idda7';
 import { state } from './state.js';
@@ -1419,6 +1420,8 @@ function goBackOneStep() {
     var step = backTarget().step;
     if (step === 'hubList') {
         ui.hubDetailKey = '';
+        ui.expandDir = '';
+        ui.expandCrit = '';
         window.scrollTo(0, 0);
         render();
         return;
@@ -1448,7 +1451,11 @@ function pageHeadCopy(model) {
         if (detail) {
             var detailSub = ui.hub === 'exq'
                 ? 'Qurumun EXQ nəticələri'
-                : (ui.hub === 'isq' ? 'Qurumun İSQ nəticələri' : 'Qurumun nəticələri');
+                : (ui.hub === 'isq'
+                    ? 'Qurumun İSQ nəticələri'
+                    : (ui.hub === 'self'
+                        ? 'Qurumun özünüqiymətləndirmə nəticələri · 4 rəsmi istiqamət'
+                        : 'Qurumun nəticələri'));
             return {
                 title: detail.qurum || 'Qurum',
                 sub: detailSub
@@ -1724,6 +1731,137 @@ function hubIsqPillarCards(task) {
     return cards;
 }
 
+function orgFromSelfRow(r) {
+    var t = r && r.task;
+    if (!t && r && r.key && state.issueIndex) t = state.issueIndex[r.key] || null;
+    var info = getSelfAssessInfo(t) || {};
+    var dirScores = {};
+    var dirTexts = {};
+    DIRS.forEach(function(d) {
+        dirScores[d.id] = null;
+        dirTexts[d.id] = '';
+    });
+    ((info.directions) || []).forEach(function(d) {
+        var id = dirIdFromTitle(d.title);
+        if (!id) return;
+        var sc = num(d.score);
+        if (sc != null) dirScores[id] = sc;
+        if (d.text) dirTexts[id] = String(d.text).trim();
+    });
+    /* Özünüqiymət: 12 rəsmi altmeyar (DIAG_CRITERIA_DEFS) istiqamət altına düşür. */
+    var scoreById = {};
+    ((info.criteria) || []).forEach(function(e) {
+        if (e && e.id) scoreById[e.id] = e;
+    });
+    ((info.extras) || []).forEach(function(e) {
+        if (!e) return;
+        var crit = (e.critId && DIAG_CRITERIA_DEFS.filter(function(c) { return c.id === e.critId; })[0])
+            || matchDiagCriterion(e.title);
+        if (!crit) return;
+        if (!scoreById[crit.id]) scoreById[crit.id] = { score: e.score, text: e.text };
+        else {
+            if ((!scoreById[crit.id].score || scoreById[crit.id].score === '—') && e.score && e.score !== '—') {
+                scoreById[crit.id].score = e.score;
+            }
+            if (!scoreById[crit.id].text && e.text) scoreById[crit.id].text = e.text;
+        }
+    });
+    var extras = (DIAG_CRITERIA_DEFS || []).map(function(c) {
+        var slot = scoreById[c.id] || {};
+        var sc = num(slot.score);
+        return {
+            title: c.title,
+            score: sc,
+            scoreRaw: slot.score && slot.score !== '—' ? String(slot.score) : '',
+            text: String(slot.text || '').trim(),
+            current: String(slot.text || '').trim(),
+            deficiency: '',
+            criterion: '',
+            sub: c.title,
+            dirId: c.dirId,
+            critId: c.id
+        };
+    });
+    var qrsg = num(info.score);
+    if (qrsg == null && info.overall) qrsg = num(info.overall.score);
+    var statusName = (t && t.fields && t.fields.status && t.fields.status.name) || (r && r.status) || '—';
+    var group = getStatusGroup(statusName) || 'other';
+    var vis = visStatusOf(group);
+    var start = t ? getTaskStartDate(t) : null;
+    var updated = t && t.fields && t.fields.updated ? new Date(t.fields.updated) : null;
+    if (updated && isNaN(updated.getTime())) updated = null;
+    return {
+        key: (r && (r.key || r.qurum)) || '',
+        issueKey: (t && t.key) || (r && r.key) || '',
+        name: (r && r.qurum) || '—',
+        year: r && r.year,
+        statusName: statusName,
+        statusGroup: group,
+        visId: vis.id,
+        visLabel: vis.label,
+        qrsg: qrsg,
+        qrsgOfficial: qrsg != null,
+        maturity: maturityOf(qrsg),
+        dirs: dirScores,
+        dirTexts: dirTexts,
+        extras: extras,
+        overallText: info.overall ? String(info.overall.text || '').trim() : '',
+        hasResult: qrsg != null,
+        start: start,
+        updated: updated,
+        dirGaps: {},
+        overallCurrent: '',
+        overallGaps: '',
+        selfMode: true
+    };
+}
+
+function hubSelfOrgDetailHtml(view) {
+    var r = resolveHubDetailRow(view);
+    if (!r) {
+        return '<section class="nk303-card"><p class="nk303-empty">Qurum tapılmadı.</p>'
+            + '<button type="button" class="nk303-btn nk303-btn--ghost" onclick="nk303Call(\'back\')">Siyahıya qayıt</button>'
+            + '</section>';
+    }
+    var org = orgFromSelfRow(r);
+    var dirCards = DIRS.map(function(d) {
+        return {
+            id: d.id,
+            name: d.name,
+            avg: org.dirs[d.id],
+            maturity: maturityOf(org.dirs[d.id]),
+            n: extrasForDir(org, d.id).length,
+            hasDetail: true
+        };
+    });
+    return '<section class="nk303-card" style="margin-bottom:0.55rem">'
+        + '<div class="nk303-profile">'
+        + '<div>'
+        + '<p class="nk303-kicker">Qurumun özünüqiymətləndirmə nəticələri</p>'
+        + '<h3 style="margin:0;font-size:1.05rem">' + esc(org.name) + '</h3>'
+        + '<dl class="nk303-meta">'
+        + '<div><dt>İl</dt><dd>' + esc(org.year || '—') + '</dd></div>'
+        + '<div><dt>Status</dt><dd>' + esc(org.visLabel) + ' · ' + esc(org.statusName) + '</dd></div>'
+        + '<div><dt>Başlanğıc</dt><dd>' + esc(org.start ? fmtDate(org.start) : NA) + '</dd></div>'
+        + '<div><dt>Son yenilənmə</dt><dd>' + esc(org.updated ? fmtDate(org.updated) : NA) + '</dd></div>'
+        + '<div><dt>Tapşırıq</dt><dd class="nk303-meta-task">' + issueLinkHtml(org.issueKey)
+        + (org.issueKey ? ' ' + teqdimatBtnHtml(org.issueKey) : '')
+        + '</dd></div>'
+        + '</dl></div>'
+        + '<div>'
+        + '<p class="nk303-hint">Ümumi nəticə</p>'
+        + scoreIndicator(org.qrsg)
+        + '</div></div>'
+        + '<p class="nk303-hint nk303-hint--law" style="margin:0.75rem 0 0">Qərar 303, 4 rəsmi istiqamət · '
+        + '<a href="https://e-qanun.az/framework/60692" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60692</a></p>'
+        + '</section>'
+        + '<section class="nk303-card" style="margin-bottom:0.55rem"><h3>Dörd rəsmi istiqamət</h3>'
+        + '<p class="nk303-hint">İstiqamətə klikləyin — altmeyarlar açılsın.</p>'
+        + dirCardsHtml(dirCards, true, 'expandDir')
+        + dirExpandPanelHtml(org)
+        + '</section>';
+}
+
 function hubOrgDetailHtml(view) {
     var r = resolveHubDetailRow(view);
     if (!r) {
@@ -1732,6 +1870,7 @@ function hubOrgDetailHtml(view) {
             + '</section>';
     }
     var section = (view && view.section) || ui.hub || 'isq';
+    if (section === 'self') return hubSelfOrgDetailHtml(view);
     var t = r.task;
     if (!t && r.key && state.issueIndex) t = state.issueIndex[r.key] || null;
     var star = r.star != null ? Number(r.star) : exqStarFromPercent(r.score);
@@ -2595,8 +2734,10 @@ function issueLinkHtml(key) {
 
 function teqdimatBtnHtml(key) {
     if (!key) return '';
-    return '<button type="button" class="nk303-btn nk303-btn--ghost nk303-teq-open" onclick="event.stopPropagation(); nk303Call(\'openTeqdimat\',\''
-        + qarg(key) + '\')" title="Jira-dakı Təqdimat faylını göstər">Təqdimat</button>';
+    var icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+        + '<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8h4v5H7zM13 8h4M13 11h4"/></svg>';
+    return '<button type="button" class="nk303-teq-btn" onclick="event.stopPropagation(); nk303Call(\'openTeqdimat\',\''
+        + qarg(key) + '\')" title="Jira-dakı Təqdimat faylını göstər">' + icon + '<span>Təqdimat</span></button>';
 }
 
 var teqdimatState = { key: '', blobUrl: '', loading: false, pptxViewer: null };
@@ -2797,38 +2938,292 @@ function pptxDownloadActionsHtml(att, dlUrl, fileUrl) {
         + '</div>';
 }
 
-async function renderPptxPreview(blob, body, att, dlUrl, fileUrl) {
-    destroyTeqdimatPptxViewer();
-    body.innerHTML = '<div class="nk303-teq-pptx">'
+async function isMipProtectedPdfBlob(blob) {
+    if (!blob || !blob.size) return false;
+    try {
+        var n = Math.min(blob.size, 160000);
+        var buf = await blob.slice(0, n).arrayBuffer();
+        var s = '';
+        try {
+            s = new TextDecoder('latin1').decode(new Uint8Array(buf));
+        } catch (e) {
+            var u8 = new Uint8Array(buf);
+            for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]);
+        }
+        return /Microsoft Information Protection|MicrosoftIRMServices|Azure Rights Management|encryption powered by Microsoft|Protected PDF\.pdf/i.test(s);
+    } catch (e2) {
+        return false;
+    }
+}
+
+function teqProtectedCardHtml(att, dlUrl, fileUrl, key) {
+    var browse = key ? jiraBrowseUrl(key) : '';
+    return '<div class="nk303-teq-ppt"><div class="nk303-teq-ppt-card">'
+        + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
+        + '<p class="nk303-hint"><b>Fayl Microsoft Information Protection (MIP/IRM) ilə şifrələnib.</b></p>'
+        + '<p class="nk303-hint">Brauzerdə önizləmə mümkün deyil. Faylı yükləyib PowerPoint və ya Adobe Acrobat-da '
+        + '(hüququ olan hesabla) açın.</p>'
+        + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
+        + (browse
+            ? '<p class="nk303-hint" style="margin-top:.75rem"><a class="nk303-issue" href="'
+                + esc(browse) + '" target="_blank" rel="noopener noreferrer">Jira-da aç</a></p>'
+            : '')
+        + '</div></div>';
+}
+
+function pptxShellHtml(att, dlUrl, fileUrl, hostInner) {
+    return '<div class="nk303-teq-pptx">'
         + '<div class="nk303-teq-pptx-bar">'
         + '<span class="nk303-teq-pptx-bar-name">' + esc(att.filename || 'Təqdimat') + '</span>'
         + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
         + '</div>'
         + '<div class="nk303-teq-pptx-stage"><div id="nk303TeqPptxHost" class="nk303-teq-pptx-host">'
-        + '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Slaydlar hazırlanır…</p></div>'
+        + (hostInner || '')
         + '</div></div></div>';
+}
+
+function pptxIsZipBuffer(buf) {
+    if (!buf || buf.byteLength < 4) return false;
+    var u8 = new Uint8Array(buf, 0, 4);
+    return u8[0] === 0x50 && u8[1] === 0x4b;
+}
+
+function sniffBinaryKind(buf) {
+    if (!buf || buf.byteLength < 4) return 'unknown';
+    var u8 = new Uint8Array(buf, 0, 8);
+    if (u8[0] === 0x25 && u8[1] === 0x50 && u8[2] === 0x44 && u8[3] === 0x46) return 'pdf';
+    if (u8[0] === 0x50 && u8[1] === 0x4b) return 'zip';
+    if (u8[0] === 0xd0 && u8[1] === 0xcf && u8[2] === 0x11 && u8[3] === 0xe0) return 'ole';
+    return 'unknown';
+}
+
+async function loadPptxPreviewLib() {
+    var urls = [
+        'https://cdn.jsdelivr.net/npm/pptx-preview@1.0.7/+esm',
+        'https://esm.sh/pptx-preview@1.0.7',
+        'https://unpkg.com/pptx-preview@1.0.7/dist/pptx-preview.es.js'
+    ];
+    var lastErr = null;
+    for (var i = 0; i < urls.length; i++) {
+        try {
+            var mod = await import(urls[i]);
+            var initFn = mod.init || (mod.default && mod.default.init) || mod.default;
+            if (typeof initFn === 'function') return initFn;
+            lastErr = new Error('init yoxdur: ' + urls[i]);
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+    throw lastErr || new Error('pptx-preview yüklənmədi');
+}
+
+async function loadJsZipLib() {
+    var urls = [
+        'https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm',
+        'https://esm.sh/jszip@3.10.1',
+        'https://unpkg.com/jszip@3.10.1/dist/jszip.min.js'
+    ];
+    var lastErr = null;
+    for (var i = 0; i < urls.length; i++) {
+        try {
+            var mod = await import(urls[i]);
+            var JSZip = mod.default || mod.JSZip || mod;
+            if (typeof JSZip === 'function') return JSZip;
+            lastErr = new Error('JSZip yoxdur: ' + urls[i]);
+        } catch (err) {
+            lastErr = err;
+        }
+    }
+    throw lastErr || new Error('JSZip yüklənmədi');
+}
+
+/** Bəzi PPTX-lərdə ZIP-də olmayan Override-lar silent/throw crash verir. */
+async function sanitizePptxBuffer(buf, JSZip) {
+    try {
+        var zip = await JSZip.loadAsync(buf);
+        var ctFile = zip.file('[Content_Types].xml');
+        if (!ctFile) return buf;
+        var ct = await ctFile.async('string');
+        var fixed = ct.replace(/<Override\b[^>]*\/>/g, function(match) {
+            var m = /PartName="([^"]+)"/.exec(match);
+            if (!m) return match;
+            var part = String(m[1] || '').replace(/^\//, '');
+            return zip.file(part) ? match : '';
+        });
+        if (fixed === ct) return buf;
+        zip.file('[Content_Types].xml', fixed);
+        return await zip.generateAsync({ type: 'arraybuffer' });
+    } catch (e) {
+        console.warn('PPTX sanitize keçildi', e);
+        return buf;
+    }
+}
+
+function pptxXmlTexts(xml) {
+    var out = [];
+    var re = /<(?:a:)?t(?:\s[^>]*)?>([^<]*)<\/(?:a:)?t>/g;
+    var m;
+    while ((m = re.exec(xml))) {
+        var t = String(m[1] || '')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\s+/g, ' ')
+            .trim();
+        if (t) out.push(t);
+    }
+    return out;
+}
+
+async function buildPptxFallbackSlides(buf, JSZip) {
+    var zip = await JSZip.loadAsync(buf);
+    var slideNames = Object.keys(zip.files)
+        .filter(function(n) { return /^ppt\/slides\/slide\d+\.xml$/i.test(n); })
+        .sort(function(a, b) {
+            var na = parseInt((/slide(\d+)/i.exec(a) || [])[1] || '0', 10);
+            var nb = parseInt((/slide(\d+)/i.exec(b) || [])[1] || '0', 10);
+            return na - nb;
+        });
+    var slides = [];
+    for (var i = 0; i < slideNames.length; i++) {
+        var name = slideNames[i];
+        var xml = await zip.file(name).async('string');
+        var texts = pptxXmlTexts(xml);
+        var images = [];
+        var relName = name
+            .replace('ppt/slides/', 'ppt/slides/_rels/')
+            .replace(/\.xml$/i, '.xml.rels');
+        var relFile = zip.file(relName);
+        if (relFile) {
+            var relXml = await relFile.async('string');
+            var relRe = /Target="([^"]+)"/g;
+            var rm;
+            while ((rm = relRe.exec(relXml))) {
+                var target = String(rm[1] || '').replace(/^\.\.\//, 'ppt/');
+                if (!/^ppt\/media\//i.test(target)) continue;
+                var media = zip.file(target);
+                if (!media) continue;
+                var ext = (target.split('.').pop() || 'png').toLowerCase();
+                if (ext === 'emf' || ext === 'wmf') continue;
+                var mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                    : ext === 'gif' ? 'image/gif'
+                    : ext === 'svg' ? 'image/svg+xml'
+                    : ext === 'webp' ? 'image/webp'
+                    : 'image/png';
+                try {
+                    var b64 = await media.async('base64');
+                    images.push('data:' + mime + ';base64,' + b64);
+                } catch (eImg) { /* skip */ }
+                if (images.length >= 4) break;
+            }
+        }
+        slides.push({
+            n: i + 1,
+            title: texts[0] || ('Slayd ' + (i + 1)),
+            texts: texts.slice(0, 24),
+            images: images
+        });
+    }
+    return slides;
+}
+
+function renderPptxFallbackViewer(host, slides) {
+    if (!host) return;
+    if (!slides.length) {
+        host.innerHTML = '<div class="nk303-teq-ppt-card"><p class="nk303-hint">Slayd tapılmadı.</p></div>';
+        return;
+    }
+    var idx = 0;
+    function paint() {
+        var s = slides[idx];
+        var imgs = (s.images || []).map(function(src) {
+            return '<img class="nk303-teq-pptx-fallback-img" src="' + src + '" alt="">';
+        }).join('');
+        var lines = (s.texts || []).map(function(t) {
+            return '<p>' + esc(t) + '</p>';
+        }).join('');
+        host.innerHTML = '<div class="nk303-teq-pptx-fallback">'
+            + '<div class="nk303-teq-pptx-fallback-nav">'
+            + '<button type="button" class="nk303-btn nk303-btn--ghost" data-pptx-prev' + (idx === 0 ? ' disabled' : '') + '>←</button>'
+            + '<span class="nk303-teq-pptx-fallback-pos">' + (idx + 1) + ' / ' + slides.length + '</span>'
+            + '<button type="button" class="nk303-btn nk303-btn--ghost" data-pptx-next' + (idx >= slides.length - 1 ? ' disabled' : '') + '>→</button>'
+            + '</div>'
+            + '<div class="nk303-teq-pptx-fallback-card">'
+            + '<h4>' + esc(s.title) + '</h4>'
+            + (imgs ? '<div class="nk303-teq-pptx-fallback-media">' + imgs + '</div>' : '')
+            + '<div class="nk303-teq-pptx-fallback-text">' + lines + '</div>'
+            + '</div></div>';
+        var prev = host.querySelector('[data-pptx-prev]');
+        var next = host.querySelector('[data-pptx-next]');
+        if (prev) prev.addEventListener('click', function() {
+            if (idx > 0) { idx -= 1; paint(); }
+        });
+        if (next) next.addEventListener('click', function() {
+            if (idx < slides.length - 1) { idx += 1; paint(); }
+        });
+    }
+    paint();
+}
+
+async function renderPptxSimpleFallback(buf, host) {
+    var JSZip = await loadJsZipLib();
+    var slides = await buildPptxFallbackSlides(buf, JSZip);
+    renderPptxFallbackViewer(host, slides);
+    showToast('Sadə önizləmə açıldı (slayd mətni + şəkillər)', 'info');
+}
+
+async function renderPptxPreview(blob, body, att, dlUrl, fileUrl) {
+    destroyTeqdimatPptxViewer();
+    body.innerHTML = pptxShellHtml(
+        att, dlUrl, fileUrl,
+        '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Slaydlar hazırlanır…</p></div>'
+    );
     var host = document.getElementById('nk303TeqPptxHost');
     if (!host) return;
+    var buf = null;
     try {
-        var mod = await import('https://esm.sh/pptx-preview@1.0.5');
-        var initFn = mod.init || (mod.default && mod.default.init) || mod.default;
-        if (typeof initFn !== 'function') throw new Error('pptx-preview yüklənmədi');
+        buf = await blob.arrayBuffer();
+        var kind = sniffBinaryKind(buf);
+        if (kind === 'ole') {
+            throw new Error('Fayl köhnə .ppt (OLE) formatındadır — ad .pptx olsa belə ZIP deyil');
+        }
+        if (kind !== 'zip') {
+            throw new Error('Fayl PPTX (ZIP) formatında deyil — yükləmə natamam ola bilər');
+        }
+        var JSZip = null;
+        try { JSZip = await loadJsZipLib(); } catch (eZip) { JSZip = null; }
+        if (JSZip) buf = await sanitizePptxBuffer(buf, JSZip);
+
+        var initFn = await loadPptxPreviewLib();
+        // Layout otursun deyə bir frame gözlə
+        await new Promise(function(resolve) {
+            requestAnimationFrame(function() { requestAnimationFrame(resolve); });
+        });
         host.innerHTML = '';
-        var width = Math.max(640, Math.min(host.clientWidth || 960, 1100));
+        var width = Math.max(640, Math.min(host.clientWidth || body.clientWidth || 960, 1100));
         var height = Math.max(360, Math.round(width * 0.5625));
         var viewer = initFn(host, { width: width, height: height });
         teqdimatState.pptxViewer = viewer;
-        var buf = await blob.arrayBuffer();
-        if (viewer && typeof viewer.preview === 'function') {
-            await viewer.preview(buf);
-        } else {
+        if (!viewer || typeof viewer.preview !== 'function') {
             throw new Error('preview metodu yoxdur');
         }
+        await viewer.preview(buf);
     } catch (err) {
         console.error(err);
+        try {
+            if (!buf) buf = await blob.arrayBuffer();
+            host.innerHTML = '<div class="nk303-teq-loading"><span class="nk303-teq-spinner" aria-hidden="true"></span><p>Ehtiyat önizləmə…</p></div>';
+            await renderPptxSimpleFallback(buf, host);
+            return;
+        } catch (err2) {
+            console.error(err2);
+        }
         body.innerHTML = '<div class="nk303-teq-ppt"><div class="nk303-teq-ppt-card">'
             + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
             + '<p class="nk303-hint">PPTX önizləmə açıla bilmədi. Faylı yükləyib PowerPoint-də açın.</p>'
+            + '<p class="nk303-hint" style="opacity:.75;font-size:.8rem">' + esc((err && err.message) || '') + '</p>'
             + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
             + '</div></div>';
         showToast('PPTX önizləmə alınmadı — faylı yükləyin', 'info');
@@ -2923,6 +3318,12 @@ async function showTeqdimatAttachment(key, atts, att, body, titleEl, metaEl, dl)
         return;
     }
     var blob = await fileRes.blob();
+    var sniffBuf = await blob.slice(0, 16).arrayBuffer();
+    var kind = sniffBinaryKind(sniffBuf);
+    var converted = String(fileRes.headers.get('X-Jira-Converted') || '').toLowerCase() === 'pdf';
+    var protectedHdr = String(fileRes.headers.get('X-Jira-Protected') || '').toLowerCase() === 'mip';
+    var convertErr = String(fileRes.headers.get('X-Jira-Convert-Error') || '');
+    try { convertErr = decodeURIComponent(convertErr); } catch (eDec) { /* keep raw */ }
     if (teqdimatState.blobUrl) {
         try { URL.revokeObjectURL(teqdimatState.blobUrl); } catch (e2) {}
     }
@@ -2930,21 +3331,31 @@ async function showTeqdimatAttachment(key, atts, att, body, titleEl, metaEl, dl)
     var dlUrl = fileUrl + (fileUrl.indexOf('?') >= 0 ? '&' : '?') + 'download=1';
     if (dl) {
         dl.href = teqdimatState.blobUrl;
-        dl.setAttribute('download', att.filename || 'teqdimat');
+        dl.setAttribute('download', (converted || (kind === 'pdf' && !isModernPptx(att) && !isPptAttachment(att)))
+            ? String(att.filename || 'teqdimat').replace(/\.(pptx?|pptm|ppsx?)$/i, '.pdf')
+            : (att.filename || 'teqdimat'));
         dl.classList.remove('hidden');
     }
-    if (isPdfAttachment(att)) {
+    var mipBlob = (kind === 'pdf' || converted) ? await isMipProtectedPdfBlob(blob) : false;
+    if (protectedHdr || mipBlob || /MIP|IRM/i.test(convertErr)) {
+        body.innerHTML = teqProtectedCardHtml(att, dlUrl, fileUrl, key);
+        showToast('Fayl şifrələnib — brauzerdə açıla bilməz', 'info');
+    } else if (kind === 'pdf' || converted || isPdfAttachment(att)) {
         body.innerHTML = '<iframe class="nk303-teq-frame" title="' + esc(att.filename || 'Təqdimat')
             + '" src="' + teqdimatState.blobUrl + '#view=FitH"></iframe>';
-    } else if (isModernPptx(att)) {
+        if (converted) showToast('Köhnə PowerPoint PDF-ə çevrildi', 'info');
+    } else if (kind === 'zip' || isModernPptx(att)) {
         await renderPptxPreview(blob, body, att, dlUrl, fileUrl);
-    } else if (isPptAttachment(att)) {
+    } else if (kind === 'ole' || isPptAttachment(att)) {
         body.innerHTML = '<div class="nk303-teq-ppt">'
             + '<div class="nk303-teq-ppt-card">'
             + '<p class="nk303-teq-ppt-name">' + esc(att.filename || 'Təqdimat') + '</p>'
-            + '<p class="nk303-hint">Köhnə .ppt formatı brauzerdə açılmır. Faylı yükləyib PowerPoint-də açın.</p>'
+            + '<p class="nk303-hint">Bu fayl köhnə PowerPoint (.ppt) formatındadır (ad .pptx olsa belə). '
+            + 'Brauzerdə açmaq üçün server PDF-ə çevirə bilmədi — faylı yükləyib PowerPoint-də açın.</p>'
+            + (convertErr ? '<p class="nk303-hint" style="opacity:.75;font-size:.8rem">' + esc(convertErr) + '</p>' : '')
             + pptxDownloadActionsHtml(att, dlUrl, fileUrl)
             + '</div></div>';
+        showToast('Köhnə .ppt formatı — PDF çevrilməsi alınmadı', 'info');
     } else {
         body.innerHTML = '<div class="nk303-teq-empty"><p>' + esc(att.filename || 'Fayl') + '</p>'
             + '<a class="nk303-btn nk303-btn--primary" href="' + dlUrl + '" download>Yüklə</a></div>';
@@ -3074,14 +3485,28 @@ function assessProcessHtml(task, section, meta) {
         + '</div>';
 }
 
-function criterionItemHtml(e) {
+function criterionItemHtml(e, opts) {
     var open = ui.expandCrit === extraKey(e);
     var state = officialState(e.score);
     var title = extraCapTitle(e);
+    var selfMode = !!(opts && opts.selfMode);
+    /* Özünüqiymət: yalnız altmeyar adı + qiymətləndirmə (rəsmi vəziyyət / cari vəziyyət yox). */
+    if (selfMode) {
+        return '<div class="nk303-crit is-static">'
+            + '<span>'
+            + '<em class="nk303-crit-kicker">Altmeyar</em>'
+            + '<b>' + esc(title) + '</b>'
+            + '<div class="nk303-hint" style="margin:0.15rem 0 0">Qiymətləndirmə: '
+            + esc(e.score != null ? fmt(e.score) : '—') + '</div>'
+            + '</span>' + matBadge(e.score)
+            + '</div>';
+    }
     return '<button type="button" class="nk303-crit" onclick="nk303Call(\'crit\',\'' + qarg(extraKey(e)) + '\')">'
-        + '<span><b>' + esc(title) + '</b>'
+        + '<span>'
+        + '<b>' + esc(title) + '</b>'
         + (e.score != null ? '<div class="nk303-hint" style="margin:0.15rem 0 0">Qiymətləndirmə: ' + esc(fmt(e.score))
-            + (state ? ' · rəsmi vəziyyət ' + state : '') + '</div>' : '')
+            + (state ? ' · rəsmi vəziyyət ' + state : '') + '</div>'
+            : '<div class="nk303-hint" style="margin:0.15rem 0 0">Bal qeyd edilməyib</div>')
         + '</span>' + matBadge(e.score)
         + '</button>'
         + (open ? '<div class="nk303-sub">'
@@ -3096,39 +3521,57 @@ function criterionItemHtml(e) {
 
 function criterionBlock(org, dirId) {
     var items = extrasForDir(org, dirId);
+    var selfMode = !!(org && org.selfMode);
     if (!items.length) {
         var txt = org.dirTexts && org.dirTexts[dirId];
-        if (!txt) return '';
+        if (!txt) {
+            return selfMode
+                ? '<p class="nk303-empty">Bu istiqamət üzrə altmeyar tapılmadı.</p>'
+                : '';
+        }
         return '<div class="nk303-sub"><div class="lb">Cari vəziyyət</div><p>' + esc(txt) + '</p></div>';
+    }
+    if (selfMode) {
+        return '<div class="nk303-self-alts">'
+            + '<p class="nk303-hint" style="margin:0 0 0.45rem">Altmeyarlar və ballar</p>'
+            + items.map(function(e) { return criterionItemHtml(e, { selfMode: true }); }).join('')
+            + '</div>';
     }
     var groups = groupExtras(items);
     var hasDomains = groups.some(function(g) { return g.name; });
     if (!hasDomains) {
-        return items.map(criterionItemHtml).join('');
+        return items.map(function(e) { return criterionItemHtml(e); }).join('');
     }
     return groups.map(function(g) {
-        if (!g.name) return g.items.map(criterionItemHtml).join('');
+        if (!g.name) return g.items.map(function(e) { return criterionItemHtml(e); }).join('');
         return '<div class="nk303-domain">'
             + '<div class="nk303-domain-h">'
             + '<span><em>Meyar</em><b>' + esc(g.name) + '</b></span>'
             + (g.score != null ? '<span class="nk303-domain-sc">' + esc(fmt1(g.score)) + '</span>' : '')
             + matBadge(g.score)
             + '</div>'
-            + g.items.map(criterionItemHtml).join('')
+            + g.items.map(function(e) { return criterionItemHtml(e); }).join('')
             + '</div>';
     }).join('');
 }
 
 function dirExpandPanelHtml(org) {
     var d = DIRS.filter(function(x) { return x.id === ui.expandDir; })[0];
-    if (!d || !org || !dirHasDetail(org, d.id)) return '';
+    if (!d || !org) return '';
+    if (!dirHasDetail(org, d.id) && ui.hub !== 'self') return '';
     var crits = extrasForDir(org, d.id);
     var meta = extrasMeta(org, d.id);
     var weak = crits.filter(function(e) { return e.score != null && e.score < 50; });
     var hint = [];
-    if (meta.domainN) hint.push('Meyar sayı: ' + meta.domainN);
-    else if (crits.length) hint.push('Meyar sayı: ' + crits.length);
-    if (meta.capN) hint.push('Altmeyar sayı: ' + meta.capN);
+    if (org.selfMode) {
+        hint.push('Altmeyar sayı: ' + crits.length);
+        var scored = crits.filter(function(e) { return e.score != null; }).length;
+        if (scored) hint.push(scored + ' balı var');
+    } else {
+        if (meta.domainN) hint.push('Meyar sayı: ' + meta.domainN);
+        else if (crits.length) hint.push('Meyar sayı: ' + crits.length);
+        if (meta.capN) hint.push('Altmeyar sayı: ' + meta.capN);
+    }
     if (weak.length) hint.push('zəif sahələr: ' + weak.length);
     var block = criterionBlock(org, d.id);
     return '<div class="nk303-acc-body" style="margin-top:0.75rem;padding-top:0.75rem;border-top:1px solid #eee8f6">'
@@ -4991,7 +5434,7 @@ function hubTableHtml(view) {
         var href = r.key ? jiraBrowseUrl(r.key) : '';
         var detailId = r.key || r.qurum || '';
         var click = '';
-        if ((view.section === 'isq' || view.section === 'exq') && detailId) {
+        if ((view.section === 'isq' || view.section === 'exq' || view.section === 'self') && detailId) {
             click = ' class="is-click" onclick="nk303Call(\'hubDetail\',\'' + qarg(detailId) + '\')"'
                 + ' title="Qurum kartını aç: ' + esc(r.qurum || detailId) + '"';
         } else if (href) {
@@ -5006,7 +5449,7 @@ function hubTableHtml(view) {
             : '';
         var cells = '<td class="num">' + rank + '</td>'
             + '<td class="q" title="' + esc(r.qurum) + (r.key ? ' · ' + esc(r.key) : '') + '">'
-            + (view.section === 'isq' || view.section === 'exq'
+            + (view.section === 'isq' || view.section === 'exq' || view.section === 'self'
                 ? esc(r.qurum)
                 : (href
                     ? '<a class="nk303-qurum-link" href="' + esc(href) + '" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();">' + esc(r.qurum) + '</a>'
@@ -5071,7 +5514,7 @@ function hubTableHtml(view) {
         + '<p class="nk303-hint" style="margin:0">' + list.length
         + (view.section === 'exq' ? ' qurum' : ' qeyd')
         + (view.section !== 'exq' && view.rows && list.length !== view.rows.length ? ' / ' + view.rows.length : '')
-        + (view.section === 'isq' || view.section === 'exq'
+        + (view.section === 'isq' || view.section === 'exq' || view.section === 'self'
             ? ' · sətirə klikləyib qurum kartını açın'
             : (slice.some(function(r) { return r.key; }) ? ' · sətirə klikləyib tapşırığı Jira-da açın' : ''))
         + '</p></div>'
@@ -5490,19 +5933,27 @@ function hubBodyHtml(view) {
     var rankHtml = '';
     var isRadar = view.section === 'diag' || view.section === 'self' || view.section === 'isq';
     var isqRadarTarget = view.section === 'isq' && st.radarHasTarget !== false;
+    var radarCrit = isRadar && (st.dirRadar || []).length > 4;
     if (isRadar) {
-        rankHtml = '<ol class="nk303-rank' + ((st.dirRadar || []).length > 4 ? ' is-crit' : '') + '">'
+        rankHtml = (radarCrit
+            ? '<div class="nk303-rank-head" aria-hidden="true">'
+                + '<div><span>Meyar</span><b>Mövcud</b><em>Hədəf</em></div>'
+                + '<div><span>Meyar</span><b>Mövcud</b><em>Hədəf</em></div>'
+                + '</div>'
+            : '')
+            + '<ol class="nk303-rank' + (radarCrit ? ' is-crit' : '') + '">'
             + (st.dirRadar || []).map(function(d, i) {
                 var goal = view.section === 'isq'
                     ? (isqRadarTarget ? (d.target != null ? d.target : exqStarTarget(d.avg)) : null)
                     : maturityTarget(d.avg);
                 var fullName = d.title || d.short || '';
+                var label = radarCrit ? (d.title || d.short || '') : (d.short || d.title || '');
                 return '<li title="' + esc(fullName)
                     + (fullName ? ' · ' : '')
                     + 'Mövcud: ' + esc(d.avg == null ? '—' : fmt1(d.avg))
                     + (goal == null ? '' : (' · Hədəf: ' + esc(fmt1(goal)))) + '">'
                     + '<i>' + (i + 1) + '</i>'
-                    + '<span>' + esc(d.short || d.title) + '</span>'
+                    + '<span>' + esc(label) + '</span>'
                     + '<b>' + esc(d.avg == null ? '—' : fmt1(d.avg)) + '</b>'
                     + (goal == null ? '<em></em>' : ('<em>' + esc(fmt1(goal)) + '</em>'))
                     + '</li>';
@@ -5550,11 +6001,12 @@ function hubBodyHtml(view) {
                 + '</ul>')
         : compareLegendHtml(barColor(avg), barColor(maturityTarget(avg)));
     var midRight = isRadar
-        ? '<div class="nk303-hub-radar">'
+        ? '<div class="nk303-hub-radar' + (radarCrit ? ' is-crit' : '') + '">'
             + radarLegend
             + '<div class="nk303-radar-row">'
-            + '<div class="nk303-chart nk303-chart--radar"><canvas id="nkHubRadar"></canvas></div>'
-            + rankHtml + '</div></div>'
+            + '<div class="nk303-chart nk303-chart--radar' + (radarCrit ? ' is-crit' : '') + '"><canvas id="nkHubRadar"></canvas></div>'
+            + '<div class="nk303-rank-wrap' + (radarCrit ? ' is-crit' : '') + '">' + rankHtml + '</div>'
+            + '</div></div>'
         : (view.section === 'meqsed'
             ? meqsedKindShareHtml(st)
             : '<div class="nk303-chart nk303-chart--trend nk303-chart--exq-bars" style="height:'
@@ -5571,11 +6023,14 @@ function hubBodyHtml(view) {
             : hubGaugeHtml(avg, isRadar));
     var midBlock = '';
     if (view.section !== 'exq') {
-        midBlock = '<div class="nk303-mid' + (view.section === 'meqsed' ? ' nk303-mid--meqsed' : '') + '">'
+        midBlock = '<div class="nk303-mid'
+            + (view.section === 'meqsed' ? ' nk303-mid--meqsed' : '')
+            + (radarCrit ? ' nk303-mid--radar-crit' : '')
+            + '">'
             + '<section class="nk303-card nk303-card--gauge"><h3>' + esc(midLeftTitle) + '</h3>'
             + gaugeHtml
             + '</section>'
-            + '<section class="nk303-card nk303-card--radar"><h3>' + esc(midRightTitle) + '</h3>'
+            + '<section class="nk303-card nk303-card--radar' + (radarCrit ? ' is-crit' : '') + '"><h3>' + esc(midRightTitle) + '</h3>'
             + midRight
             + '</section>'
             + '<section class="nk303-card nk303-card--status"><h3>' + esc(statusTitle) + '</h3>'
@@ -5679,6 +6134,7 @@ function drawHubCharts(view) {
         if (dirs.length) {
         var radarSets = radarPairDatasets(nowVals, goalVals, nowHex, goalHex);
         if (view.section === 'isq' && st.radarHasTarget === false) radarSets = radarSets.slice(0, 1);
+        var manyAxes = dirs.length > 4;
         makeHubChart('nkHubRadar', {
             type: 'radar',
             data: {
@@ -5688,10 +6144,20 @@ function drawHubCharts(view) {
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
+                layout: {
+                    padding: manyAxes
+                        ? { top: 10, right: 14, bottom: 10, left: 14 }
+                        : { top: 4, right: 6, bottom: 4, left: 6 }
+                },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
                         callbacks: {
+                            title: function(items) {
+                                if (!items || !items.length) return '';
+                                var d = dirs[items[0].dataIndex];
+                                return (d && (d.title || d.short)) || '';
+                            },
                             label: function(ctx) {
                                 return ctx.dataset.label + ': ' + fmtScore(ctx.parsed.r);
                             }
@@ -5716,11 +6182,21 @@ function drawHubCharts(view) {
                             stepSize: 20,
                             color: '#94a3b8',
                             backdropColor: 'transparent',
-                            font: { size: 10, weight: '600' }
+                            font: { size: manyAxes ? 9 : 10, weight: '600' },
+                            z: 1
                         },
-                        grid: { color: 'rgba(148,163,184,0.35)' },
-                        angleLines: { color: 'rgba(148,163,184,0.35)' },
-                        pointLabels: { color: '#334155', font: { size: dirs.length > 4 ? 10 : 11, weight: '700' } }
+                        grid: { color: 'rgba(148,163,184,0.28)' },
+                        angleLines: { color: 'rgba(148,163,184,0.28)' },
+                        pointLabels: {
+                            color: '#1e293b',
+                            padding: manyAxes ? 10 : 6,
+                            centerPointLabels: false,
+                            font: {
+                                size: manyAxes ? 10 : 11,
+                                weight: '600',
+                                family: 'Inter, system-ui, sans-serif'
+                            }
+                        }
                     }
                 }
             }
@@ -6858,11 +7334,15 @@ export function nk303Call(action, payload) {
         ui.nav = 'dirs';
         ui.page = 1;
     } else if (action === 'expandDir') {
-        if (ui.expandDir === payload) {
+        var dirPayload = String(payload || '').trim();
+        if (ui.expandDir === dirPayload) {
             ui.expandDir = '';
+        } else if (ui.hub && ui.hubDetailKey) {
+            /* Özünüqiymət / hub qurum kartı — həmişə açıla bilsin */
+            ui.expandDir = dirPayload;
         } else {
-            var org = (buildModel().selected) || null;
-            ui.expandDir = org && dirHasDetail(org, payload) ? payload : '';
+            var orgExp = (buildModel().selected) || null;
+            ui.expandDir = orgExp && dirHasDetail(orgExp, dirPayload) ? dirPayload : '';
         }
         ui.expandCrit = '';
     } else if (action === 'crit') {
@@ -6933,6 +7413,8 @@ export function nk303Call(action, payload) {
         return;
     } else if (action === 'hubDetail') {
         ui.hubDetailKey = darg(payload || '');
+        ui.expandDir = '';
+        ui.expandCrit = '';
         window.scrollTo(0, 0);
         render();
         return;

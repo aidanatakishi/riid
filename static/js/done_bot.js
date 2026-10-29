@@ -2,7 +2,7 @@
  * AI Done bot — floating widget chrome + 3D robot visual.
  */
 
-import { mountBot3D } from './done_bot_3d.js?v=idda4';
+import { mountBot3D } from './done_bot_3d.js?v=idda6';
 
 var WIDGET_HTML = ''
   + '<div id="done-bot" data-user="">'
@@ -28,12 +28,22 @@ var mounted = false;
  */
 export function mountDoneBot(opts) {
   opts = opts || {};
-  if (mounted || document.getElementById('done-bot')) {
-    if (opts.userName != null) {
-      var existing = document.getElementById('done-bot');
-      if (existing) existing.setAttribute('data-user', opts.userName || '');
+  var existing = document.getElementById('done-bot');
+  if (mounted && existing && window.DoneBot) {
+    if (opts.userName != null) existing.setAttribute('data-user', opts.userName || '');
+    /* Re-bind open/close hooks if remounted with new callbacks */
+    if (typeof opts.onOpen === 'function') {
+      existing._aidOnOpen = opts.onOpen;
+    }
+    if (typeof opts.onClose === 'function') {
+      existing._aidOnClose = opts.onClose;
     }
     return window.DoneBot;
+  }
+  if (existing && !window.DoneBot) {
+    /* Orphan DOM from stale module — rebuild cleanly */
+    try { existing.remove(); } catch (e0) {}
+    mounted = false;
   }
   mounted = true;
 
@@ -44,6 +54,8 @@ export function mountDoneBot(opts) {
   if (document.body && document.body.classList.contains('is-booting')) {
     root.classList.add('is-boot-pending');
   }
+  if (typeof opts.onOpen === 'function') root._aidOnOpen = opts.onOpen;
+  if (typeof opts.onClose === 'function') root._aidOnClose = opts.onClose;
   document.body.appendChild(root);
   bindDoneBot(root, opts);
   return window.DoneBot;
@@ -63,22 +75,30 @@ function bindDoneBot(root, opts) {
   var text = '';
   var typeT, hideT;
   var robot3d = null;
-  var clickIdx = 0;
+  var hoverIdx = 0;
+  var hoverMoveT = 0;
   var audioCtx = null;
-  /* AI Robot.html — klik sözləri */
-  var CLICK_WORDS = [
+  /* Hover-da fun sözlər (klikdə yox) */
+  var HOVER_WORDS = [
     'Salam! 👋',
     'Necəsən? 😊',
-    'Sənə kömək edim? ✨',
-    'Mən buradayam! 🤖',
     'Əla gündür! 💙',
-    'Yenə klik et, xoşuma gəlir 😄'
+    'Mənə sual ver! ✨',
+    'Sənə kömək edim? 🤖',
+    'Mən buradayam! 😄',
+    'Bir şey soruş — hazıram! 🌟',
+    'Gəl danışaq! 💫'
   ];
-  var CLICK_EMOJI = ['✨', '💫', '⭐', '🌟'];
   var INTRO_WORD = 'Salam! Mən sənin AI köməkçinəm 👋';
 
   function bubbleTextFor() {
-    return 'Salam! Mən AI Done-am — sizi görməyə çox şadam! Paneldə sizə kömək edə bilərəm, klikləyin!';
+    return HOVER_WORDS[0];
+  }
+
+  function nextHoverPhrase() {
+    var phrase = HOVER_WORDS[hoverIdx % HOVER_WORDS.length];
+    hoverIdx += 1;
+    return phrase;
   }
 
   function showBubbleText(msg, holdMs) {
@@ -101,9 +121,17 @@ function bindDoneBot(root, opts) {
       bubble.classList.remove('show');
     }, hold);
   }
+  /* Alias — say/boot paths still call showBubble; missing name aborted bindDoneBot */
+  function showBubble(msg, holdMs) {
+    return showBubbleText(msg, holdMs);
+  }
 
-  function showBubble() {
-    showBubbleText(bubbleTextFor(), 8000);
+  function sayHoverPhrase() {
+    if (root.classList.contains('is-boot-hero') || root.classList.contains('is-boot-landing')) return;
+    if (root.classList.contains('closed')) return;
+    if (document.body.classList.contains('aid-chat-open')) return;
+    showBubbleText(nextHoverPhrase(), 2600);
+    if (robot3d && robot3d.setMood) robot3d.setMood('happy');
   }
 
   function blip() {
@@ -123,42 +151,25 @@ function bindDoneBot(root, opts) {
     } catch (e) {}
   }
 
-  function spawnClickFx(clientX, clientY) {
-    for (var i = 0; i < 6; i++) {
-      var s = document.createElement('span');
-      s.className = 'donebot-fx';
-      s.textContent = CLICK_EMOJI[i % CLICK_EMOJI.length];
-      s.style.left = (clientX - 13 + Math.random() * 90 - 45) + 'px';
-      s.style.top = (clientY - 13) + 'px';
-      s.style.setProperty('--dx', (Math.random() * 90 - 45) + 'px');
-      s.style.animationDelay = (i * 0.05) + 's';
-      document.body.appendChild(s);
-      setTimeout(function (el) { return function () { el.remove(); }; }(s), 1300);
-    }
-  }
-
-  function sayClickPhrase(ev) {
-    var phrase = CLICK_WORDS[clickIdx % CLICK_WORDS.length];
-    clickIdx += 1;
-    showBubbleText(phrase, 2400);
-    blip();
-    if (robot3d && robot3d.react) robot3d.react();
-    if (ev && !reduce) spawnClickFx(ev.clientX, ev.clientY);
-  }
-
   try { sessionStorage.removeItem('done-bot-closed'); sessionStorage.removeItem('done-bot-v'); } catch (e) {}
   setTimeout(function () {
     if (!root.classList.contains('closed') && !root.classList.contains('is-boot-hero') && !root.classList.contains('is-boot-landing')) {
-      showBubble();
+      showBubbleText(nextHoverPhrase(), 5000);
     }
   }, 1500);
+
   bot.addEventListener('mouseenter', function () {
-    if (root.classList.contains('is-boot-hero') || root.classList.contains('is-boot-landing')) return;
-    if (!bubble.classList.contains('show')) showBubble();
+    sayHoverPhrase();
+    blip();
+  });
+  bot.addEventListener('pointermove', function () {
+    var now = Date.now();
+    if (now - hoverMoveT < 1400) return;
+    hoverMoveT = now;
+    sayHoverPhrase();
   });
   bot.addEventListener('focus', function () {
-    if (root.classList.contains('is-boot-hero') || root.classList.contains('is-boot-landing')) return;
-    if (!bubble.classList.contains('show')) showBubble();
+    sayHoverPhrase();
   });
 
   if (canvas) {
@@ -176,10 +187,18 @@ function bindDoneBot(root, opts) {
     void bot.offsetWidth;
     bot.classList.add('squish');
     bot.classList.remove('alert');
-    sayClickPhrase(ev);
-    /* Loading ekranında yalnız danışır — chat açılmasın */
+    /* Klikdə söz demir — yalnız chat açır */
     if (root.classList.contains('is-boot-hero') || root.classList.contains('is-boot-landing')) return;
+    clearTimeout(typeT);
+    clearTimeout(hideT);
+    bubble.classList.remove('show');
     root.dispatchEvent(new CustomEvent('done-bot:open', { bubbles: true }));
+    /* Direct fallback — CustomEvent listener itəndə də panel açılsın */
+    try {
+      if (typeof root._aidOnOpen === 'function') root._aidOnOpen();
+      else if (window.AIDone && typeof window.AIDone.open === 'function') window.AIDone.open();
+    } catch (eOpen) {}
+    if (ev && ev.stopPropagation) ev.stopPropagation();
   });
 
   function setMood(mood) {
@@ -203,11 +222,11 @@ function bindDoneBot(root, opts) {
     bot.style.transition = '';
     bot.style.transform = '';
     bot.style.transformOrigin = '';
-    /* Loading: sakit dayansın — fırlanma/spin olmasın */
-    setMood(null);
+    setMood('wave');
     setTimeout(function () {
       if (robot3d && robot3d.resize) robot3d.resize();
       showBubbleText(INTRO_WORD, 2600);
+      if (robot3d && robot3d.react) robot3d.react();
     }, 40);
   }
 
@@ -385,10 +404,12 @@ function bindDoneBot(root, opts) {
     if (robot3d && robot3d.setPaused) robot3d.setPaused(document.hidden);
   });
 
-  if (typeof opts.onOpen === 'function') {
-    root.addEventListener('done-bot:open', function () { opts.onOpen(); });
-  }
-  if (typeof opts.onClose === 'function') {
-    root.addEventListener('done-bot:close', function () { opts.onClose(); });
-  }
+  root.addEventListener('done-bot:open', function () {
+    var fn = root._aidOnOpen || opts.onOpen;
+    if (typeof fn === 'function') fn();
+  });
+  root.addEventListener('done-bot:close', function () {
+    var fn = root._aidOnClose || opts.onClose;
+    if (typeof fn === 'function') fn();
+  });
 }

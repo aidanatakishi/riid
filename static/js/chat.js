@@ -46,8 +46,8 @@ import {
     getReviewParty
 } from './model.js?v=idda32';
 import { exportTasksToWord } from './report.js?v=idda49';
-import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda17';
-import { mountAIDone, getAIDone } from './aid_done.js?v=idda9';
+import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda22';
+import { mountAIDone, getAIDone } from './aid_done.js?v=idda12';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];
 var STATUS_LABELS = {
@@ -2598,6 +2598,7 @@ function ensureUi() {
     mountAIDone({
         startOpen: false,
         externalLauncher: true,
+        userName: viewerFirstName() || '',
         reply: resolveAidReply,
         onReset: function() {
             chatEpoch += 1;
@@ -2609,35 +2610,28 @@ function ensureUi() {
             chatBusy = false;
         }
     });
+    var aidApi = getAIDone() || window.AIDone;
+    if (aidApi && typeof aidApi.setUserName === 'function') {
+        aidApi.setUserName(viewerFirstName() || '');
+    }
     mountDoneBotWidget();
     pushAidTasks();
     syncAiBotNotifyFromState();
 }
 
-function parkBotToFab() {
-    var api = getDoneBot() || window.DoneBot;
-    if (api && typeof api.parkToFab === 'function') api.parkToFab({ silent: true });
-}
-
 function mountDoneBotWidget() {
     var openGuard = 0;
-    /* 3D click → open chat + star-vanish to design fab; fab toggles chat */
+    /* 3D bot klik → AI Done panelini aç (bot yerində qalır) */
     mountDoneBot({
         userName: viewerFirstName() || '',
         onOpen: function() {
             var now = Date.now();
-            if (now - openGuard < 450) return;
+            if (now - openGuard < 400) return;
             openGuard = now;
-            var aid = getAIDone() || window.AIDone;
-            var isOpen = !!(aid && typeof aid.isOpen === 'function' && aid.isOpen());
-            if (isOpen || chatOpen) {
-                closeChat();
-                return;
-            }
             openChat();
-            parkBotToFab();
         },
         onClose: function() {
+            /* Bot X: yalnız bot bağlanır; chat paneli ayrıca bağlanır */
             if (chatOpen) closeChat();
         }
     });
@@ -2755,6 +2749,7 @@ function toggleChat() {
 }
 
 function openChat() {
+    ensureUi();
     var aid = getAIDone() || window.AIDone;
     if (aid && typeof aid.open === 'function') {
         aid.open();
@@ -2771,12 +2766,10 @@ function closeChat() {
     if (aid && typeof aid.close === 'function') {
         aid.close();
         chatOpen = false;
-        parkBotToFab();
         syncAiBotNotifyFromState();
         return;
     }
     chatOpen = false;
-    parkBotToFab();
 }
 
 function resetChat() {

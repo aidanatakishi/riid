@@ -52,7 +52,7 @@ var WIDGET_HTML = ''
   + '  <div class="aid-launcher__bubble">'
   + '    <button class="aid-launcher__close" aria-label="Bağla" type="button"><svg class="ic"><use href="#i-x"/></svg></button>'
   + '    <div class="aid-launcher__label">AI Done</div>'
-  + '    <p class="aid-launcher__text">Salam! Mən AI Done-am — sizi görməyə çox şadam! Paneldə sizə kömək edim?</p>'
+  + '    <p class="aid-launcher__text">Salam! Mən AI Done-am — panelinizin bələdçisiyəm. Risk və iş yükünü açım?</p>'
   + '  </div>'
   + '  <button class="aid-launcher__fab" aria-label="AI Done söhbətini aç" aria-expanded="false" type="button"><svg class="m"><use href="#mascot"/></svg><span class="aid-launcher__badge"></span></button>'
   + '</div>'
@@ -105,6 +105,7 @@ function bindAIDone(root, opts) {
   var mas = $('.aid__mascot', root);
   var T = [];
   var busy = 0;
+  var userName = String(opts.userName || '').trim();
   var customAnswer = typeof opts.answer === 'function' ? opts.answer : null;
   var smartReply = typeof opts.reply === 'function' ? opts.reply : null;
   var onReset = typeof opts.onReset === 'function' ? opts.onReset : null;
@@ -159,7 +160,21 @@ function bindAIDone(root, opts) {
   }
 
   function greet() {
-    row(0, 'Salam! Mən <b>AI Done</b>-am, süni intellekt köməkçinizəm. Tapşırıqlarınız, risklər və iş yükü barədə soruşa bilərsiniz. Aşağıdakı düymələrdən birini seçin və ya sualınızı yazın.');
+    var name = String(userName || '').trim();
+    var msg = name
+      ? ('Salam, <b>' + esc(name) + '</b>! Mən <b>AI Done</b>-am, sizin panel köməkçiniz. Ümid edirəm günün yaxşı keçir — paneldə axtarmağa ehtiyac yoxdur, sadəcə məndən soruşun. Nədən başlayaq?')
+      : 'Salam! Mən <b>AI Done</b>-am, sizin panel köməkçiniz. Ümid edirəm günün yaxşı keçir — paneldə axtarmağa ehtiyac yoxdur, sadəcə məndən soruşun. Nədən başlayaq?';
+    row(0, msg);
+  }
+
+  function setUserName(name) {
+    userName = String(name || '').trim();
+    var bubble = $('.aid-launcher__text', root);
+    if (bubble) {
+      bubble.textContent = userName
+        ? ('Salam, ' + userName + '! Mən AI Done-am — soruşun, paneldə axtarmağa ehtiyac yoxdur.')
+        : 'Salam! Mən AI Done-am — soruşun, paneldə axtarmağa ehtiyac yoxdur.';
+    }
   }
 
   function defaultAnswer(q) {
@@ -299,20 +314,21 @@ function bindAIDone(root, opts) {
     try {
       document.dispatchEvent(new CustomEvent(v ? 'aid-done:open' : 'aid-done:close', { bubbles: true }));
     } catch (eEv) {}
-    /* Some embedded Chromium builds stall CSS transitions at currentTime=0 — finish them. */
-    requestAnimationFrame(function() {
-      requestAnimationFrame(function() {
-        try {
-          var anims = panel.getAnimations();
-          var stalled = anims.some(function(a) {
-            return a.playState === 'running' && (!a.currentTime || a.currentTime < 16);
-          });
-          if (stalled) anims.forEach(function(a) { try { a.finish(); } catch (eF) {} });
-        } catch (e2) {}
-      });
-    });
+    /* Force visible end-state — CSS transitions can stall at opacity:0 in embedded Chromium */
+    try { panel.getAnimations().forEach(function(a) { try { a.cancel(); } catch (eC) {} }); } catch (eA) {}
+    if (v) {
+      panel.style.setProperty('opacity', '1', 'important');
+      panel.style.setProperty('visibility', 'visible', 'important');
+      panel.style.setProperty('transform', 'none', 'important');
+      panel.style.setProperty('pointer-events', 'auto', 'important');
+    } else {
+      panel.style.removeProperty('opacity');
+      panel.style.removeProperty('visibility');
+      panel.style.removeProperty('transform');
+      panel.style.removeProperty('pointer-events');
+    }
     if (v && matchMedia('(hover:hover)').matches) {
-      setTimeout(function() { inp.focus(); }, 300);
+      setTimeout(function() { try { inp.focus(); } catch (eF) {} }, 300);
     }
     return v;
   }
@@ -383,12 +399,14 @@ function bindAIDone(root, opts) {
     s.setProperty('--ey', ((e.clientY / innerHeight - 0.5) * 2.4).toFixed(2));
   });
 
+  setUserName(userName);
   greet();
   if (opts.startOpen) toggle(1);
   else toggle(0);
 
   return {
     setTasks: setTasks,
+    setUserName: setUserName,
     open: function() { toggle(1); },
     close: function() { toggle(0); },
     toggle: toggle,

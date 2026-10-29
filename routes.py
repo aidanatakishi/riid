@@ -43,6 +43,12 @@ from jira_client import (
     download_jira_attachment,
     verify_jira_pat,
 )
+from office_convert import (
+    is_mip_protected_pdf,
+    is_ole_bytes,
+    is_presentation_filename,
+    maybe_convert_presentation_to_pdf,
+)
 from jql import build_date_filter_jql, generate_recommendations
 from users import (
     TEAM_IDS,
@@ -1307,12 +1313,50 @@ def api_jira_attachments():
     return jsonify({'key': key, 'attachments': safe, 'totalOnIssue': len(result.get('attachments') or [])}), 200
 
 
+def _prepare_attachment_payload(result, att_id):
+    """OLE .ppt (və ya .pptx adlı OLE) → PDF; brauzerdə açılsın."""
+    filename = str((result or {}).get('filename') or ('attachment-' + str(att_id)))
+    mime = str((result or {}).get('mimeType') or 'application/octet-stream').split(';')[0].strip() or 'application/octet-stream'
+    payload = (result or {}).get('content') or b''
+    headers_extra = {}
+    if isinstance(payload, bytes) and is_mip_protected_pdf(payload):
+        headers_extra['X-Jira-Protected'] = 'mip'
+    elif isinstance(payload, bytes) and is_ole_bytes(payload) and (
+        is_presentation_filename(filename)
+        or 'presentation' in mime.lower()
+        or 'powerpoint' in mime.lower()
+    ):
+        pdf, err = maybe_convert_presentation_to_pdf(payload, filename=filename, att_id=str(att_id))
+        if pdf and not is_mip_protected_pdf(pdf):
+            stem = filename.rsplit('.', 1)[0] if '.' in filename else filename
+            filename = (stem or 'teqdimat') + '.pdf'
+            mime = 'application/pdf'
+            payload = pdf
+            headers_extra['X-Jira-Converted'] = 'pdf'
+        else:
+            # MIP stub və ya çevirmə alınmadı — orijinalı saxla, brauzer stub göstərməsin
+            if pdf and is_mip_protected_pdf(pdf):
+                err = err or 'MIP/IRM şifrəli (PDF stub)'
+            if err and ('MIP' in str(err) or 'IRM' in str(err)):
+                headers_extra['X-Jira-Protected'] = 'mip'
+            if err:
+                headers_extra['X-Jira-Convert-Error'] = quote(str(err)[:180], safe='')
+            headers_extra['X-Jira-Format'] = 'ole-ppt'
+    return {
+        'filename': filename,
+        'mimeType': mime,
+        'content': payload,
+        'headers_extra': headers_extra,
+    }
+
+
 def _attachment_file_response(result, att_id, disposition='inline'):
-    filename = str(result.get('filename') or ('attachment-' + str(att_id)))
-    mime = str(result.get('mimeType') or 'application/octet-stream').split(';')[0].strip() or 'application/octet-stream'
+    prepared = _prepare_attachment_payload(result, att_id)
+    filename = prepared['filename']
+    mime = prepared['mimeType']
+    payload = prepared['content'] or b''
     # Content-Type/Disposition HTTP header-ləri latin-1 olmalıdır (Waitress/Flask).
     mime = mime.encode('ascii', 'ignore').decode('ascii') or 'application/octet-stream'
-    payload = result.get('content') or b''
     ext = ''
     if '.' in filename:
         ext = '.' + filename.rsplit('.', 1)[-1]
@@ -1324,15 +1368,17 @@ def _attachment_file_response(result, att_id, disposition='inline'):
         f'{disposition}; filename="{ascii_name}"; '
         f"filename*=UTF-8''{quote(filename, safe='')}"
     )
+    headers = {
+        'Content-Disposition': cd,
+        'Cache-Control': 'private, max-age=120',
+        'X-Content-Type-Options': 'nosniff',
+    }
+    headers.update(prepared.get('headers_extra') or {})
     return Response(
         payload,
         status=200,
         mimetype=mime,
-        headers={
-            'Content-Disposition': cd,
-            'Cache-Control': 'private, max-age=120',
-            'X-Content-Type-Options': 'nosniff',
-        },
+        headers=headers,
     )
 
 

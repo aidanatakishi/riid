@@ -49,7 +49,7 @@ import {
     belongsToDept,
     isTaskOrSubtaskType,
     isDiagOverallLabel
-} from './model.js?v=idda28';
+} from './model.js?v=idda29';
 import { KIND, MATURITY, STATUS, OPINION, maturityColor } from './palette.js?v=idda4';
 
 var SECTIONS = ['diag', 'isq', 'self', 'exq', 'meqsed'];
@@ -134,6 +134,15 @@ var lastEyeBtn = null;
 var modalEscBound = false;
 var rowCache = null;
 var tabCountRaf = 0;
+var expandAssessDir = '';
+/** Qərar 303 — 4 rəsmi rəqəmsallaşma istiqaməti (e-qanun.az/framework/60692). */
+var OFFICIAL_DIR_DEFS = [
+    { id: 'strategiya', title: 'Strategiya', needles: ['strategiya'] },
+    { id: 'xidmetler', title: 'Xidmətlər', needles: ['xidmet'] },
+    { id: 'texniki', title: 'Texniki-texnoloji infrastruktur', needles: ['texniki', 'infrastruktur', 'texnoloj'] },
+    { id: 'emeliyyat', title: 'Əməliyyat modelləri', needles: ['emeliyyat', 'meliyyat'] }
+];
+var OFFICIAL_LAW_URL = 'https://e-qanun.az/framework/60692';
 
 var EYE_SVG = '<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">'
     + '<path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />'
@@ -1218,7 +1227,7 @@ function hubTable(section, headers, rowsHtml) {
         + '<div class="assess-hub-rows" role="rowgroup">' + rowsHtml + '</div></div>';
 }
 
-function hubRow(cells, detailHtml) {
+function hubRow(cells, detailHtml, rowOpts) {
     var cellsHtml = cells.map(function(c) {
         var cls = 'assess-hub-cell' + (c.cls ? ' ' + c.cls : '');
         return '<div class="' + cls + '" data-label="' + escapeHtml(c.label || '') + '">' + c.html + '</div>';
@@ -1226,7 +1235,12 @@ function hubRow(cells, detailHtml) {
     var detail = detailHtml
         ? '<div class="assess-hub-detail-wrap">' + detailHtml + '</div>'
         : '';
-    return '<div class="assess-hub-row" role="row">' + cellsHtml + detail + '</div>';
+    var attrs = ' class="assess-hub-row' + (rowOpts && rowOpts.cls ? ' ' + rowOpts.cls : '') + '" role="row"';
+    if (rowOpts && rowOpts.onclick) {
+        attrs += ' onclick="' + rowOpts.onclick + '"';
+        if (rowOpts.title) attrs += ' title="' + escapeHtml(rowOpts.title) + '"';
+    }
+    return '<div' + attrs + '>' + cellsHtml + detail + '</div>';
 }
 
 function pagerHtml(section, page, pages, qurumN, rowTotal) {
@@ -1703,13 +1717,24 @@ function renderSelf(rows) {
     var body = rows.map(function(r) {
         var t = r.task;
         var info = getSelfAssessInfo(t);
+        var key = t && t.key ? String(t.key) : '';
+        var open = key && openDiagKey === key;
         return hubRow([
-            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: qurumCell(r) },
+            { label: 'Qurum adı', cls: 'assess-hub-cell--qurum', html: selfQurumCell(r) },
             { label: 'Nəticə', html: scoreBadge(info.score) },
-            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(t.key) }
-        ], '');
+            { label: '', cls: 'assess-hub-cell--action', html: eyeButton(key) }
+        ], '', key ? {
+            cls: 'is-click' + (open ? ' is-open' : ''),
+            onclick: 'openDiagModal(\'' + escapeHtml(key) + '\')',
+            title: '4 rəsmi istiqamətə bax'
+        } : null);
     }).join('');
     return hubTable('self', ['Qurum adı', 'Nəticə', ''], body);
+}
+
+function selfQurumCell(r) {
+    var raw = r && r.qurum != null ? String(r.qurum).trim() : '';
+    return '<div class="assess-hub-qurum">' + escapeHtml(raw || '—') + '</div>';
 }
 
 function renderExq(rows) {
@@ -4468,6 +4493,181 @@ function directionCard(d, overallText) {
         + '</article>';
 }
 
+function foldAssessTitle(str) {
+    return normalizeStr(str || '')
+        .replace(/ı/g, 'i').replace(/ə/g, 'e').replace(/ö/g, 'o')
+        .replace(/ü/g, 'u').replace(/ğ/g, 'g').replace(/ş/g, 's').replace(/ç/g, 'c')
+        .replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function officialDirIdFromTitle(title) {
+    var f = foldAssessTitle(title);
+    var i, d, n;
+    for (i = 0; i < OFFICIAL_DIR_DEFS.length; i++) {
+        d = OFFICIAL_DIR_DEFS[i];
+        for (n = 0; n < d.needles.length; n++) {
+            if (f.indexOf(d.needles[n]) !== -1) {
+                if (d.id === 'xidmetler' && f.indexOf('say') !== -1) continue;
+                return d.id;
+            }
+        }
+    }
+    return '';
+}
+
+function officialDirScoreMap(directions) {
+    var map = {};
+    OFFICIAL_DIR_DEFS.forEach(function(d) {
+        map[d.id] = { score: '—', text: '' };
+    });
+    (directions || []).forEach(function(d) {
+        if (!d || !d.title) return;
+        var id = officialDirIdFromTitle(d.title) || (d.dirId || '');
+        if (!id || !map[id]) return;
+        if (d.score && d.score !== '—') map[id].score = d.score;
+        if (d.text) map[id].text = String(d.text).trim();
+    });
+    return map;
+}
+
+/** Qərar 303 üzrə istiqamətin rəsmi altmeyarları (12) — ballar taskdan, siyahı həmişə tam. */
+function altmeyarlarForOfficialDir(info, dirId) {
+    var byId = {};
+    var byTitle = {};
+    ((info && info.criteria) || []).forEach(function(c) {
+        if (!c) return;
+        if (c.id) byId[c.id] = c;
+        if (c.title) byTitle[foldAssessTitle(c.title)] = c;
+    });
+    ((info && info.extras) || []).forEach(function(e) {
+        if (!e || !e.title) return;
+        var crit = (e.critId && (DIAG_CRITERIA_DEFS || []).filter(function(c) { return c.id === e.critId; })[0])
+            || null;
+        if (crit) {
+            if (!byId[crit.id]) byId[crit.id] = { id: crit.id, title: crit.title, score: e.score, text: e.text };
+            else {
+                if ((!byId[crit.id].score || byId[crit.id].score === '—') && e.score && e.score !== '—') {
+                    byId[crit.id].score = e.score;
+                }
+                if (!byId[crit.id].text && e.text) byId[crit.id].text = e.text;
+            }
+        }
+    });
+    return (DIAG_CRITERIA_DEFS || []).filter(function(c) {
+        return c && c.dirId === dirId;
+    }).map(function(c) {
+        var slot = byId[c.id] || byTitle[foldAssessTitle(c.title)] || {};
+        return {
+            id: c.id,
+            dirId: c.dirId,
+            title: c.title,
+            short: c.short,
+            fieldId: c.fieldId || '',
+            score: (slot.score && slot.score !== '—') ? slot.score : '—',
+            text: slot.text || ''
+        };
+    });
+}
+
+function officialDirChevronSvg() {
+    return '<svg class="assess-dir-card-chev" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">'
+        + '<path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" /></svg>';
+}
+
+function officialDirExpandHtml(dir, info, overallText) {
+    var crits = altmeyarlarForOfficialDir(info, dir.id);
+    var text = dir.text ? String(dir.text).trim() : '';
+    if (isJiraTableHeaderDump(text)) text = '';
+    if (overallText && text && text.replace(/\s+/g, ' ') === String(overallText).replace(/\s+/g, ' ')) text = '';
+    var scored = 0;
+    var rows = crits.map(function(c) {
+        var title = c.title || c.short || 'Altmeyar';
+        if (isJiraTableHeaderDump(title) || isDiagOverallLabel(title)) return '';
+        if (c.score && c.score !== '—') scored += 1;
+        var score = c.score && c.score !== '—' ? scoreBadge(c.score) : '<span class="assess-score-badge is-empty">—</span>';
+        return '<div class="assess-crit-row">'
+            + '<div class="assess-crit-row-main">'
+            + '<span class="assess-crit-kicker">Altmeyar</span>'
+            + '<b>' + escapeHtml(title) + '</b>'
+            + (c.text ? '<p class="assess-crit-note">' + escapeHtml(c.text) + '</p>' : '')
+            + '</div>' + score + '</div>';
+    }).filter(Boolean).join('');
+    return '<div class="assess-dir-expand">'
+        + '<p class="assess-dir-expand-hint"><b>' + escapeHtml(dir.title) + '</b> üzrə altmeyarlar'
+        + (crits.length ? ' · ' + crits.length + ' altmeyar' : '')
+        + (scored ? ' · ' + scored + ' balı var' : '') + '</p>'
+        + (text ? '<p class="assess-dir-card-text" style="margin:0 0 0.55rem">' + escapeHtml(text) + '</p>' : '')
+        + (rows
+            ? '<div class="assess-crit-list">' + rows + '</div>'
+            : '<p class="assess-modal-empty" style="padding:0.5rem 0">Bu istiqamət üzrə altmeyar tapılmadı.</p>')
+        + '</div>';
+}
+
+function assessMaturityOf(score) {
+    var n = parseScoreForSort(score);
+    if (n == null || !isFinite(n)) return null;
+    if (n <= 24) return { id: 'ilkin', label: 'İlkin' };
+    if (n <= 49) return { id: 'idare', label: 'İdarə olunan' };
+    if (n <= 74) return { id: 'mueyyen', label: 'Müəyyən edilmiş' };
+    return { id: 'opt', label: 'Optimallaşdırılan' };
+}
+
+function assessMatBadge(score) {
+    var mat = assessMaturityOf(score);
+    if (!mat) return '<span class="assess-official-mat is-none">—</span>';
+    return '<span class="assess-official-mat is-' + mat.id + '">' + escapeHtml(mat.label) + '</span>';
+}
+
+function assessBarColor(score) {
+    var n = parseScoreForSort(score);
+    if (n == null || !isFinite(n)) return '#94a3b8';
+    return maturityColor(n) || '#94a3b8';
+}
+
+function officialDirsSectionHtml(info, overallText) {
+    var dirMap = officialDirScoreMap((info && info.directions) || []);
+    var parts = [];
+    parts.push('<p class="assess-modal-law">Qərar 303, 4 rəsmi istiqamət · '
+        + '<a href="' + OFFICIAL_LAW_URL + '" target="_blank" rel="noopener noreferrer">e-qanun.az/framework/60692</a>'
+        + ' · istiqamətə klikləyin, altmeyarlar açılsın</p>');
+    parts.push('<h4 class="assess-modal-section-title">Dörd rəsmi istiqamət</h4>');
+    parts.push('<div class="assess-official-dirs">');
+    OFFICIAL_DIR_DEFS.forEach(function(def) {
+        var slot = dirMap[def.id] || { score: '—', text: '' };
+        var open = expandAssessDir === def.id;
+        var n = parseScoreForSort(slot.score);
+        var w = n == null ? 0 : Math.max(0, Math.min(100, n));
+        var scLabel = n == null ? '—' : (Math.round(n * 10) / 10).toFixed(1).replace(/\.0$/, '');
+        var critN = altmeyarlarForOfficialDir(info, def.id).length;
+        parts.push('<button type="button" class="assess-official-dir'
+            + (open ? ' is-on' : '') + '" onclick="event.stopPropagation(); toggleAssessDir(\''
+            + escapeHtml(def.id) + '\')">'
+            + '<div class="assess-official-dir-top">'
+            + '<span class="nm">' + escapeHtml(def.title) + '</span>'
+            + '<span class="sc">' + escapeHtml(scLabel) + '</span>'
+            + '</div>'
+            + assessMatBadge(slot.score)
+            + '<span class="assess-official-bar" aria-hidden="true"><i style="width:' + w
+            + '%;background:' + assessBarColor(slot.score) + '"></i></span>'
+            + '<span class="assess-official-meta">' + critN + ' altmeyar · kliklə aç</span>'
+            + '</button>');
+    });
+    parts.push('</div>');
+    if (expandAssessDir) {
+        var openDef = OFFICIAL_DIR_DEFS.filter(function(d) { return d.id === expandAssessDir; })[0];
+        if (openDef) {
+            var openSlot = dirMap[openDef.id] || { score: '—', text: '' };
+            parts.push(officialDirExpandHtml({
+                id: openDef.id,
+                title: openDef.title,
+                score: openSlot.score,
+                text: openSlot.text
+            }, info, overallText));
+        }
+    }
+    return parts.join('');
+}
+
 function dashOr(value) {
     if (value == null || value === '') return '—';
     return String(value);
@@ -4491,11 +4691,12 @@ function formatDueMonthYear(d) {
     return AZ_MONTHS[d.getMonth()] + ' ' + d.getFullYear();
 }
 
-function fillModalChrome(r, kicker, showDueDate) {
+function fillModalChrome(r, kicker, showDueDate, showTeqdimat) {
     var t = (r && r.task) || {};
     var titleEl = document.getElementById('assessDiagModalTitle');
     var subEl = document.getElementById('assessDiagModalSub');
     var keyEl = document.getElementById('assessDiagModalKey');
+    var teqEl = document.getElementById('assessDiagModalTeq');
     var dateEl = document.getElementById('assessDiagModalDate');
     var yearLabel = r && r.year ? String(r.year) : '';
     var qurum = (r && r.qurum) || '—';
@@ -4506,6 +4707,12 @@ function fillModalChrome(r, kicker, showDueDate) {
         keyEl.textContent = t.key || '';
         keyEl.href = base && t.key ? (base + '/browse/' + encodeURIComponent(t.key)) : '#';
         keyEl.classList.toggle('hidden', !t.key);
+        keyEl.title = t.key ? 'Tapşırığa keçid (Jira)' : '';
+    }
+    if (teqEl) {
+        teqEl.classList.toggle('hidden', !(showTeqdimat && t.key));
+        teqEl.setAttribute('data-issue-key', t.key || '');
+        teqEl.title = t.key ? 'Jira-dakı Təqdimat faylını göstər (PDF/PPTX)' : '';
     }
     if (dateEl) {
         if (showDueDate) {
@@ -4535,7 +4742,9 @@ function diagModalBodyHtml(r) {
     if (isJiraTableHeaderDump(overallText)) overallText = '';
     var extras = ((info && info.extras) || []).filter(function(e) {
         return e && e.title && !isJiraTableHeaderDump(e.title) && !isJiraTableHeaderDump(e.score)
-            && !isDiagOverallLabel(e.title);
+            && !isDiagOverallLabel(e.title)
+            && !officialDirIdFromTitle(e.title)
+            && !(DIAG_CRITERIA_DEFS || []).some(function(c) { return c.id === e.critId || c.title === e.title; });
     });
     if (overallScore || overallText) {
         parts.push('<div class="assess-modal-overall">'
@@ -4544,16 +4753,7 @@ function diagModalBodyHtml(r) {
             + (overallText ? '<p class="assess-modal-overall-text">' + escapeHtml(overallText) + '</p>' : '')
             + '</div>');
     }
-    var dirHtml = ((info && info.directions) || []).map(function(d) { return directionCard(d, overallText); }).join('');
-    if (dirHtml) {
-        parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə istiqamətləri</h4>');
-        parts.push('<div class="assess-dir-grid">' + dirHtml + '</div>');
-    }
-    var critHtml = ((info && info.criteria) || []).map(function(d) { return directionCard(d, overallText); }).join('');
-    if (critHtml) {
-        parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə meyarları</h4>');
-        parts.push('<div class="assess-dir-grid assess-dir-grid--isq">' + critHtml + '</div>');
-    }
+    parts.push(officialDirsSectionHtml(info, overallText));
     var extraHtml = extras.map(function(e) { return directionCard(e, overallText); }).join('');
     if (extraHtml) {
         parts.push('<h4 class="assess-modal-section-title">Əlavə meyarlar</h4>');
@@ -4628,11 +4828,11 @@ function selfModalBodyHtml(t) {
         ? info.score : '';
     var overallText = (info && info.overall && info.overall.text) || '';
     if (isJiraTableHeaderDump(overallText)) overallText = '';
-    var dirs = (info && info.directions) || [];
-    var criteria = (info && info.criteria) || [];
     var extras = ((info && info.extras) || []).filter(function(e) {
         return e && e.title && !isJiraTableHeaderDump(e.title) && !isJiraTableHeaderDump(e.score)
-            && !isDiagOverallLabel(e.title);
+            && !isDiagOverallLabel(e.title)
+            && !officialDirIdFromTitle(e.title)
+            && !(DIAG_CRITERIA_DEFS || []).some(function(c) { return c.id === e.critId || c.title === e.title; });
     });
     var parts = [];
     if (overallScore || overallText) {
@@ -4642,27 +4842,11 @@ function selfModalBodyHtml(t) {
             + (overallText ? '<p class="assess-modal-overall-text">' + escapeHtml(overallText) + '</p>' : '')
             + '</div>');
     }
-    var dirHtml = dirs.map(function(d) { return directionCard(d, overallText); }).join('');
-    if (dirHtml) {
-        parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə istiqamətləri</h4>');
-        parts.push('<div class="assess-dir-grid">' + dirHtml + '</div>');
-    }
-    var critHtml = criteria.map(function(d) { return directionCard(d, overallText); }).join('');
-    if (critHtml) {
-        parts.push('<h4 class="assess-modal-section-title">Qiymətləndirmə meyarları</h4>');
-        parts.push('<div class="assess-dir-grid assess-dir-grid--isq">' + critHtml + '</div>');
-    }
+    parts.push(officialDirsSectionHtml(info, overallText));
     var extraHtml = extras.map(function(e) { return directionCard(e, overallText); }).join('');
     if (extraHtml) {
         parts.push('<h4 class="assess-modal-section-title">Əlavə meyarlar</h4>');
         parts.push('<div class="assess-dir-grid">' + extraHtml + '</div>');
-    }
-    var hasAny = overallScore || overallText
-        || dirs.some(function(d) { return (d.score && d.score !== '—') || d.text; })
-        || criteria.some(function(d) { return (d.score && d.score !== '—') || d.text; })
-        || extras.length;
-    if (!hasAny) {
-        return '<p class="assess-modal-empty">Ümumi nəticə qeyd edilməyib.</p>';
     }
     return parts.join('');
 }
@@ -4695,7 +4879,12 @@ function fillDiagModal(r) {
     var overlay = document.getElementById(DIAG_MODAL_ID);
     var panel = overlay && overlay.querySelector('.assess-modal-panel');
     if (panel) panel.classList.toggle('assess-modal-panel--compact', cat === 'meqsed');
-    fillModalChrome(r, SECTION_LABELS[cat] || 'Ətraflı baxış', cat === 'diag' || cat === 'meqsed' || cat === 'isq');
+    fillModalChrome(
+        r,
+        SECTION_LABELS[cat] || 'Ətraflı baxış',
+        cat === 'diag' || cat === 'self' || cat === 'meqsed' || cat === 'isq',
+        cat === 'diag' || cat === 'self'
+    );
     var bodyEl = document.getElementById('assessDiagModalBody');
     if (!bodyEl) return;
     if (cat === 'meqsed') bodyEl.innerHTML = meqsedModalBodyHtml(t);
@@ -4738,6 +4927,7 @@ export function openDiagModal(key, btn) {
         ? activeTab
         : (classifyAssessmentCategory(r.task) || activeTab);
     if (!hasDetailModal(cat)) return;
+    expandAssessDir = '';
     openDiagKey = key;
     lastEyeBtn = btn || null;
     fillDiagModal(r);
@@ -4755,12 +4945,35 @@ export function openDiagModal(key, btn) {
     });
 }
 
+export function toggleAssessDir(dirId) {
+    var id = String(dirId || '').trim();
+    if (!id) return;
+    expandAssessDir = expandAssessDir === id ? '' : id;
+    if (openDiagKey && hubRowByKey[openDiagKey]) fillDiagModal(hubRowByKey[openDiagKey]);
+}
+
+export function openAssessTeqdimat() {
+    var teqEl = document.getElementById('assessDiagModalTeq');
+    var key = (teqEl && teqEl.getAttribute('data-issue-key')) || openDiagKey || '';
+    key = String(key || '').trim();
+    if (!key) {
+        showToast('Tapşırıq açarı yoxdur.', 'error');
+        return;
+    }
+    if (typeof window.nk303Call === 'function') {
+        window.nk303Call('openTeqdimat', key);
+        return;
+    }
+    showToast('Təqdimat pəncərəsi yüklənməyib.', 'error');
+}
+
 export function closeDiagModal() {
     if (!openDiagKey) {
         var overlayEarly = document.getElementById(DIAG_MODAL_ID);
         if (overlayEarly && overlayEarly.classList.contains('hidden')) return;
     }
     openDiagKey = null;
+    expandAssessDir = '';
     var overlay = document.getElementById(DIAG_MODAL_ID);
     if (overlay) {
         overlay.classList.add('hidden');

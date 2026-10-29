@@ -2105,19 +2105,20 @@ var DIAG_NETICE_HEADINGS = [
 ];
 
 export var DIAG_CRITERIA_DEFS = [
-    { id: 'strat_coord', dirId: 'strategiya', title: 'Rəqəmsal strategiya və əlaqələndirmə', short: 'Strategiya', needles: ['reqemsal strategiya ve elaqelendirme', 'reqemsal strategiya'] },
-    { id: 'svc_digital', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlər', short: 'Rəq. xidmətlər', needles: ['reqemsal xidmetler'] },
-    { id: 'svc_access', dirId: 'xidmetler', title: 'Əlçatanlıq və istifadəçi təcrübəsi', short: 'Əlçatanlıq', needles: ['elcatanliq ve istifadeci', 'elcatanliq', 'istifadeci tecrubesi'] },
-    { id: 'svc_org', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlərin təşkili və təkmilləşdirilməsi', short: 'Xidmət təşkili', needles: ['xidmetlerin teskili ve tekmillesdirilmesi', 'xidmetlerin teskili'] },
-    { id: 'tech_infra', dirId: 'texniki', title: 'İnformasiya infrastrukturu', short: 'İnfrastruktur', needles: ['informasiya infrastrukturu'] },
-    { id: 'tech_ai', dirId: 'texniki', title: 'Süni intellekt həllərinin tətbiqinə hazırlıq və analitika', short: 'Süni intellekt', needles: ['suni intellekt hellerinin tetbiqine hazirliq', 'suni intellekt hellerinin tetbiqi', 'suni intellekt hellerinin', 'suni intellekt'] },
-    { id: 'tech_data', dirId: 'texniki', title: 'Məlumat idarəetməsi', short: 'Məlumat', needles: ['melumat idareetmesi'] },
-    { id: 'tech_coop', dirId: 'texniki', title: 'Əməkdaşlıq və inteqrasiya', short: 'İnteqrasiya', needles: ['emekdasliq ve inteqrasiya'] },
-    { id: 'tech_auto', dirId: 'texniki', title: 'Daxili idarəetmə proseslərinin avtomatlaşdırılması', short: 'Avtomatlaşdırma', needles: ['daxili idareetme proseslerinin', 'daxili proseslerin avtomatlasdirilmasi'] },
-    { id: 'ops_struct', dirId: 'emeliyyat', title: 'Təşkilati struktur', short: 'Struktur', needles: ['teskilati struktur'] },
-    { id: 'ops_skills', dirId: 'emeliyyat', title: 'Bilik və bacarıqların artırılması', short: 'Bilik', needles: ['bilik ve bacariq'] },
-    { id: 'ops_legal', dirId: 'emeliyyat', title: 'Hüquqi tənzimləmə', short: 'Hüquqi', needles: ['huquqi tenzimleme'] }
+    { id: 'strat_coord', dirId: 'strategiya', title: 'Rəqəmsal strategiya və əlaqələndirmə', short: 'Strategiya', fieldId: 'customfield_17646', needles: ['reqemsal strategiya ve elaqelendirme', 'reqemsal strategiya'] },
+    { id: 'svc_digital', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlər', short: 'Rəq. xidmətlər', fieldId: 'customfield_17647', needles: ['reqemsal xidmetler'] },
+    { id: 'svc_access', dirId: 'xidmetler', title: 'Əlçatanlıq və istifadəçi təcrübəsi', short: 'Əlçatanlıq', fieldId: 'customfield_17648', needles: ['elcatanliq ve istifadeci', 'elcatanliq', 'istifadeci tecrubesi'] },
+    { id: 'svc_org', dirId: 'xidmetler', title: 'Rəqəmsal xidmətlərin təşkili və təkmilləşdirilməsi', short: 'Xidmət təşkili', fieldId: 'customfield_17649', needles: ['xidmetlerin teskili ve tekmillesdirilmesi', 'xidmetlerin teskili'] },
+    { id: 'tech_infra', dirId: 'texniki', title: 'İnformasiya infrastrukturu', short: 'İnfrastruktur', fieldId: 'customfield_17650', needles: ['informasiya infrastrukturu'] },
+    { id: 'tech_ai', dirId: 'texniki', title: 'Süni intellekt həllərinin tətbiqinə hazırlıq və analitika', short: 'Süni intellekt', fieldId: 'customfield_17651', needles: ['suni intellekt hellerinin tetbiqine hazirliq', 'suni intellekt hellerinin tetbiqi', 'suni intellekt hellerinin', 'suni intellekt'] },
+    { id: 'tech_data', dirId: 'texniki', title: 'Məlumat idarəetməsi', short: 'Məlumat', fieldId: 'customfield_17652', needles: ['melumat idareetmesi'] },
+    { id: 'tech_coop', dirId: 'texniki', title: 'Əməkdaşlıq və inteqrasiya', short: 'İnteqrasiya', fieldId: 'customfield_17653', needles: ['emekdasliq ve inteqrasiya'] },
+    { id: 'tech_auto', dirId: 'texniki', title: 'Daxili idarəetmə proseslərinin avtomatlaşdırılması', short: 'Avtomatlaşdırma', fieldId: 'customfield_17654', needles: ['daxili idareetme proseslerinin', 'daxili proseslerin avtomatlasdirilmasi'] },
+    { id: 'ops_struct', dirId: 'emeliyyat', title: 'Təşkilati struktur', short: 'Struktur', fieldId: 'customfield_17655', needles: ['teskilati struktur'] },
+    { id: 'ops_skills', dirId: 'emeliyyat', title: 'Bilik və bacarıqların artırılması', short: 'Bilik', fieldId: 'customfield_17656', needles: ['bilik ve bacariq'] },
+    { id: 'ops_legal', dirId: 'emeliyyat', title: 'Hüquqi tənzimləmə', short: 'Hüquqi', fieldId: 'customfield_17657', needles: ['huquqi tenzimleme'] }
 ];
+export var SELF_CRITERIA_FIELD_IDS = DIAG_CRITERIA_DEFS.map(function(c) { return c.fieldId; }).filter(Boolean);
 
 export var ISQ_DIR_DEFS = [
     { id: 'strategy', title: 'Strateji və idarəçilik sənədləri', short: 'Strateji', fieldId: 'customfield_17503' },
@@ -2598,6 +2599,9 @@ export function collectSelfDisplayFieldIds() {
     var ids = [SELF_OVERALL_FIELD];
     (SELF_DIR_FIELDS || []).forEach(function(d) {
         if (d && d.id && ids.indexOf(d.id) === -1) ids.push(d.id);
+    });
+    (SELF_CRITERIA_FIELD_IDS || []).forEach(function(id) {
+        if (id && ids.indexOf(id) === -1) ids.push(id);
     });
     return ids;
 }
@@ -4266,7 +4270,9 @@ export function getSelfAssessInfo(t) {
         var slot = selfScoreSlot(t, d.id);
         return { title: d.title, score: slot.score, text: slot.text, fieldId: d.id };
     });
-    var fieldIds = [SELF_OVERALL_FIELD].concat(SELF_DIR_FIELDS.map(function(d) { return d.id; }));
+    var fieldIds = [SELF_OVERALL_FIELD]
+        .concat(SELF_DIR_FIELDS.map(function(d) { return d.id; }))
+        .concat(SELF_CRITERIA_FIELD_IDS || []);
     var parsed = parseDiagUmumiNetice(readSelfNeticeRaw(t));
     var dirMap = {};
     directions.forEach(function(d) {
@@ -4297,6 +4303,13 @@ export function getSelfAssessInfo(t) {
     }
     if (isHeaderOnlyText(overallText) || isOverallTitleDump(overallText)) overallText = '';
     var critMap = {};
+    /* Özünüqiymət: hər altmeyarın ayrıca Jira bal sahəsi (17646–17657). */
+    DIAG_CRITERIA_DEFS.forEach(function(c) {
+        if (!c.fieldId) return;
+        var slot = selfScoreSlot(t, c.fieldId);
+        if (!slot || (slot.score === '—' && !slot.text)) return;
+        critMap[c.id] = mergeDirSlot(critMap[c.id], slot.score, slot.text);
+    });
     (parsed.extras || []).forEach(function(e) {
         var crit = (e.critId && DIAG_CRITERIA_DEFS.filter(function(c) { return c.id === e.critId; })[0])
             || matchDiagCriterion(e.title);
@@ -4310,6 +4323,7 @@ export function getSelfAssessInfo(t) {
             dirId: c.dirId,
             title: c.title,
             short: c.short,
+            fieldId: c.fieldId || '',
             score: slot.score || '—',
             text: slot.text || ''
         };
@@ -5678,3 +5692,178 @@ export function hasAssessmentResult(category, t) {
     }
     return false;
 }
+
+/** Qərar 303 diaqnostika proses mərhələləri (nk303 PROCESS ilə eyni). */
+export var DIAG_PROCESS_STAGES = [
+    'Özünüqiymətləndirmə ilkin görüşlər',
+    'Yerində baxışların keçirilməsi',
+    'Sənədlərin toplanılması',
+    'Təhlil mərhələsi',
+    'Hesabat fəaliyyəti',
+    'Nəticənin quruma təqdim edilməsi'
+];
+
+var DIAG_VIS_STATUS = [
+    { id: 'done', label: 'Tamamlanıb', groups: { done: true } },
+    { id: 'in_progress', label: 'İcradadır', groups: { planned: true, progress: true, paused: true, blocked: true, rejected: true } },
+    { id: 'review', label: 'Rəydə', groups: { review: true, esd: true } },
+    { id: 'not_started', label: 'İcraya başlanmayıb', groups: { other: true } }
+];
+
+function diagVisStatusOf(group) {
+    var i;
+    for (i = 0; i < DIAG_VIS_STATUS.length; i++) {
+        if (DIAG_VIS_STATUS[i].groups[group]) return DIAG_VIS_STATUS[i];
+    }
+    return DIAG_VIS_STATUS[DIAG_VIS_STATUS.length - 1];
+}
+
+function diagIssueSummaryText(t) {
+    return String((t && t.fields && t.fields.summary) || '').trim();
+}
+
+function isDiagIssueDoneStatus(t) {
+    if (!t || !t.fields || !t.fields.status) return false;
+    return getStatusGroup(t.fields.status.name) === 'done';
+}
+
+function isDiagReportPrepSubtask(t) {
+    var s = foldAz(diagIssueSummaryText(t));
+    if (!s || s.indexOf('hesabat') === -1) return false;
+    return s.indexOf('hazirla') !== -1;
+}
+
+function collectDiagChildIssues(parent) {
+    var children = [];
+    var seen = {};
+    function addChild(issue) {
+        if (!issue || !issue.key || seen[issue.key] || (parent && issue.key === parent.key)) return;
+        var full = (state.issueIndex && state.issueIndex[issue.key]) || issue;
+        seen[issue.key] = true;
+        children.push(full);
+    }
+    if (!parent || !parent.fields) return children;
+    (parent.fields.subtasks || []).forEach(addChild);
+    (parent.fields.issuelinks || []).forEach(function(link) {
+        var linked = link.outwardIssue || link.inwardIssue;
+        if (linked) addChild(linked);
+    });
+    return children;
+}
+
+function diagPhaseBlob(t, kids) {
+    var parts = [];
+    function pushText(raw) {
+        var s = String(raw || '').trim();
+        if (s) parts.push(s);
+    }
+    pushText(diagIssueSummaryText(t));
+    (getRawPhaseEntries(t) || []).forEach(function(p) { pushText(p && p.text); });
+    PHASE_FIELDS.forEach(function(pf) { pushText(getPhaseFieldText(t, pf.text)); });
+    (kids || []).forEach(function(child) {
+        pushText(diagIssueSummaryText(child));
+        (getRawPhaseEntries(child) || []).forEach(function(p) { pushText(p && p.text); });
+    });
+    return foldAz(parts.join(' | '));
+}
+
+/**
+ * Diaqnostika cari mərhələ indeksi (0…5) — nk303 processIndex ilə eyni məntiq.
+ */
+export function getDiagProcessIndex(t, statusGroup, hasResult) {
+    var group = statusGroup || '';
+    var kids = collectDiagChildIssues(t);
+    var meetings = kids.filter(function(c) { return !isDiagReportPrepSubtask(c); });
+    var reports = kids.filter(isDiagReportPrepSubtask);
+    var meetingsAllDone = meetings.length > 0 && meetings.every(isDiagIssueDoneStatus);
+    var meetingsSomeDone = meetings.some(isDiagIssueDoneStatus);
+    var reportDone = reports.some(isDiagIssueDoneStatus);
+    var reportOpen = reports.some(function(c) { return !isDiagIssueDoneStatus(c); });
+    var letter = getEsdSentLetterInfo(t) || {};
+    var hasLetter = !!(letter.date || letter.number || letter.raw);
+    var blob = diagPhaseBlob(t, kids);
+
+    if (hasLetter) return 5;
+    if (group === 'done' && (hasResult || reportDone)) return 5;
+    if (reportDone && (hasResult || group === 'review' || group === 'esd')) return 5;
+    if (/netice.*qurum|quruma.*teqdim|teqdim edil/.test(blob) && (reportDone || group === 'done')) return 5;
+
+    if (reportDone || (meetingsAllDone && reports.length && reportOpen)) return 4;
+    if (meetingsAllDone && /hesabat/.test(blob)) return 4;
+    if (group === 'done') return 4;
+
+    if (meetingsAllDone && (/tehlil|yoxlama/.test(blob) || group === 'review' || group === 'esd')) return 3;
+
+    if (meetingsAllDone) return 2;
+    if (meetingsSomeDone && (/sened|toplan/.test(blob))) return 2;
+
+    if (meetingsSomeDone || (meetings.length && (group === 'progress' || group === 'paused' || group === 'blocked'))) {
+        return 1;
+    }
+    if (group === 'progress' && !meetings.length) return 1;
+
+    if (group === 'rejected') return 0;
+    if (hasResult) return 4;
+    return 0;
+}
+
+/**
+ * Qurum diaqnostikasının mərhələ / ESD / rəy / viza məlumatı (chatbot üçün).
+ */
+export function getDiagProcessInfo(t) {
+    if (!t || !t.fields) return null;
+    var statusName = (t.fields.status && t.fields.status.name) || '';
+    var group = getStatusGroup(statusName) || 'other';
+    var vis = diagVisStatusOf(group);
+    var hasResult = false;
+    try { hasResult = !!hasAssessmentResult('diag', t); } catch (e0) { hasResult = false; }
+    var idx = getDiagProcessIndex(t, group, hasResult);
+    if (idx < 0) idx = 0;
+    if (idx >= DIAG_PROCESS_STAGES.length) idx = DIAG_PROCESS_STAGES.length - 1;
+    var stage = DIAG_PROCESS_STAGES[idx] || '';
+    var assignee = (t.fields.assignee && t.fields.assignee.displayName) || '';
+    var letter = getEsdSentLetterInfo(t) || {};
+    var esdInner = null;
+    var esdKind = null;
+    var reviewParty = null;
+    try { esdInner = getEsdInnerStatus(t); } catch (e1) { esdInner = null; }
+    try { esdKind = getEsdKind(t); } catch (e2) { esdKind = null; }
+    try { reviewParty = getReviewParty(t); } catch (e3) { reviewParty = null; }
+
+    var kids = collectDiagChildIssues(t);
+    var openKids = [];
+    var i;
+    for (i = 0; i < kids.length && openKids.length < 8; i++) {
+        var child = kids[i];
+        if (isDiagIssueDoneStatus(child)) continue;
+        var cg = getStatusGroup((child.fields && child.fields.status && child.fields.status.name) || '') || 'other';
+        openKids.push({
+            key: child.key || '',
+            summary: diagIssueSummaryText(child).slice(0, 120),
+            status: (child.fields && child.fields.status && child.fields.status.name) || '',
+            statusGroup: cg,
+            assignee: (child.fields && child.fields.assignee && child.fields.assignee.displayName) || ''
+        });
+    }
+
+    return {
+        key: t.key || '',
+        status: statusName,
+        statusGroup: group,
+        visId: vis.id,
+        visLabel: vis.label,
+        processIdx: idx,
+        processStage: stage,
+        hasResult: hasResult,
+        assignee: assignee,
+        esdStatus: esdInner && esdInner.label ? esdInner.label : '',
+        esdKind: esdKind && esdKind.label ? esdKind.label : '',
+        reviewParty: reviewParty && reviewParty.label ? reviewParty.label : '',
+        reviewRole: reviewParty && reviewParty.roleLabel ? reviewParty.roleLabel : '',
+        reviewUnit: reviewParty && reviewParty.unit ? reviewParty.unit : '',
+        letterNumber: letter.number || '',
+        letterDate: letter.date || '',
+        openSubtasks: openKids
+    };
+}
+

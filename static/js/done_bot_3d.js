@@ -467,25 +467,14 @@ function createScene(THREE, canvas, opts) {
       sz = 1 + 0.05 * Math.sin((r - 0.75) / 0.2 * Math.PI);
     }
     var hs = 1 + hw * 0.04;
-    var bootHero = !!(canvas.closest && canvas.closest('#done-bot.is-boot-hero'));
-    bot.position.y = Math.sin(t * 1.7) * (bootHero ? 0.04 : 0.09) + (bootHero ? 0 : jy);
+    bot.position.y = Math.sin(t * 1.7) * 0.09 + jy;
     bot.scale.set(sz * s * hs, sy * s * hs, sz * s * hs);
-    if (bootHero) {
-      /* Loading ekranı: fırlanma/dönmə yox — sakit idle */
-      bot.rotation.z = 0;
-      spin.rotation.y = 0;
-      head.rotation.y = Math.sin(t * 0.7) * 0.04;
-      head.rotation.x = Math.sin(t * 1.1) * 0.02;
-      head.rotation.z = 0;
-      if (react && react.spin) react.spin = false;
-    } else {
-      /* Yüngül əyilmə — kursor istiqamətinə */
-      bot.rotation.z = -cl(hx) * 0.08;
-      spin.rotation.y = (react && react.spin && r < 1.1 ? ease(r / 1.1) * Math.PI * 2 : 0) + hx * 0.18;
-      head.rotation.y = hx * 0.5;
-      head.rotation.x = -hy * 0.3 + Math.sin(t * 1.3) * 0.03;
-      head.rotation.z = Math.sin(t * 0.9) * 0.04 - hx * 0.05;
-    }
+    /* Yüngül əyilmə — kursor istiqamətinə */
+    bot.rotation.z = -cl(hx) * 0.08;
+    spin.rotation.y = (react && react.spin && r < 1.1 ? ease(r / 1.1) * Math.PI * 2 : 0) + hx * 0.18;
+    head.rotation.y = hx * 0.5;
+    head.rotation.x = -hy * 0.3 + Math.sin(t * 1.3) * 0.03;
+    head.rotation.z = Math.sin(t * 0.9) * 0.04 - hx * 0.05;
 
     var wv = r < 2.2 ? Math.min(r * 5, 1) * Math.min((2.2 - r) * 5, 1) : 0;
     if (moodWave && t < happy) wv = Math.max(wv, 0.85);

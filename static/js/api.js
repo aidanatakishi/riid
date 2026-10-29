@@ -1,7 +1,7 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
-import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda15';
-import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda25';
+import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda17';
+import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda29';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda55';
 
 var DEFAULT_BASE_URL = 'https://jira.idda.az';
@@ -25,6 +25,9 @@ var SEARCH_FIELDS = [
     'customfield_17511', 'customfield_17512',
     'customfield_17634', 'customfield_17635', 'customfield_17636', 'customfield_17637',
     'customfield_17638', 'customfield_17639',
+    'customfield_17646', 'customfield_17647', 'customfield_17648', 'customfield_17649',
+    'customfield_17650', 'customfield_17651', 'customfield_17652', 'customfield_17653',
+    'customfield_17654', 'customfield_17655', 'customfield_17656', 'customfield_17657',
     'customfield_17439', 'customfield_17632', 'customfield_17706',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ].join(',');

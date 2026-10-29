@@ -11,11 +11,11 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/tokens.css?v=idda5">
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda228">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=idda235">
     <link rel="stylesheet" href="/static/css/service_digitization.css?v=idda18">
-    <link rel="stylesheet" href="/static/css/done_bot.css?v=idda10">
-    <link rel="stylesheet" href="/static/css/aid_done.css?v=idda9">
-    <link rel="stylesheet" href="/static/css/nk303.css?v=idda119">
+    <link rel="stylesheet" href="/static/css/done_bot.css?v=idda12">
+    <link rel="stylesheet" href="/static/css/aid_done.css?v=idda11">
+    <link rel="stylesheet" href="/static/css/nk303.css?v=idda125">
 </head>
 <body class="app-page is-booting">
 
@@ -683,24 +683,6 @@
             </div>
         </div>
         <div id="nk303Root"></div>
-        <div id="nk303TeqdimatOverlay" class="nk303-teq-overlay hidden" hidden role="dialog" aria-modal="true" aria-labelledby="nk303TeqdimatTitle" onclick="nk303Call('closeTeqdimat')">
-            <div class="nk303-teq-panel" onclick="event.stopPropagation()">
-                <header class="nk303-teq-head">
-                    <div>
-                        <p class="nk303-teq-kicker">Jira əlavəsi</p>
-                        <h3 id="nk303TeqdimatTitle">Təqdimat</h3>
-                        <p id="nk303TeqdimatMeta" class="nk303-teq-meta"></p>
-                    </div>
-                    <div class="nk303-teq-actions">
-                        <a id="nk303TeqdimatDownload" class="nk303-btn nk303-btn--ghost hidden" href="#" download>Yüklə</a>
-                        <button type="button" class="nk303-teq-close" onclick="nk303Call('closeTeqdimat')" aria-label="Bağla">×</button>
-                    </div>
-                </header>
-                <div id="nk303TeqdimatBody" class="nk303-teq-body">
-                    <p class="nk303-hint">Yüklənir…</p>
-                </div>
-            </div>
-        </div>
         <div id="nk303ExqStageOverlay" class="nk303-exq-stage-overlay hidden" hidden role="dialog" aria-modal="true" aria-labelledby="nk303ExqStageTitle" onclick="nk303Call('closeExqStages')">
             <div class="nk303-exq-stage-panel" onclick="event.stopPropagation()">
                 <header class="nk303-exq-stage-head">
@@ -721,6 +703,25 @@
         </div>
     </div>
 
+    <div id="nk303TeqdimatOverlay" class="nk303-teq-overlay hidden" hidden role="dialog" aria-modal="true" aria-labelledby="nk303TeqdimatTitle" onclick="nk303Call('closeTeqdimat')">
+        <div class="nk303-teq-panel" onclick="event.stopPropagation()">
+            <header class="nk303-teq-head">
+                <div>
+                    <p class="nk303-teq-kicker">Jira əlavəsi</p>
+                    <h3 id="nk303TeqdimatTitle">Təqdimat</h3>
+                    <p id="nk303TeqdimatMeta" class="nk303-teq-meta"></p>
+                </div>
+                <div class="nk303-teq-actions">
+                    <a id="nk303TeqdimatDownload" class="nk303-btn nk303-btn--ghost hidden" href="#" download>Yüklə</a>
+                    <button type="button" class="nk303-teq-close" onclick="nk303Call('closeTeqdimat')" aria-label="Bağla">×</button>
+                </div>
+            </header>
+            <div id="nk303TeqdimatBody" class="nk303-teq-body">
+                <p class="nk303-hint">Yüklənir…</p>
+            </div>
+        </div>
+    </div>
+
     <div id="assessDiagModal" class="assess-modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="assessDiagModalTitle" aria-hidden="true" onclick="onDiagModalOverlayClick(event)">
         <div class="assess-modal-panel" onclick="event.stopPropagation()">
             <button type="button" class="assess-modal-close" onclick="closeDiagModal()" aria-label="Bağla">
@@ -729,7 +730,13 @@
             <div class="assess-modal-head">
                 <p id="assessDiagModalSub" class="assess-modal-kicker">Ümumi nəticə</p>
                 <h3 id="assessDiagModalTitle">—</h3>
-                <a id="assessDiagModalKey" class="assess-modal-key hidden" href="#" target="_blank" rel="noopener noreferrer"></a>
+                <div id="assessDiagModalLinks" class="assess-modal-links">
+                    <a id="assessDiagModalKey" class="assess-modal-key hidden" href="#" target="_blank" rel="noopener noreferrer"></a>
+                    <button type="button" id="assessDiagModalTeq" class="assess-modal-teq hidden" onclick="openAssessTeqdimat()">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><path d="M7 8h4v5H7zM13 8h4M13 11h4"/></svg>
+                        <span>Təqdimat</span>
+                    </button>
+                </div>
                 <div id="assessDiagModalDate" class="assess-modal-date hidden"></div>
             </div>
             <div id="assessDiagModalBody" class="assess-modal-body"></div>
@@ -793,7 +800,7 @@
     </div>
     <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
-    <script type="module" src="/static/js/main.js?v=idda358"></script>
+    <script type="module" src="/static/js/main.js?v=idda372"></script>
 
 </body>
 </html>

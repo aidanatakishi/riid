@@ -23,6 +23,9 @@ var SEARCH_FIELDS = [
     'customfield_17319', 'customfield_17320', 'customfield_17435',
     'customfield_17634', 'customfield_17635', 'customfield_17636', 'customfield_17637',
     'customfield_17638', 'customfield_17639',
+    'customfield_17646', 'customfield_17647', 'customfield_17648', 'customfield_17649',
+    'customfield_17650', 'customfield_17651', 'customfield_17652', 'customfield_17653',
+    'customfield_17654', 'customfield_17655', 'customfield_17656', 'customfield_17657',
     'issuetype', 'subtasks', 'parent', 'issuelinks'
 ];
 
