@@ -3268,6 +3268,17 @@ button.nk303-kpi {
     color: #0f172a;
     margin: 0.35rem 0 0;
 }
+.nk303-dirs--isq .nk303-dir-score--na {
+    font-size: 0.78rem;
+    font-weight: 600;
+    line-height: 1.45;
+    color: #475569;
+    margin-top: 0.45rem;
+    overflow-wrap: anywhere;
+}
+.nk303-dirs--isq .nk303-dir.is-network-na {
+    grid-column: span 1;
+}
 .nk303-dir {
     background: #fff;
     border: 0;

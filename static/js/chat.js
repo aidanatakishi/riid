@@ -45,8 +45,8 @@ import {
     getEsdKind,
     getReviewParty
 } from './model.js?v=idda32';
-import { exportTasksToWord } from './report.js?v=idda49';
-import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda22';
+import { exportTasksToWord } from './report.js?v=idda50';
+import { mountDoneBot, getDoneBot } from './done_bot.js?v=idda25';
 import { mountAIDone, getAIDone } from './aid_done.js?v=idda12';
 
 var STATUS_ORDER = ['done', 'progress', 'review', 'esd', 'planned', 'blocked', 'paused', 'rejected', 'other'];

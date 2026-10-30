@@ -365,9 +365,12 @@ function createScene(THREE, canvas, opts) {
   var paused = false;
   var disposed = false;
   var raf = 0;
+  var idleGazeX = 0;
+  var idleGazeY = 0;
+  var nextGaze = 1.4;
+  var nextAlive = 2.6;
   var ray = new THREE.Raycaster();
   var nd = new THREE.Vector2();
-  var ease = function (x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; };
   var back = function (x) {
     var c = 1.70158;
     var d = c + 1;
@@ -395,9 +398,10 @@ function createScene(THREE, canvas, opts) {
     var h = Math.max(1, canvas.clientHeight || (canvas.parentElement && canvas.parentElement.clientHeight) || 168);
     R.setSize(w, h, false);
     cam.aspect = w / h;
-    var d = Math.max(8.2, 5.1 / Math.max(cam.aspect, 0.6));
-    cam.position.set(0, 1.4, d);
-    cam.lookAt(0, 1.15, 0);
+    /* Daha uzaq + aşağı baxış — tullananda antena canvasdan kəsilməsin */
+    var d = Math.max(9.6, 6.2 / Math.max(cam.aspect, 0.55));
+    cam.position.set(0, 1.05, d);
+    cam.lookAt(0, 0.88, 0);
     cam.updateProjectionMatrix();
   }
 
@@ -405,13 +409,14 @@ function createScene(THREE, canvas, opts) {
     moodWave = mood === 'wave' || mood === 'cheer' || mood === 'happy';
     moodThink = mood === 'think';
     if (moodWave) {
-      happy = t + 2.2;
-      react = { t0: t, spin: mood === 'cheer' };
+      happy = t + 2.6;
+      /* Soft bounce only — no full-body spin (looks mechanical on boot) */
+      react = { t0: t, spin: false };
     }
   }
 
   function reactClick() {
-    react = { t0: t, spin: Math.random() > 0.55 };
+    react = { t0: t, spin: false };
     happy = t + 1.8;
   }
 
@@ -447,9 +452,25 @@ function createScene(THREE, canvas, opts) {
     t += dt || 0.016;
 
     var k = Math.min((dt || 0.016) * 5, 1);
-    hx += (mx - hx) * k;
-    hy += (my - hy) * k;
+    /* Idle look-around — mouse yoxdursa da canlı baxış */
+    if (t > nextGaze) {
+      nextGaze = t + 1.6 + Math.random() * 2.4;
+      idleGazeX = (Math.random() - 0.5) * 1.15;
+      idleGazeY = (Math.random() - 0.5) * 0.7;
+    }
+    var mouseWeight = hover ? 1 : 0.42;
+    var tx = mx * mouseWeight + idleGazeX * (1 - mouseWeight * 0.55);
+    var ty = my * mouseWeight + idleGazeY * (1 - mouseWeight * 0.55);
+    hx += (tx - hx) * k;
+    hy += (ty - hy) * k;
     hw += ((hover ? 1 : 0) - hw) * Math.min((dt || 0.016) * 6, 1);
+
+    /* Kiçik canlı sıçrayış — fırlanma yox */
+    if (!reduce && t > nextAlive && (!react || (t - react.t0) > 1.2)) {
+      nextAlive = t + 2.4 + Math.random() * 2.8;
+      react = { t0: t, spin: false };
+      if (moodWave || moodThink) happy = Math.max(happy, t + 1.4);
+    }
 
     var intro = Math.min(t / 1.1, 1);
     var s = intro < 1 ? back(intro) : 1;
@@ -459,43 +480,48 @@ function createScene(THREE, canvas, opts) {
     var sz = 1;
     if (r < 0.75) {
       var p = Math.sin(r / 0.75 * Math.PI);
-      jy = p * 1.0;
-      sy = 1 + p * 0.08;
-      sz = 1 - p * 0.04;
+      /* Yüngül sıçrayış — antena üçün yuxarı ehtiyat qalsın */
+      jy = p * 0.38;
+      sy = 1 + p * 0.05;
+      sz = 1 - p * 0.025;
     } else if (r < 0.95) {
-      sy = 1 - 0.1 * Math.sin((r - 0.75) / 0.2 * Math.PI);
-      sz = 1 + 0.05 * Math.sin((r - 0.75) / 0.2 * Math.PI);
+      sy = 1 - 0.06 * Math.sin((r - 0.75) / 0.2 * Math.PI);
+      sz = 1 + 0.03 * Math.sin((r - 0.75) / 0.2 * Math.PI);
     }
-    var hs = 1 + hw * 0.04;
-    bot.position.y = Math.sin(t * 1.7) * 0.09 + jy;
-    bot.scale.set(sz * s * hs, sy * s * hs, sz * s * hs);
-    /* Yüngül əyilmə — kursor istiqamətinə */
-    bot.rotation.z = -cl(hx) * 0.08;
-    spin.rotation.y = (react && react.spin && r < 1.1 ? ease(r / 1.1) * Math.PI * 2 : 0) + hx * 0.18;
-    head.rotation.y = hx * 0.5;
-    head.rotation.x = -hy * 0.3 + Math.sin(t * 1.3) * 0.03;
-    head.rotation.z = Math.sin(t * 0.9) * 0.04 - hx * 0.05;
+    /* Aydın nəfəs + yellənmə — loading-də də görünür olsun */
+    var breath = Math.sin(t * 1.55) * 0.055 + Math.sin(t * 2.35) * 0.025;
+    var sway = Math.sin(t * 0.95) * 0.06;
+    var hs = 1 + hw * 0.04 + Math.sin(t * 1.55) * 0.012;
+    bot.position.y = breath + jy;
+    bot.scale.set(sz * s * hs, sy * s * (hs + 0.014 * Math.sin(t * 1.55)), sz * s * hs);
+    bot.rotation.z = -cl(hx) * 0.08 + sway;
+    /* Yüngül yana dönüş — fırlanma yox */
+    spin.rotation.y = hx * 0.18 + Math.sin(t * 0.6) * 0.08;
+    head.rotation.y = hx * 0.52 + Math.sin(t * 0.75) * 0.07;
+    head.rotation.x = -hy * 0.3 + Math.sin(t * 1.2) * 0.045;
+    head.rotation.z = Math.sin(t * 1.05) * 0.045 - hx * 0.05;
 
-    var wv = r < 2.2 ? Math.min(r * 5, 1) * Math.min((2.2 - r) * 5, 1) : 0;
-    if (moodWave && t < happy) wv = Math.max(wv, 0.85);
-    var ch = r < 0.75 ? Math.sin(r / 0.75 * Math.PI) : 0;
-    var id = Math.sin(t * 1.7) * 0.05;
+    var wv = r < 1.8 ? Math.min(r * 4, 1) * Math.min((1.8 - r) * 4, 1) : 0;
+    if (moodWave && t < happy) wv = Math.max(wv, 0.72 + 0.22 * Math.sin(t * 5.8));
+    var ch = r < 0.75 ? Math.sin(r / 0.75 * Math.PI) * 0.6 : 0;
+    var id = Math.sin(t * 1.65) * 0.08;
     var wr = Math.max(wv, ch);
-    armR.rotation.z = (0.28 + id) * (1 - wr) + (2.45 + Math.sin(t * 13) * 0.22) * wr;
-    armL.rotation.z = -(0.28 + id + hw * 0.2) * (1 - ch) - 2.5 * ch;
+    /* Yavaş, görünən əl yelləməsi — robotik 13Hz yox */
+    armR.rotation.z = (0.28 + id) * (1 - wr) + (2.2 + Math.sin(t * 5.6) * 0.35) * wr;
+    armL.rotation.z = -(0.28 + id + hw * 0.2) * (1 - ch * 0.7) - 1.75 * ch;
 
-    var thinkPulse = moodThink ? 1.35 : 1;
-    var pu = (0.85 + 0.2 * Math.sin(t * (3 + hw * 6))) * thinkPulse;
+    var thinkPulse = moodThink ? 1.28 : 1;
+    var pu = (0.85 + 0.18 * Math.sin(t * (2.4 + hw * 4))) * thinkPulse;
     glow.scale.set(pu, pu, 1);
-    ball.scale.setScalar((0.9 + 0.1 * Math.sin(t * (3 + hw * 6))) * thinkPulse);
-    fl.intensity = (0.5 + 0.2 * Math.sin(t * 2)) * (moodThink ? 1.4 : 1);
-    shadow.scale.setScalar((1 - jy * 0.25) * s);
-    shadow.material.opacity = 1 - jy * 0.35;
+    ball.scale.setScalar((0.92 + 0.08 * Math.sin(t * (2.4 + hw * 4))) * thinkPulse);
+    fl.intensity = (0.52 + 0.18 * Math.sin(t * 1.8)) * (moodThink ? 1.35 : 1);
+    shadow.scale.setScalar((1 - jy * 0.22) * s);
+    shadow.material.opacity = 1 - jy * 0.3;
 
     var bl = 1;
     if (t > nb) {
-      var bp = (t - nb) / 0.16;
-      if (bp >= 1) nb = t + 2 + Math.random() * 3;
+      var bp = (t - nb) / 0.14;
+      if (bp >= 1) nb = t + 1.6 + Math.random() * 2.6;
       else bl = 1 - Math.sin(bp * Math.PI);
     }
     drawIfNeeded(bl);

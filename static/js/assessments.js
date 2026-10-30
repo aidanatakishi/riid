@@ -560,6 +560,8 @@ function serializeHubRow(section, r, i) {
         var due = getTaskDueDate(t);
         row.date = due ? formatDueMonthYear(due) : '';
         if (due) row.time = due.getTime();
+        /* Aylıq axın + «Tarix» ilə eyni: göndərilmə (due) */
+        row.monthIdx = meqsedRowMonthIdx(r);
         row.result = row.netice;
     }
     return row;
@@ -1831,6 +1833,51 @@ function meqsedIsIcradaStatus(r) {
     return g === 'progress' || g === 'esd';
 }
 
+var MEQSED_MONTH_FULL = [
+    'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun',
+    'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'
+];
+
+function meqsedFlowDate(r) {
+    /* Cədvəl «Tarix» / Göndərilmə ilə eyni: bitmə (due), yoxsa start/created */
+    var t = r && r.task;
+    var when = getTaskDueDate(t) || getTaskStartDate(t) || getTaskCreatedDate(t);
+    if (when && isFinite(when.getTime())) return when;
+    return null;
+}
+
+function meqsedRowMonthIdx(r) {
+    if (r && r.monthIdx != null && isFinite(r.monthIdx)) {
+        var cached = Number(r.monthIdx);
+        if (cached >= 0 && cached <= 11) return cached;
+    }
+    var when = meqsedFlowDate(r);
+    return when ? when.getMonth() : null;
+}
+
+function parseMeqsedMonthFilter(filter) {
+    var m = String(filter || '').match(/^month_(\d{1,2})(?:_(pos|neg|revision|baxilir|partial))?$/);
+    if (!m) return null;
+    var idx = Number(m[1]);
+    if (!isFinite(idx) || idx < 0 || idx > 11) return null;
+    return { month: idx, opinion: m[2] || '' };
+}
+
+function meqsedMonthFilterKey(monthIdx, opinion) {
+    var key = 'month_' + monthIdx;
+    if (opinion) key += '_' + opinion;
+    return key;
+}
+
+function meqsedMonthFilterLabel(filter) {
+    var parsed = parseMeqsedMonthFilter(filter);
+    if (!parsed) return '';
+    var label = MEQSED_MONTH_FULL[parsed.month] || ('Ay ' + (parsed.month + 1));
+    if (!parsed.opinion) return label;
+    var op = MEQSED_DASH_FILTER_LABELS[parsed.opinion] || parsed.opinion;
+    return label + ' · ' + op;
+}
+
 function meqsedResultKey(r) {
     var info = getMeqsedInfo(r && r.task);
     var op = (info && info.opinionKind) || '';
@@ -1929,8 +1976,8 @@ function collectMeqsedListStats(rows) {
         var kind = meqsedNormalizeKind(units.kind);
         stats.byKind[kind] += 1;
         bumpResultSplit(stats.byKindResult[kind], result || 'none');
-        var when = getTaskStartDate(r && r.task) || getTaskCreatedDate(r && r.task);
-        if (when && isFinite(when.getTime())) {
+        var when = meqsedFlowDate(r);
+        if (when) {
             var monthIdx = when.getMonth();
             bumpResultSplit(stats.byMonth[monthIdx], result || 'none');
             var monthKinds = stats.byKindMonth[monthIdx];
@@ -2101,7 +2148,11 @@ function listDashFilterOn(section, key) {
 function listDashFilterLabel(section, key) {
     if (!key) return '';
     if (key === 'all') return 'Bütün qurumlar';
-    if (section === 'meqsed' && MEQSED_DASH_FILTER_LABELS[key]) return MEQSED_DASH_FILTER_LABELS[key];
+    if (section === 'meqsed') {
+        var monthLabel = meqsedMonthFilterLabel(key);
+        if (monthLabel) return monthLabel;
+        if (MEQSED_DASH_FILTER_LABELS[key]) return MEQSED_DASH_FILTER_LABELS[key];
+    }
     if (COMMON_DASH_FILTER_LABELS[key]) return COMMON_DASH_FILTER_LABELS[key];
     return key;
 }
@@ -2302,6 +2353,16 @@ function exqRowMetricsHtml(score, count, avg, maxSvc, rawText) {
 function meqsedRowMatchesDashFilter(r, filter) {
     if (!filter || filter === 'all' || filter === 'orgs') return true;
     if (filter.indexOf('st_') === 0) return rowStatusGroup(r) === filter.slice(3);
+    var monthFilter = parseMeqsedMonthFilter(filter);
+    if (monthFilter) {
+        var rowMonth = meqsedRowMonthIdx(r);
+        if (rowMonth !== monthFilter.month) return false;
+        if (!monthFilter.opinion) return true;
+        if (monthFilter.opinion === 'baxilir') return meqsedIsIcradaStatus(r);
+        var monthOp = (getMeqsedInfo(r && r.task) || {}).opinionKind || '';
+        var monthResult = meqsedResultKey(r);
+        return monthOp === monthFilter.opinion || monthResult === monthFilter.opinion;
+    }
     var info = getMeqsedInfo(r && r.task);
     var units = meqsedRowUnits(info);
     var opinion = (info && info.opinionKind) || '';
@@ -3396,7 +3457,7 @@ function meqsedOverviewBodyHtml(stats) {
         + meqsedKindRowsHtml(stats)
         + '</section>'
         + '<section class="meqsed-ov-card">'
-        + '<h4>Aylıq axın</h4>'
+        + '<h4>Aylıq axın <span>— ayına klikləyib filtrləyin</span></h4>'
         + (hasMonth
             ? '<div class="meqsed-ov-month"><canvas id="meqsedMonthChart" aria-label="Aylıq müraciət axını"></canvas></div>'
             : '<p class="meqsed-ld-chart-empty">Aylıq məlumat yoxdur.</p>')
@@ -4198,16 +4259,35 @@ function drawMeqsedMonthChart(stats) {
                 }
             },
             onClick: function(evt, els) {
-                if (!els || !els.length) return;
-                var ds = this.data.datasets[els[0].datasetIndex];
-                if (ds && ds._filter && typeof window.setAssessListFilter === 'function') {
-                    window.setAssessListFilter(ds._filter);
+                if (typeof window.setAssessListFilter !== 'function') return;
+                var chart = this;
+                var monthIdx = -1;
+                var opinion = '';
+                if (els && els.length) {
+                    monthIdx = els[0].index;
+                    var ds = chart.data.datasets[els[0].datasetIndex];
+                    if (ds && ds._filter && (Number(ds.data[monthIdx]) || 0) > 0) {
+                        opinion = ds._filter;
+                    }
+                } else if (evt && evt.x != null && chart.scales && chart.scales.x) {
+                    monthIdx = Math.round(chart.scales.x.getValueForPixel(evt.x));
                 }
+                if (monthIdx < 0 || monthIdx > 11) return;
+                var bucket = months[monthIdx];
+                if (!bucket || !(bucket.total > 0)) return;
+                window.setAssessListFilter(meqsedMonthFilterKey(monthIdx, opinion));
             },
             onHover: function(evt, els) {
                 var target = (evt && evt.native && evt.native.target)
                     || (evt && evt.chart && evt.chart.canvas);
-                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+                if (!target) return;
+                var hot = !!(els && els.length);
+                if (!hot && evt && evt.x != null && this.scales && this.scales.x) {
+                    var mi = Math.round(this.scales.x.getValueForPixel(evt.x));
+                    var b = months[mi];
+                    hot = mi >= 0 && mi <= 11 && b && b.total > 0;
+                }
+                target.style.cursor = hot ? 'pointer' : 'default';
             }
         }
     });
@@ -4480,9 +4560,28 @@ function isJiraTableHeaderDump(text) {
     return !leftover;
 }
 
+var ISQ_NETWORK_NA_NOTE = 'İnfrastruktur "Hökumət buludu"nda yerləşdirildiyi üçün şəbəkə istiqaməti üzrə nəticə N/A kimi qəbul edilir.';
+
+function isIsqNetworkNaDir(d) {
+    if (!d || !d.title) return false;
+    var f = foldAssessTitle(d.title);
+    if (f !== 'sebeke' && f.indexOf('sebeke') === -1) return false;
+    var hasScore = d.score && d.score !== '—' && !/^n\/?a$/i.test(String(d.score).trim());
+    if (hasScore) return false;
+    var text = d.text ? String(d.text).trim() : '';
+    var scoreTxt = d.score ? String(d.score).trim() : '';
+    return /^n\/?a$/i.test(text) || /^n\/?a$/i.test(scoreTxt);
+}
+
 function directionCard(d, overallText) {
     var title = d && d.title ? String(d.title).trim() : '';
     if (!title || isJiraTableHeaderDump(title) || isDiagOverallLabel(title)) return '';
+    if (isIsqNetworkNaDir(d)) {
+        return '<article class="assess-dir-card is-network-na">'
+            + '<div class="assess-dir-card-head"><h4>' + escapeHtml(title) + '</h4></div>'
+            + '<p class="assess-dir-card-text">' + escapeHtml(ISQ_NETWORK_NA_NOTE) + '</p>'
+            + '</article>';
+    }
     var score = d.score && d.score !== '—' ? scoreBadge(d.score) : '<span class="assess-score-badge is-empty">—</span>';
     var text = d.text ? String(d.text).trim() : '';
     if (isJiraTableHeaderDump(text)) text = '';

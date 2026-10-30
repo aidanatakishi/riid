@@ -1,6 +1,6 @@
 import { state } from './state.js';
 import { apiFetch, rememberCurrentProject } from './session.js?v=idda16';
-import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda17';
+import { normalizeStr, showToast, hideSettings, setLoadingOverlayText, stopLoadingTips, markDashboardBooted, beginLoadingOverlay, dismissLoadingOverlay } from './utils.js?v=idda19';
 import { belongsToDept, collectActivityDirectionFieldIds, collectMeqsedDisplayFieldIds, collectSelfDisplayFieldIds, collectIsqDisplayFieldIds, collectEsdKindFieldIds, collectEsdStatusFieldIds, collectEsdSentLetterFieldIds, collectReviewPartyFieldIds, collectReviewUnitFieldIds, hasTeamComponent } from './model.js?v=idda29';
 import { applyFilters, afterFilterPaint, captureViewState, loadFiltersFromStorage, persistViewState, populateSprintFilter, restoreOpenSections, restoreViewChrome } from './filters.js?v=idda55';
 
@@ -311,13 +311,50 @@ async function fetchJiraProxy(baseUrl, pat, jql, expandChangelog, proxyRoot, fie
 var jqlInflight = {};
 var lastJqlCache = { key: '', data: null };
 
+var jqlResultCache = {};
+var JQL_RESULT_TTL_MS = 70000;
+var JQL_RESULT_CACHE_MAX = 24;
+
+function rememberJqlResult(cacheKey, data) {
+    jqlResultCache[cacheKey] = { at: Date.now(), data: data };
+    lastJqlCache.key = cacheKey;
+    lastJqlCache.data = data;
+    var keys = Object.keys(jqlResultCache);
+    if (keys.length <= JQL_RESULT_CACHE_MAX) return;
+    keys.sort(function(a, b) {
+        return (jqlResultCache[a].at || 0) - (jqlResultCache[b].at || 0);
+    });
+    var drop = keys.length - JQL_RESULT_CACHE_MAX;
+    var i;
+    for (i = 0; i < drop; i++) delete jqlResultCache[keys[i]];
+}
+
+function readJqlResult(cacheKey) {
+    var hit = jqlResultCache[cacheKey];
+    if (!hit) {
+        if (lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
+        return null;
+    }
+    if (Date.now() - (hit.at || 0) > JQL_RESULT_TTL_MS) {
+        delete jqlResultCache[cacheKey];
+        return null;
+    }
+    return hit.data;
+}
+
 export async function fetchJQL(baseUrl, pat, jql, expandChangelog, fieldsOverride) {
     if (!hasJiraAuth(pat)) throw new Error('Jira hələ qurulmayıb.');
-    await fetchJiraFieldCatalog(baseUrl, pat);
+    /* Field kataloqu kritik yolu bloklamasın — arxa planda gəlsin. */
+    if (!fetchJiraFieldCatalog.loaded) {
+        fetchJiraFieldCatalog(baseUrl, pat).catch(function() {});
+    }
     var fieldsKey = fieldsOverride || searchFieldsList();
     var cacheKey = String(baseUrl || '') + '\n' + String(jql || '') + '\n' + (expandChangelog ? '1' : '0') + '\n' + fieldsKey;
     if (jqlInflight[cacheKey]) return jqlInflight[cacheKey];
-    if (!expandChangelog && !fieldsOverride && lastJqlCache.key === cacheKey && lastJqlCache.data) return lastJqlCache.data;
+    if (!expandChangelog) {
+        var cached = readJqlResult(cacheKey);
+        if (cached) return cached;
+    }
     var run = (async function() {
         var transport = await pickTransport();
         var data;
@@ -333,10 +370,7 @@ export async function fetchJQL(baseUrl, pat, jql, expandChangelog, fieldsOverrid
             throw err;
         }
         if (data.names) mergeFieldNames(data.names);
-        if (!expandChangelog && !fieldsOverride) {
-            lastJqlCache.key = cacheKey;
-            lastJqlCache.data = data;
-        }
+        if (!expandChangelog) rememberJqlResult(cacheKey, data);
         return data;
     })();
     jqlInflight[cacheKey] = run;
@@ -355,8 +389,8 @@ function pad2(n) {
 
 var JIRA_SEARCH_SOFT_CAP = 1000;
 var ASSESS_DATA_START_YEAR = 2023;
-var FETCH_YEAR_CONCURRENCY = 2;
-var FETCH_MONTH_CONCURRENCY = 3;
+var FETCH_YEAR_CONCURRENCY = 3;
+var FETCH_MONTH_CONCURRENCY = 4;
 var CHANGELOG_CHUNK_CONCURRENCY = 2;
 var CHANGELOG_MAX_KEYS_PER_PASS = 80;
 var TODAY_POLL_MS = 120000;
@@ -425,18 +459,100 @@ async function fetchRecentMonthsIssues(baseUrl, pat, projectKey, monthCount) {
     return fetchIssuesCreatedRange(baseUrl, pat, projectKey, startIso, endIso);
 }
 
-/** İlk boyama: openSprints; boş/xəta olsa son 2 ay. */
-async function fetchFirstPaintIssues(baseUrl, pat, projectKey) {
+function wantsAssessmentFirstPaint() {
     try {
-        var sprintChunk = await fetchOpenSprintIssues(baseUrl, pat, projectKey);
-        if ((sprintChunk.issues || []).length) return { data: sprintChunk, source: 'sprint' };
-    } catch (err) { /* fallback aşağıda */ }
+        var p = String(location.pathname || '').replace(/\/+$/, '');
+        return p === '/diaqnostika' || p === '/diaqnostika/admin';
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * İlk boyama: sprint + cari il paralel.
+ * Overlay tez bağlanır (sprint/recent); cari il dərhal arxadan merge olunur
+ * ki, qiymətləndirmə analitikası boş qalmasın.
+ */
+async function fetchFirstPaintIssues(baseUrl, pat, projectKey) {
+    var endYear = new Date().getFullYear();
+    var yearPromise = fetchCreatedYear(baseUrl, pat, projectKey, endYear).catch(function() { return null; });
+    var sprintPromise = fetchOpenSprintIssues(baseUrl, pat, projectKey).catch(function() { return null; });
+    var preferAssess = wantsAssessmentFirstPaint();
+
+    /* Qiymətləndirmə səhifəsində: hansı tez gəlirsə onunla boya; digərini merge et */
+    if (preferAssess) {
+        var raced = await new Promise(function(resolve) {
+            var settled = false;
+            function win(payload, followYear) {
+                if (settled) return;
+                if (!payload || !(payload.issues || []).length) return;
+                settled = true;
+                resolve({
+                    data: payload,
+                    source: followYear === null ? 'year' : 'sprint',
+                    yearPromise: followYear
+                });
+            }
+            yearPromise.then(function(d) { win(d, null); });
+            sprintPromise.then(function(d) { win(d, yearPromise); });
+            Promise.all([yearPromise, sprintPromise]).then(function(pair) {
+                if (settled) return;
+                var y = pair[0];
+                var s = pair[1];
+                if (y && (y.issues || []).length) {
+                    resolve({ data: y, source: 'year', yearPromise: null });
+                } else if (s && (s.issues || []).length) {
+                    resolve({ data: s, source: 'sprint', yearPromise: yearPromise });
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+        if (raced) return raced;
+    } else {
+        var sprintChunk = await sprintPromise;
+        if (sprintChunk && (sprintChunk.issues || []).length) {
+            return { data: sprintChunk, source: 'sprint', yearPromise: yearPromise };
+        }
+        var yearFast = await yearPromise;
+        if (yearFast && (yearFast.issues || []).length) {
+            return { data: yearFast, source: 'year', yearPromise: null };
+        }
+    }
+
     try {
         var recent = await fetchRecentMonthsIssues(baseUrl, pat, projectKey, 2);
-        if ((recent.issues || []).length) return { data: recent, source: 'recent' };
+        if ((recent.issues || []).length) {
+            return { data: recent, source: 'recent', yearPromise: yearPromise };
+        }
     } catch (err2) { /* fallback cari il */ }
-    var yearChunk = await fetchCreatedYear(baseUrl, pat, projectKey, new Date().getFullYear());
-    return { data: yearChunk, source: 'year' };
+
+    var yearChunk = await yearPromise;
+    if (yearChunk && (yearChunk.issues || []).length) {
+        return { data: yearChunk, source: 'year', yearPromise: null };
+    }
+    yearChunk = await fetchCreatedYear(baseUrl, pat, projectKey, endYear);
+    return { data: yearChunk, source: 'year', yearPromise: null };
+}
+
+async function mergeCurrentYearSoon(yearPromise, firstSource) {
+    if (!yearPromise || firstSource === 'year') return firstSource;
+    try {
+        var yearData = await yearPromise;
+        if (!yearData || !(yearData.issues || []).length) return firstSource;
+        mergeFetchedIssues(yearData, { skipDashboardRefresh: true });
+        rebuildDashboardListsFromIndex();
+        bumpDataEpoch();
+        if (typeof window.refreshNk303IfOpen === 'function') {
+            window.refreshNk303IfOpen();
+        }
+        if (typeof window.renderAssessmentSections === 'function') {
+            try { window.renderAssessmentSections(); } catch (eAssess) {}
+        }
+        return 'year';
+    } catch (err) {
+        return firstSource;
+    }
 }
 
 var bgHydrateGen = 0;
@@ -1016,8 +1132,9 @@ export async function fetchDashboardData(opts) {
      try {
          lastJqlCache.key = '';
          lastJqlCache.data = null;
+         jqlResultCache = {};
          if (progressive) {
-             /* İlk açılış: cari sprint → UI açılsın; qalanı istifadəçi görmədən arxa planda */
+             /* İlk açılış: sprint/cari il → UI açılsın; digər illər arxa planda */
              state.dashboardPartialLoad = true;
              var firstPaint = await fetchFirstPaintIssues(state.currentBaseUrl, pat, projectKey);
              applyDashboardPayload(firstPaint.data, { silent: silent });
@@ -1037,9 +1154,15 @@ export async function fetchDashboardData(opts) {
                  state.restoreQuiet = false;
              });
              setTimeout(function() { state.restoreQuiet = false; }, 2000);
-             /* Qalan illər — overlay/progress olmadan arxa planda */
+             /* Cari il paralel gedirsə — köhnə illəri gözlətmədən başlat; cari ili ayrıca merge et */
+             var hydrateSource = (firstPaint.source === 'year' || firstPaint.yearPromise)
+                 ? 'year'
+                 : firstPaint.source;
+             if (firstPaint.yearPromise) {
+                 mergeCurrentYearSoon(firstPaint.yearPromise, firstPaint.source);
+             }
              scheduleBackgroundHydration(
-                 state.currentBaseUrl, pat, projectKey, endYear, firstPaint.source
+                 state.currentBaseUrl, pat, projectKey, endYear, hydrateSource
              );
          } else if (silent) {
              /* Arxa plan: yalnız cari il — tam 2023…yenidən yükləmə UI-ni dondurmasın */

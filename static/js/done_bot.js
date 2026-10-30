@@ -2,7 +2,7 @@
  * AI Done bot — floating widget chrome + 3D robot visual.
  */
 
-import { mountBot3D } from './done_bot_3d.js?v=idda6';
+import { mountBot3D } from './done_bot_3d.js?v=idda9';
 
 var WIDGET_HTML = ''
   + '<div id="done-bot" data-user="">'
@@ -177,6 +177,14 @@ function bindDoneBot(root, opts) {
       robot3d = api;
       if (root.classList.contains('paused') && robot3d.setPaused) robot3d.setPaused(true);
       if (robot3d.resize) robot3d.resize();
+      /* 3D gec gələndə loading mood itməsin */
+      if (root.classList.contains('is-boot-hero')) {
+        if (robot3d.setMood) robot3d.setMood('wave');
+        if (robot3d.react) robot3d.react();
+        setTimeout(function () {
+          if (robot3d && robot3d.resize) robot3d.resize();
+        }, 80);
+      }
     }).catch(function (err) {
       console.warn('AI Done 3D bot failed to mount', err);
     });
@@ -222,11 +230,12 @@ function bindDoneBot(root, opts) {
     bot.style.transition = '';
     bot.style.transform = '';
     bot.style.transformOrigin = '';
-    setMood('wave');
+    setMood('happy');
     setTimeout(function () {
       if (robot3d && robot3d.resize) robot3d.resize();
       showBubbleText(INTRO_WORD, 2600);
       if (robot3d && robot3d.react) robot3d.react();
+      setMood('wave');
     }, 40);
   }
 

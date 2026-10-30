@@ -1,3 +1,4 @@
+import hashlib
 import time
 from urllib.parse import quote, urlsplit, urlunsplit
 
@@ -8,6 +9,42 @@ from config import MAX_RESULTS, REQUEST_TIMEOUT, COUNT_TIMEOUT
 from users import TEAM_IDS, component_matches_team, normalize_team
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+# Qısa TTL — eyni JQL-i (səhifə yeniləmə / paralel il yükləməsi) təkrar Jira-ya göndərməsin.
+_SEARCH_CACHE = {}
+_SEARCH_CACHE_TTL = 75
+_SEARCH_CACHE_MAX = 48
+
+
+def _search_cache_key(base_url, pat, jql, fields, expand):
+    token_fp = hashlib.sha256(str(pat or '').encode('utf-8', 'ignore')).hexdigest()[:16]
+    raw = '|'.join([
+        str(base_url or ''),
+        token_fp,
+        str(jql or ''),
+        str(fields or ''),
+        str(expand or ''),
+    ])
+    return hashlib.sha256(raw.encode('utf-8', 'ignore')).hexdigest()
+
+
+def _search_cache_get(key):
+    hit = _SEARCH_CACHE.get(key)
+    if not hit:
+        return None
+    ts, payload = hit
+    if time.time() - ts > _SEARCH_CACHE_TTL:
+        _SEARCH_CACHE.pop(key, None)
+        return None
+    return payload
+
+
+def _search_cache_put(key, payload):
+    if len(_SEARCH_CACHE) >= _SEARCH_CACHE_MAX:
+        oldest = sorted(_SEARCH_CACHE.items(), key=lambda kv: kv[1][0])
+        for stale_key, _ in oldest[: max(1, _SEARCH_CACHE_MAX // 4)]:
+            _SEARCH_CACHE.pop(stale_key, None)
+    _SEARCH_CACHE[key] = (time.time(), payload)
 
 
 def make_session():
@@ -150,6 +187,15 @@ def verify_jira_pat(base_url, pat):
 
 
 def fetch_jira_data(base_url, pat, jql, fields, expand=None):
+    # Changelog genişlənməsi istifadəçi/vaxt həssasdır — keşləmə.
+    expand_s = str(expand or '')
+    use_cache = 'changelog' not in expand_s.lower()
+    cache_key = _search_cache_key(base_url, pat, jql, fields, expand_s) if use_cache else None
+    if cache_key:
+        cached = _search_cache_get(cache_key)
+        if cached is not None:
+            return cached, None, 200
+
     url = f"{base_url}/rest/api/2/search"
     all_issues = []
     start_at = 0
@@ -211,11 +257,14 @@ def fetch_jira_data(base_url, pat, jql, fields, expand=None):
         if start_at >= total:
             break
 
-    return {
+    result = {
         "issues": all_issues,
         "total": len(all_issues),
         "names": names
-    }, None, 200
+    }
+    if cache_key:
+        _search_cache_put(cache_key, result)
+    return result, None, 200
 
 
 def fetch_issue_comments_batch(base_url, pat, keys):

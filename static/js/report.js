@@ -1,6 +1,6 @@
 ﻿import { state } from './state.js';
-import { normalizeStr, showToast } from './utils.js?v=idda7';
-import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getEsdSentLetterInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, getTaskCompletedDay, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks, isMeqsedMetodikiLabelTask, hasDiagLabel, hasSelfLabel } from './model.js?v=idda23';
+import { normalizeStr, showToast, beginReportLoading, setReportLoadingText, endReportLoading } from './utils.js?v=idda20';
+import { formatDateObj, getBlockReason, getDatedPhaseEntries, getDifficultyField, getIssueFallbackDate, getParentIssue, getPhaseFieldText, lowercasePhaseTextAfterDate, parsePhaseDate, parsePhaseEntriesFromText, selectPhasesForReport, getSprintDateRange, getStatusGroup, getQurumName, getMeqsedInfo, getEsdSentLetterInfo, getAssessmentQurumLabel, getTaskStartDate, getTaskDueDate, getTaskCompletedDay, hasPhaseText, hasValidDifficulty, isActiveExecutionGroup, isDateInReportPeriod, isDueInDateRange, isDueInSelectedWeek, isNextWeekBoxTask, isSubtaskType, isTaskType, isTaskOrSubtaskType, resolveDirection, getRawPhaseEntries, PHASE_FIELDS, sameQurum, qurumMatchKey, taskBelongsToDateRange, countableWorkUnits, jiraBoardWorkUnits, getSprintNames, currentSprintName, getBakuWeekRange, collectDueThisWeekTasks, collectDueThisWeekDoneTasks, isMeqsedMetodikiLabelTask, hasDiagLabel, hasSelfLabel, isDigerReportLabelTask } from './model.js?v=idda33';
 
 
 let _docxLibPromise = null;
@@ -399,12 +399,15 @@ function monthlyIntroForCanon(id, period) {
 }
 
 export async function exportTasksToWord(title) {
+    if (document.body.classList.contains('is-report-loading')) return;
+    beginReportLoading('Hesabat hazırlanır…');
     var docxLib;
     try {
         docxLib = await loadDocxLib();
     } catch (err) {
         console.error(err);
         showToast('DOCX kitabxanası yüklənmədi. İnternet bağlantısını yoxlayın.', 'error');
+        endReportLoading();
         return;
     }
     var { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
@@ -1131,7 +1134,9 @@ export async function exportTasksToWord(title) {
 
     async function downloadGeneratedDoc(doc, filename, toastMsg) {
         try {
+            setReportLoadingText('DOCX faylı hazırlanır…');
             var blob = await Packer.toBlob(doc);
+            setReportLoadingText('Kompüterə yüklənir…');
             var url = URL.createObjectURL(blob);
             var fileDownload = document.createElement('a');
             document.body.appendChild(fileDownload);
@@ -1139,6 +1144,8 @@ export async function exportTasksToWord(title) {
             fileDownload.download = filename;
             fileDownload.click();
             document.body.removeChild(fileDownload);
+            /* Brauzer download dialoquna vaxt ver */
+            await new Promise(function(resolve) { setTimeout(resolve, 450); });
             URL.revokeObjectURL(url);
             if (toastMsg) showToast(toastMsg, 'success');
             return true;
@@ -3262,8 +3269,9 @@ export async function exportTasksToWord(title) {
         var inteqItems = taskProseBullets(inteqUnits);
         if (inteqItems.length) pushSection('inteqrasiya', monthlyIntroForCanon('inteqrasiya', periodPhrase), inteqItems);
 
+        // Bölmə yalnız Jira «IQT» və ya «ESD» label-i ilə (istiqamət adı Digər olsa belə).
         var digerRest = filterMonthlyUnits(digerUnits, function(t, row) {
-            return !isFealiyyetPlanUnit(t, row) && !isKonsepsiyaPlanUnit(t, row);
+            return !isFealiyyetPlanUnit(t, row) && !isKonsepsiyaPlanUnit(t, row) && isDigerReportLabelTask(t);
         });
         var digerItems = taskLeadParagraphs(digerRest);
         if (digerItems.length) {
@@ -3757,7 +3765,7 @@ export async function exportTasksToWord(title) {
 
     async function createMonthlyDocument(info, opts) {
         var pack = buildMonthlyDocument(info, opts);
-        showToast('Aylıq hesabat rəsmi üsluba salınır…', 'info');
+        setReportLoadingText('Aylıq hesabat rəsmi üsluba salınır…');
         var polished = await polishMonthlyDraft(pack.draft);
         pack.polishSource = polished.source;
         pack.polishError = polished.error || '';
@@ -4128,6 +4136,8 @@ export async function exportTasksToWord(title) {
     } catch (err) {
         console.error(err);
         showToast('Hesabat yaradılarkən xəta baş verdi: ' + (err && err.message ? err.message : String(err)), 'error');
+    } finally {
+        endReportLoading();
     }
 
     async function downloadSelectedReport() {
@@ -4139,8 +4149,9 @@ export async function exportTasksToWord(title) {
         for (var mi = 0; mi < covered.length; mi++) {
             var one = monthInfoForCovered(covered[mi]);
             if (!one) continue;
+            var monthLabel = (one.fileMonth || one.label || (mi + 1)) + '';
             try {
-                showToast('Aylıq hesabat üçün Jira məlumatı yenilənir…', 'info');
+                setReportLoadingText(monthLabel + ' ayı — Jira məlumatı yenilənir…');
                 var enrichPool = collectMonthlySource(one);
                 var childExtra = [];
                 (enrichPool || []).forEach(function(t) {
@@ -4154,7 +4165,7 @@ export async function exportTasksToWord(title) {
                     await state.ensureChangelogs(enrichPool.concat(childExtra));
                 }
                 if (enrichStats && enrichStats.comments) {
-                    showToast('Jira yeniləndi: ' + (enrichStats.refreshed || 0) + ' task, ' + enrichStats.comments + ' şərh', 'info');
+                    setReportLoadingText('Jira yeniləndi: ' + (enrichStats.refreshed || 0) + ' task, ' + enrichStats.comments + ' şərh');
                 }
             } catch (enrichErr) {
                 console.error(enrichErr);
@@ -4164,6 +4175,7 @@ export async function exportTasksToWord(title) {
             var monthDoc;
             var polishMeta = null;
             try {
+                setReportLoadingText(monthLabel + ' ayı hesabatı yazılır…');
                 var built = await createMonthlyDocument(one);
                 monthDoc = built.doc;
                 polishMeta = built;
@@ -4172,6 +4184,7 @@ export async function exportTasksToWord(title) {
                 showToast('Hesabat yaradılarkən xəta baş verdi: ' + (buildErr && buildErr.message ? buildErr.message : String(buildErr)), 'error');
                 return;
             }
+            setReportLoadingText(monthLabel + ' ayı — kompüterə yüklənir…');
             var ok = await downloadGeneratedDoc(monthDoc, monthlyFileName(one));
             if (!ok) {
                 failed = true;
@@ -4186,7 +4199,10 @@ export async function exportTasksToWord(title) {
             } else {
                 showToast('Aylıq hesabat təmizlənib yükləndi', 'success');
             }
-            if (mi < covered.length - 1) await delayMs(600);
+            if (mi < covered.length - 1) {
+                setReportLoadingText('Növbəti ay hazırlanır…');
+                await delayMs(600);
+            }
         }
         if (!failed && downloaded.length) {
             /* per-file toast already shown */
@@ -4196,11 +4212,15 @@ export async function exportTasksToWord(title) {
 
     var sprintWeekly = getSprintWeeklyExport();
     if (sprintWeekly) {
+        setReportLoadingText('Həftəlik hesabat yazılır…');
         var sprintOk = await downloadGeneratedDoc(
             buildWeeklyDocument(sprintWeekly.info, sprintWeekly.opts),
             weeklyFileName(sprintWeekly.info)
         );
-        if (sprintOk) showToast(weeklyDownloadToast([sprintWeekly.info]), 'success');
+        if (sprintOk) {
+            setReportLoadingText('Kompüterə yüklənir…');
+            showToast(weeklyDownloadToast([sprintWeekly.info]), 'success');
+        }
         return;
     }
 
@@ -4212,6 +4232,7 @@ export async function exportTasksToWord(title) {
             var weekOne = weekRange.weeks[wi];
             var weekClip = clipToWorkweekEnds(weekOne.start, weekOne.end);
             weekOne = weekInfoFromDates(weekClip.start, weekClip.end);
+            setReportLoadingText('Həftəlik hesabat yazılır (' + (wi + 1) + '/' + weekRange.weeks.length + ')…');
             var weekOk = await downloadGeneratedDoc(
                 buildWeeklyDocument(weekOne, {
                     kind: 'week',
@@ -4234,6 +4255,7 @@ export async function exportTasksToWord(title) {
     }
 
     if (periodStart && periodEnd) {
+        setReportLoadingText('Hesabat yazılır…');
         var periodInfo = weekInfoFromDates(periodStart, periodEnd);
         var periodOk = await downloadGeneratedDoc(
             buildWeeklyDocument(periodInfo, { kind: 'period', icmalMode: 'period' }),

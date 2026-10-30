@@ -1,4 +1,4 @@
-import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda80';
+import { getDiagPeriodRows, getAssessmentPeriodState, getAssessmentPeriodLabel, getAssessmentHubView, getAssessmentHubNav, getAssessmentHubYears, setAssessmentYearForActiveTab, drawMeqsedOverviewCharts, destroyMeqsedOverviewCharts } from './assessments.js?v=idda84';
 import {
     parseDiagUmumiNetice,
     getDiagInfo,
@@ -11,6 +11,8 @@ import {
     qurumMatchKey,
     getRawPhaseEntries,
     getTaskStartDate,
+    getTaskCreatedDate,
+    getTaskDueDate,
     getPhaseFieldText,
     PHASE_FIELDS,
     getEsdSentLetterInfo,
@@ -127,6 +129,8 @@ var ISQ_PILLARS = [
     { id: 'data', name: 'Məlumatların idarəedilməsi', short: 'Məlumat' },
     { id: 'infra', name: 'Fiziki və virtual infrastruktur', short: 'İnfrastruktur' }
 ];
+/** Şəbəkə balı N/A olanda tire əvəzinə göstərilən izah */
+var ISQ_NETWORK_NA_NOTE = 'İnfrastruktur "Hökumət buludu"nda yerləşdirildiyi üçün şəbəkə istiqaməti üzrə nəticə N/A kimi qəbul edilir.';
 
 var MATS = [
     { id: 'ilkin', label: 'İlkin', lo: 0, hi: 24, color: MATURITY.ilkin },
@@ -1069,7 +1073,24 @@ function applyUiFilters(items, opts) {
     });
 }
 
+var allOrgsCache = { stamp: '', all: null };
+var buildModelCache = { stamp: '', model: null };
+
+function allOrgsCacheStamp() {
+    var period = getAssessmentPeriodState() || {};
+    return [
+        state.dataEpoch || 0,
+        period.year || '',
+        period.start || '',
+        period.end || '',
+        (excelStore.orgs || []).length,
+        excelStore.loaded ? '1' : '0'
+    ].join('|');
+}
+
 function collectAllOrgs() {
+    var stamp = allOrgsCacheStamp();
+    if (allOrgsCache.stamp === stamp && allOrgsCache.all) return allOrgsCache.all;
     var rows = getDiagPeriodRows() || [];
     var all = rows.map(parseRow);
     var byKey = {};
@@ -1082,6 +1103,7 @@ function collectAllOrgs() {
             byKey[ex.key] = ex;
         }
     });
+    allOrgsCache = { stamp: stamp, all: all };
     return all;
 }
 
@@ -1115,7 +1137,25 @@ function uniqueYearsFromOrgs(orgs) {
     return ys;
 }
 
+function buildModelStamp() {
+    return [
+        allOrgsCacheStamp(),
+        ui.year || '',
+        ui.orgKey || '',
+        ui.status || '',
+        ui.maturity || '',
+        ui.dirId || '',
+        ui.mode || '',
+        ui.nav || '',
+        ui.search || '',
+        ui.page || 1,
+        ui.hub || ''
+    ].join('|');
+}
+
 function buildModel() {
+    var stamp = buildModelStamp();
+    if (buildModelCache.stamp === stamp && buildModelCache.model) return buildModelCache.model;
     var all = collectAllOrgs();
     var years = {};
     all.forEach(function(it) {
@@ -1215,7 +1255,7 @@ function buildModel() {
         spanTo = scoredTrend[scoredTrend.length - 1].y;
     }
     var period = getAssessmentPeriodState();
-    return {
+    var model = {
         all: all,
         orgs: orgs,
         scoredN: scored.length,
@@ -1243,6 +1283,8 @@ function buildModel() {
         gaps: gaps,
         actions: actions
     };
+    buildModelCache = { stamp: stamp, model: model };
+    return model;
 }
 
 function collectGaps(orgs) {
@@ -1702,9 +1744,10 @@ function hubIsqPillarCards(task) {
     });
     var cards = ISQ_PILLARS.map(function(p) {
         var d = byTitle[fold(p.name)] || null;
-        var score = d && d.score && d.score !== '—' ? num(d.score) : null;
+        var rawScore = d && d.score != null ? String(d.score).trim() : '';
+        var score = rawScore && rawScore !== '—' && !/^n\/?a$/i.test(rawScore) ? num(rawScore) : null;
         var text = d && d.text ? String(d.text).trim() : '';
-        if (score == null && text && /^n\/?a$/i.test(text)) {
+        if (score == null && (/^n\/?a$/i.test(text) || /^n\/?a$/i.test(rawScore))) {
             text = 'N/A';
         }
         return {
@@ -1937,11 +1980,19 @@ function hubOrgDetailHtml(view) {
     }
     var pillars = hubIsqPillarCards(t);
     var pillarHtml = pillars.map(function(p) {
+        var textRaw = p.text ? String(p.text).trim() : '';
+        var networkNa = p.id === 'network' && p.score == null && /^n\/?a$/i.test(textRaw);
+        if (networkNa) {
+            return '<article class="nk303-dir is-network-na">'
+                + '<div class="nk303-dir-top"><b>' + esc(p.short || p.name) + '</b></div>'
+                + '<p class="nk303-dir-score nk303-dir-score--na">' + esc(ISQ_NETWORK_NA_NOTE) + '</p>'
+                + '</article>';
+        }
         return '<article class="nk303-dir">'
             + '<div class="nk303-dir-top"><b>' + esc(p.short || p.name) + '</b>'
             + matBadge(p.score) + '</div>'
             + '<div class="nk303-dir-score">' + esc(p.score == null ? '—' : fmt1(p.score) + '%') + '</div>'
-            + (p.text ? '<p class="nk303-hint">' + esc(clipText(p.text, 160)) + '</p>' : '')
+            + (textRaw ? '<p class="nk303-hint">' + esc(clipText(textRaw, 160)) + '</p>' : '')
             + '</article>';
     }).join('');
     return head
@@ -5298,8 +5349,34 @@ function hubMeqsedNovuMatchesKind(r, kind) {
     return false;
 }
 
+function parseHubMonthFilter(filter) {
+    var m = String(filter || '').match(/^month_(\d{1,2})(?:_(pos|neg|revision|baxilir|partial))?$/);
+    if (!m) return null;
+    var idx = Number(m[1]);
+    if (!isFinite(idx) || idx < 0 || idx > 11) return null;
+    return { month: idx, opinion: m[2] || '' };
+}
+
+function hubMeqsedMonthIdx(r) {
+    if (r && r.monthIdx != null && isFinite(r.monthIdx)) {
+        var cached = Number(r.monthIdx);
+        if (cached >= 0 && cached <= 11) return cached;
+    }
+    /* Cədvəl «Tarix» ilə eyni: göndərilmə (due) */
+    var t = r && r.task;
+    var when = getTaskDueDate(t) || getTaskStartDate(t) || getTaskCreatedDate(t);
+    if (when && isFinite(when.getTime())) return when.getMonth();
+    return null;
+}
+
 function hubRowMatchesMeqsedFilter(r, filter) {
     if (!filter || filter === 'all' || filter === 'orgs') return true;
+    var monthFilter = parseHubMonthFilter(filter);
+    if (monthFilter) {
+        if (hubMeqsedMonthIdx(r) !== monthFilter.month) return false;
+        if (!monthFilter.opinion) return true;
+        filter = monthFilter.opinion;
+    }
     var opinion = (r && r.opinion) || '';
     var resultKey = (r && r.resultKey) || '';
     if (filter === 'pos' || filter === 'neg' || filter === 'partial' || filter === 'revision') {
@@ -5375,8 +5452,20 @@ function sortHubRows(list, section, mode) {
     });
 }
 
+var HUB_MONTH_FULL = [
+    'Yanvar', 'Fevral', 'Mart', 'Aprel', 'May', 'İyun',
+    'İyul', 'Avqust', 'Sentyabr', 'Oktyabr', 'Noyabr', 'Dekabr'
+];
+
 function hubFilterLabel(key) {
     if (!key || key === 'all') return '';
+    var monthFilter = parseHubMonthFilter(key);
+    if (monthFilter) {
+        var monthName = HUB_MONTH_FULL[monthFilter.month] || ('Ay ' + (monthFilter.month + 1));
+        if (!monthFilter.opinion) return monthName;
+        var opLabel = hubFilterLabel(monthFilter.opinion);
+        return opLabel ? (monthName + ' · ' + opLabel) : monthName;
+    }
     if (key === 'orgs') return ui.hub === 'exq' || ui.hub === 'isq' ? 'Əhatə olunan qurumlar' : 'Müraciət edən qurumlar';
     if (key === 'has_result') return 'Nəticəsi olan';
     if (key === 'no_result') return 'Nəticəsiz';
@@ -5861,8 +5950,9 @@ function mqOrgBlock(st) {
 
 function mqFlowSub(view) {
     var period = (view && view.period) || '';
-    if (period && period !== 'Bütün illər') return 'Rəy statusuna görə müraciətlərin sayı, ' + period;
-    return 'Rəy statusuna görə müraciətlərin sayı';
+    var base = 'Rəy statusuna görə müraciətlərin sayı · ayına klikləyin';
+    if (period && period !== 'Bütün illər') return base + ', ' + period;
+    return base;
 }
 
 function meqsedDashHtml(view) {
@@ -6643,14 +6733,35 @@ function drawMeqsedFlowChart(st) {
                 }
             },
             onClick: function(evt, els) {
-                if (!els || !els.length) return;
-                var ds = this.data.datasets[els[0].datasetIndex];
-                if (ds && ds._filter) nk303Call('hubFilter', ds._filter);
+                var chart = this;
+                var monthIdx = -1;
+                var opinion = '';
+                if (els && els.length) {
+                    monthIdx = els[0].index;
+                    var ds = chart.data.datasets[els[0].datasetIndex];
+                    if (ds && ds._filter && (Number(ds.data[monthIdx]) || 0) > 0) {
+                        opinion = ds._filter;
+                    }
+                } else if (evt && evt.x != null && chart.scales && chart.scales.x) {
+                    monthIdx = Math.round(chart.scales.x.getValueForPixel(evt.x));
+                }
+                if (monthIdx < 0 || monthIdx > 11) return;
+                var bucket = months[monthIdx];
+                if (!bucket || !(bucket.total > 0)) return;
+                var key = 'month_' + monthIdx + (opinion ? '_' + opinion : '');
+                nk303Call('hubFilter', key);
             },
             onHover: function(evt, els) {
                 var target = (evt && evt.native && evt.native.target)
                     || (evt && evt.chart && evt.chart.canvas);
-                if (target) target.style.cursor = els && els.length ? 'pointer' : 'default';
+                if (!target) return;
+                var hot = !!(els && els.length);
+                if (!hot && evt && evt.x != null && this.scales && this.scales.x) {
+                    var mi = Math.round(this.scales.x.getValueForPixel(evt.x));
+                    var b = months[mi];
+                    hot = mi >= 0 && mi <= 11 && b && b.total > 0;
+                }
+                target.style.cursor = hot ? 'pointer' : 'default';
             }
         },
         plugins: [totalsPlugin]
@@ -6913,6 +7024,7 @@ function showNk303Page() {
     var page = document.getElementById(PAGE_ID);
     var main = document.getElementById(MAIN_ID);
     if (!page) return;
+    var wasOpen = ui.open;
     ui.open = true;
     page.classList.remove('hidden');
     page.removeAttribute('hidden');
@@ -6928,12 +7040,19 @@ function showNk303Page() {
     bindHistory();
     bindAdminGate();
     if (isAdminPath() && !adminState.isAdmin) showAdminGate();
-    render({ soft: true, scrollTop: true });
+    /* İlk boyama dərhal; excel/report paralel; admin state sonra yalnız dəyişibsə yenilə */
+    if (!wasOpen) render({ soft: true, scrollTop: true });
+    var adminBefore = adminState.isAdmin;
+    var uploadsP = Promise.all([
+        excelStore.loaded ? Promise.resolve() : loadExcelUploads(),
+        reportStore.loaded ? Promise.resolve() : loadReportUploads()
+    ]);
     loadAdminState().then(function() {
         if (!ui.open) return;
-        render({ soft: true });
-        loadExcelUploads();
-        loadReportUploads();
+        if (isAdminPath() || adminBefore !== adminState.isAdmin) {
+            render({ soft: true });
+        }
+        return uploadsP;
     });
 }
 
@@ -7478,11 +7597,17 @@ export function nk303MeqsedSearch(query) {
 /** Arxa plan hydrate zamanı açıq diaqnostika səhifəsini yumşaq yenilə. */
 export function refreshNk303IfOpen() {
     if (!ui.open) return;
-    if (nkSoftRefreshTimer) return;
+    if (nkSoftRefreshTimer) {
+        clearTimeout(nkSoftRefreshTimer);
+    }
+    /* Debounce: hər il merge-də tam rebuild etmə — son paketə qədər gözlə */
+    var wait = state.dashboardBgHydrateBusy ? 900 : 320;
     nkSoftRefreshTimer = setTimeout(function() {
         nkSoftRefreshTimer = 0;
+        allOrgsCache.stamp = '';
+        buildModelCache.stamp = '';
         if (ui.open) render({ soft: true });
-    }, 420);
+    }, wait);
 }
 
 window.nk303MeqsedFilter = nk303MeqsedFilter;

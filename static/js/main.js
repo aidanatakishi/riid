@@ -1,14 +1,14 @@
 import { state } from './state.js';
 import { showToast, animateValue, normalizeStr, toggleSettings, hideSettings, showSettings, onSettingsOverlayClick, getInitials, getIssueTypeIcon, getStatusColor, truncateChangeValue, getChangeFieldMeta, toggleDropdown, markDashboardBooted } from './utils.js?v=idda15';
 import { getParentIssue, resolveDirection, isKomplaynsName, hasKomplaynsComponent, belongsToDept, getStatusGroup, isActiveExecutionGroup, isDueThisWeek, isDueInSelectedWeek, getHistoricalStatus, getDifficultyField, hasValidDifficulty, parsePhaseDate, formatDateObj, getPhaseFieldText, getRawPhaseEntries, formatPhaseEntriesText, getQurumName, getDateStatus, getSprintDateRange, getSprintNames } from './model.js?v=idda29';
-import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda64';
+import { fetchJQL, fetchTodayChanges, fetchDashboardData, loadServerConfig, loadAssessmentCreatedRange, applyTeamScope } from './api.js?v=idda67';
 import { populateSprintFilter, clearDateRangeInputs, updateSprintFilterState, selectLatestSprint, selectPreviousSprint, onSprintDropdownChange, onDateRangeChange, resetAllFilters, applyFilters, saveFiltersToStorage, loadFiltersFromStorage, persistViewState, clearUserFilter, clearPriorityFilter, clearDirectionFilter, clearQurumFilter, clearStatusFilter, clearLabelFilter, setQurumFilter, filterQurumByStatus, filterTasksByDateStatus, filterQurumList, clearQurumSearch, filterSprintComparison, selectDailyUser, showDifficulties, showDueThisWeekTasks, showDueThisWeekDoneTasks, showDueThisWeekOpenTasks, filterTasks, filterEsdInnerStatus, filterEsdKind, filterReviewParty, renderLazySection, toggleDatePopover, closeDatePopover, applyDatePopover, clearDatePopover, shiftDateCalendar, showNoStartDateTasks, showNoDueDateTasks, onDateOverlayClick, onDateDraftInputChange, toggleSprintPicker, closeSprintPicker, pickSprintOption, filterSprintPickerOptions, syncSprintPicker } from './filters.js?v=idda55';
 import { renderStatusChart, renderAssigneeChart, renderPriorityChart, renderEpicChart, renderQurumChart, renderLabelChart, drawChart, drawStackedChart, renderDailyProgress } from './charts.js?v=idda58';
 import { renderStats, renderDifficulties, getDifficultyCardHtml, renderTaskList, toggleTaskChildren, toggleSubtasks, toggleRelated, changePage, showTaskListKind, onTaskListSearchInput, clearTaskListSearch, resetTaskListFilter, renderWeeklyTasks, renderPausedTasks, renderSprintComparison, showUserActivity } from './render.js?v=idda20';
-import { loadDocxLib, exportTasksToWord } from './report.js?v=idda49';
-import { renderAssessmentSections, paintAssessmentOverview, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, toggleAssessDir, openAssessTeqdimat, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda80';
-import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch, refreshNk303IfOpen } from './nk303.js?v=idda175';
-import { initChat } from './chat.js?v=idda113';
+import { loadDocxLib, exportTasksToWord } from './report.js?v=idda51';
+import { renderAssessmentSections, paintAssessmentOverview, setAssessmentYear, setAssessmentYearForActiveTab, setAssessmentTab, focusAssessmentSection, showAssessFullList, setAssessmentSearch, onAssessmentSearchInput, clearAssessmentSearch, setAssessmentPage, toggleAssessmentDetail, getActiveAssessmentTab, openDiagModal, closeDiagModal, onDiagModalOverlayClick, toggleAssessDir, openAssessTeqdimat, onAssessMonthChange, onAssessDatesChange, applyAssessmentPeriod, setMeqsedDashFilter, setAssessListFilter, cycleAssessListSort, setAssessListSort, toggleAssessListFilterMenu, closeAssessListFilterMenu } from './assessments.js?v=idda84';
+import { openNk303, closeNk303, onNk303OverlayClick, nk303Call, syncNk303Route, nk303MeqsedFilter, nk303MeqsedSearch, refreshNk303IfOpen } from './nk303.js?v=idda180';
+import { initChat } from './chat.js?v=idda116';
 import { applySessionChrome, logoutApp, rememberCurrentProject, requireSession } from './session.js?v=idda17';
 
 
@@ -264,12 +264,6 @@ window.onload = async function() {
         console.error('Server konfiqi yükl?nm?di:', e);
     }
     try { applySessionChrome(serverCfg); } catch (e) { console.error(e); }
-    try {
-        initChat({
-            hasChatLlm: !!serverCfg.hasChatLlm,
-            chatLlmHint: serverCfg.chatLlmHint || ''
-        });
-    } catch (e) { console.error(e); }
     var projectEl = document.getElementById('projectKey');
     var baseElNow = document.getElementById('baseUrl');
     if (projectEl) {
@@ -283,8 +277,8 @@ window.onload = async function() {
     }
     var baseUrl = baseElNow ? baseElNow.value : '';
     var projectKey = projectEl ? projectEl.value : '';
-    // Token serverd?dir (sessiya). hasToken bayragi geciks? bel? yükl?m?y? c?hd et —
-    // ?ks halda s?hv "token yoxdur" toast-i v? bos panel alinir.
+    // Token serverd?dir (sessiya). hasToken bayra?? geciks? bel? yükl?m?y? c?hd et ?
+    // ?ks halda s?hv "token yoxdur" toast-i v? bo? panel al?n?r.
     if ((baseUrl || serverCfg.baseUrl) && (projectKey || serverCfg.projectKey)) {
         fetchDashboardData().catch(function (err) {
             console.error(err);
@@ -295,4 +289,17 @@ window.onload = async function() {
     }
     try { paintAssessmentOverview(); } catch (e) {}
     try { syncNk303Route(); } catch (e) {}
+    /* Chat UI paneld?n sonra ? ilk boyaman? bloklamas?n */
+    var chatCfg = {
+        hasChatLlm: !!serverCfg.hasChatLlm,
+        chatLlmHint: serverCfg.chatLlmHint || ''
+    };
+    var bootChat = function() {
+        try { initChat(chatCfg); } catch (eChat) { console.error(eChat); }
+    };
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(bootChat, { timeout: 1800 });
+    } else {
+        setTimeout(bootChat, 0);
+    }
 };

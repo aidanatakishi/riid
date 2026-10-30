@@ -73,13 +73,11 @@ export function setSearchUiBusy(anchor, on) {
 }
 
 var LOAD_TIPS = [
-    { text: 'Salam! Panelı oyadıram…', mood: 'wave' },
-    { text: 'Tapşırıqları yığıram!', mood: 'think' },
-    { text: 'Sprintləri sıra-sıra düzürəm…', mood: 'think' },
-    { text: 'İstiqamətlər rəqs edir…', mood: 'happy' },
-    { text: 'Rəqəmlər oyanır — sevincli!', mood: 'cheer' },
-    { text: 'İş yükünü ölçürəm…', mood: 'think' },
-    { text: 'Bir az daha — demək olar ki, hazır!', mood: 'happy' }
+    { text: 'Salam! Panelı oyadıram — bir saniyə…', mood: 'wave' },
+    { text: 'Tapşırıqları yığıram, sprintləri düzürəm…', mood: 'think' },
+    { text: 'İstiqamətlər və rəqəmlər oyanır…', mood: 'happy' },
+    { text: 'İş yükünü ölçürəm — demək olar ki, hazır!', mood: 'think' },
+    { text: 'Son toxunuşlar — panel tezliklə açılır!', mood: 'happy' }
 ];
 var loadTipTimer = null;
 var loadTipIdx = 0;
@@ -184,6 +182,83 @@ export function beginLoadingOverlay(overlay, bootMsg) {
     if (api && typeof api.enterBootHero === 'function') api.enterBootHero();
     setLoadingOverlayText(bootMsg || tipText(LOAD_TIPS[0]), 'wave');
     startLoadingTips(bootMsg || tipText(LOAD_TIPS[0]));
+}
+
+var REPORT_LOAD_TIPS = [
+    'Jira məlumatı yığılır…',
+    'Hesabat bölmələri yazılır…',
+    'Rəsmi üsluba salınır…',
+    'DOCX faylı hazırlanır…',
+    'Kompüterə yüklənir…'
+];
+var reportLoadTipTimer = null;
+var reportLoadTipIdx = 0;
+var reportLoadActive = false;
+
+function setReportOverlayTitle(text) {
+    var title = document.querySelector('#loadingOverlay .load-fun-title');
+    if (title) title.textContent = text || 'Hesabat hazırlanır';
+}
+
+/** Hesabat yüklənməsi — kompüterə download bitənə qədər tam ekran loading. */
+export function beginReportLoading(msg) {
+    reportLoadActive = true;
+    stopLoadingTips();
+    if (reportLoadTipTimer) {
+        clearInterval(reportLoadTipTimer);
+        reportLoadTipTimer = null;
+    }
+    var overlay = document.getElementById('loadingOverlay');
+    document.body.classList.add('is-loading', 'is-report-loading');
+    if (overlay) {
+        overlay.classList.remove('hidden', 'is-fading');
+        overlay.setAttribute('data-mode', 'report');
+    }
+    setReportOverlayTitle('Hesabat hazırlanır');
+    setLoadingOverlayText(msg || REPORT_LOAD_TIPS[0], 'think');
+    var btn = document.getElementById('reportDownloadBtn');
+    if (btn) {
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+    }
+    reportLoadTipIdx = 0;
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    reportLoadTipTimer = setInterval(function() {
+        if (!reportLoadActive) return;
+        reportLoadTipIdx = (reportLoadTipIdx + 1) % REPORT_LOAD_TIPS.length;
+        setLoadingOverlayText(REPORT_LOAD_TIPS[reportLoadTipIdx], 'think');
+    }, 2200);
+}
+
+export function setReportLoadingText(msg) {
+    if (!reportLoadActive) return;
+    if (reportLoadTipTimer) {
+        clearInterval(reportLoadTipTimer);
+        reportLoadTipTimer = null;
+    }
+    setLoadingOverlayText(msg || REPORT_LOAD_TIPS[0], 'think');
+}
+
+export function endReportLoading() {
+    reportLoadActive = false;
+    if (reportLoadTipTimer) {
+        clearInterval(reportLoadTipTimer);
+        reportLoadTipTimer = null;
+    }
+    stopLoadingTips();
+    var overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.classList.add('hidden');
+        overlay.classList.remove('is-fading');
+        overlay.removeAttribute('data-mode');
+    }
+    setReportOverlayTitle('Panel oyanır');
+    document.body.classList.remove('is-loading', 'is-report-loading');
+    var btn = document.getElementById('reportDownloadBtn');
+    if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+    }
 }
 
 var revealDone = false;

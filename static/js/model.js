@@ -2256,10 +2256,31 @@ function hasMeqsedLabel(t) {
     return false;
 }
 
-function hasIqtLabel(t) {
+export function hasIqtLabel(t) {
     var labs = issueLabelTexts(t);
     for (var i = 0; i < labs.length; i++) {
         if (foldAz(labs[i]) === 'iqt') return true;
+    }
+    return false;
+}
+
+/** Jira label dəqiq «ESD» (status qrupu deyil). */
+export function hasEsdLabel(t) {
+    var labs = issueLabelTexts(t);
+    for (var i = 0; i < labs.length; i++) {
+        if (foldAz(labs[i]) === 'esd') return true;
+    }
+    return false;
+}
+
+/** Digər istiqamətlər hesabatı — yalnız İQT və ya ESD etiketi (özü və ya parent). */
+export function isDigerReportLabelTask(t) {
+    var cur = t;
+    var depth = 0;
+    while (cur && depth < 10) {
+        if (hasIqtLabel(cur) || hasEsdLabel(cur)) return true;
+        cur = getParentIssue(cur);
+        depth++;
     }
     return false;
 }
