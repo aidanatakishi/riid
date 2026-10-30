@@ -9,6 +9,7 @@ import json
 import os
 import re
 import threading
+import unicodedata
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,11 +25,24 @@ _STOP = {
     'dovlet', 'azerbaycan', 'respublikasi', 've', 'ile', 'uzre', 'uzrə',
     'nazirlik', 'agentlik', 'xidmet', 'komite', 'idare', 'birlik', 'fondu',
     'palatasi', 'palata', 'asci', 'qsc', 'mmc', 'asc',
+    'cari', 'veziyyet', 'veziyyeti', 'bal', 'bali', 'diaqnostika', 'isq', 'exq',
 }
+_QUERY_NOISE_RE = re.compile(
+    r'\b(?:cari|hazirki|indi)\s+veziyyet\w*'
+    r'|\b(?:diaqnostika|qiymetlendirme)?\s*(?:bal[iı]?|ballar[iı]?)\b'
+    r'|\b(?:isq|exq|ozunuqiymet)\b'
+    r'|\b(?:nece|nedir|ucun|üçün)\b',
+    re.I,
+)
 
 
 def _fold(s: Any) -> str:
-    text = str(s or '').lower()
+    """Az/latın qatlama. İ → i (Python İ.lower() = i+̇ əks halda «İSQ» → «i sq»)."""
+    text = str(s or '')
+    text = text.replace('\u0130', 'i').replace('I', 'i').replace('\u0131', 'i')
+    text = text.lower()
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
     for a, b in (
         ('ı', 'i'), ('ə', 'e'), ('ö', 'o'), ('ü', 'u'),
         ('ğ', 'g'), ('ş', 's'), ('ç', 'c'),
@@ -37,9 +51,68 @@ def _fold(s: Any) -> str:
     return re.sub(r'[^a-z0-9]+', ' ', text).strip()
 
 
+def _depossess_token(w: str) -> str:
+    """azerishigin → azerishig (yiyəlik şəkilçisini at)."""
+    w = str(w or '')
+    for suf in ('sinin', 'sinin', 'nin', 'nun', 'in', 'un'):
+        if w.endswith(suf) and len(w) - len(suf) >= 4:
+            return w[: -len(suf)]
+    return w
+
+
+def _query_tokens(folded: str) -> List[str]:
+    out = []
+    for w in str(folded or '').split():
+        if not w or w in _STOP:
+            continue
+        out.append(w)
+        bare = _depossess_token(w)
+        if bare and bare != w:
+            out.append(bare)
+    return out
+
+
+def _alias_hits_query(key: str, qf: str, qs: str = '', qns: str = '', tokens: Optional[Sequence[str]] = None) -> bool:
+    """Qısa alias (gin/dmx) yalnız tam token; uzun ad substring ola bilər.
+
+    «gin» ⊂ «azerishigin» — FALSE (GİN ≠ Azərişıq).
+    """
+    key = str(key or '').strip()
+    if not key:
+        return False
+    qf = str(qf or '')
+    qs = str(qs or '')
+    qns = str(qns or qf.replace(' ', ''))
+    toks = list(tokens) if tokens is not None else _query_tokens(qf) + _query_tokens(qs)
+    tok_set = set(toks)
+    if key == qf or key == qs or key == qns:
+        return True
+    if key in tok_set:
+        return True
+    # Qısa abbreviatura: yalnız tam token / tam compact
+    if len(key) <= 4:
+        return False
+    # Uzun açar: söz sərhədi ilə substring
+    if len(key) >= 5:
+        if key in tok_set:
+            return True
+        for t in toks:
+            if len(t) >= 5 and (key.startswith(t) or t.startswith(key) or key in t or t in key):
+                # qısa token içində təsadüfi üst-üstə düşməni əngəllə
+                if min(len(key), len(t)) >= 5:
+                    return True
+        if key in qf or key in qs:
+            # bütöv söz kimi: ətrafı hərf olmasın
+            for hay in (qf, qs):
+                if re.search(r'(?:^|\s)' + re.escape(key) + r'(?:\s|$)', hay):
+                    return True
+    return False
+
+
 def qurum_stem(s: Any) -> str:
     """Normalize org names for matching (mirrors model.js qurumStemKey)."""
     f = _fold(s)
+    f = _QUERY_NOISE_RE.sub(' ', f)
     f = (
         f.replace('respublikasinin', 'respublikasi')
         .replace('respublikasina', 'respublikasi')
@@ -50,16 +123,24 @@ def qurum_stem(s: Any) -> str:
     if stripped:
         f = stripped
     f = (
-        f.replace('nazirliyi', 'nazirlik')
+        f.replace('nazirliyinin', 'nazirlik')
+        .replace('nazirliyi', 'nazirlik')
+        .replace('agentliyinin', 'agentlik')
         .replace('agentliyi', 'agentlik')
+        .replace('komitesinin', 'komite')
         .replace('komitesi', 'komite')
         .replace('idareetmesi', 'idareetme')
+        .replace('idarasinin', 'idare')
         .replace('idarasi', 'idare')
+        .replace('xidmetinin', 'xidmet')
         .replace('xidmeti', 'xidmet')
+        .replace('birliyinin', 'birlik')
         .replace('birliyi', 'birlik')
         .replace('fondunun', 'fondu')
         .replace('palatasinin', 'palata')
     )
+    # Token-level yiyəlik: azerishigin → azerishig
+    f = ' '.join(_depossess_token(w) for w in f.split())
     f = re.sub(r'\baciq\s+sehmdar\s+cemiyyeti?\b', ' ', f)
     f = re.sub(r'\bqapali\s+sehmdar\s+cemiyyeti?\b', ' ', f)
     f = re.sub(r'\bmehdud\s+mesuliyyetli\s+cemiyyeti?\b', ' ', f)
@@ -477,20 +558,19 @@ def expand_qurum_query(query: str, live_catalog: Optional[Sequence[dict]] = None
     qf = _fold(q)
     qs = qurum_stem(q)
     qns = qf.replace(' ', '')
+    tokens = _query_tokens(qf) + _query_tokens(qs)
+    if qs and qs not in variants:
+        variants.append(qs)
     for key, canon in alias_pairs(live_catalog):
         if not key:
             continue
-        hit = (
-            key == qf or key == qs or key == qns
-            or (len(key) >= 3 and (key in qf or qf in key or key in qs or qs in key))
-            or (len(key) >= 2 and len(key) <= 10 and key == qns)
-        )
-        if hit and canon not in variants:
+        if _alias_hits_query(key, qf, qs, qns, tokens) and canon not in variants:
             variants.append(canon)
-    # also expand derived aliases of the query itself
-    for a in derive_aliases(q):
-        if a not in variants:
-            variants.append(a)
+    # also expand derived aliases of the cleaned query tokens
+    for src in (q, qs, ' '.join(tokens)):
+        for a in derive_aliases(src):
+            if a not in variants:
+                variants.append(a)
     return variants
 
 
@@ -509,34 +589,64 @@ def fuzzy_qurum(
     if not q_raw:
         return None, []
     pairs = alias_pairs(live_catalog)
+    qf0 = _fold(q_raw)
+    qs0 = qurum_stem(q_raw)
+    qns0 = qf0.replace(' ', '')
+    # a↔e yumşaq forma: tabib ≈ tebib (TƏBİB)
+    qf0_loose = qf0.replace('a', 'e')
+    tokens0 = _query_tokens(qf0) + _query_tokens(qs0) + _query_tokens(qf0_loose)
     variants = expand_qurum_query(q_raw, live_catalog)
-    q_folds = []
-    for v in variants:
-        q_folds.append(_fold(v))
-        q_folds.append(qurum_stem(v))
-        q_folds.append(_fold(v).replace(' ', ''))
+    # Yalnız orijinal sual + stem — səhv alias expand-ı (GİN⊂azerishigin) skorlamağa salmasın
+    q_folds = [qf0, qs0, qns0, qf0_loose, qf0_loose.replace(' ', '')]
+    for t in tokens0:
+        if t and t not in q_folds:
+            q_folds.append(t)
+            q_folds.append(t.replace('a', 'e'))
     q_folds = [x for x in q_folds if x]
 
     live_set = {str(c).strip() for c in (candidates or []) if str(c).strip()}
     pool = list(candidates or [])
-    # KB adlarını yalnız live boş olanda və ya qısa abbreviatura (DMX) üçün əlavə et
-    q_compact = _fold(q_raw).replace(' ', '')
-    allow_kb_pool = (not live_set) or (2 <= len(q_compact) <= 8)
-    if allow_kb_pool:
-        for key, canon in pairs:
-            if not canon or canon in pool:
-                continue
-            if any(
-                key == qf
-                or (len(key) >= 2 and len(key) <= 12 and key == qf)
-                or (len(key) >= 3 and (key in qf or qf in key))
-                for qf in q_folds
-            ):
-                pool.append(canon)
+
+    def _live_covers(canon: str) -> bool:
+        """Live uzun ad artıq bu abbreviaturanı örtürsə KB qısa adını əlavə etmə."""
+        if not live_set:
+            return False
+        ck = _fold(canon).replace(' ', '')
+        if len(ck) > 8:
+            return False
+        for live in live_set:
+            live_keys = {_fold(live), qurum_stem(live), _fold(live).replace(' ', '')}
+            for a in derive_aliases(live):
+                live_keys.add(_fold(a))
+                live_keys.add(_fold(a).replace(' ', ''))
+            if ck in live_keys or _fold(canon) in live_keys or qurum_stem(canon) in live_keys:
+                return True
+        return False
+
+    # KB-dən uyğun qurumları əlavə et (token-aware; gin≠azerishigin)
+    for key, canon in pairs:
+        if not canon or canon in pool:
+            continue
+        if not _alias_hits_query(key, qf0, qs0, qns0, tokens0):
+            continue
+        if _live_covers(canon):
+            continue
+        pool.append(canon)
+    # Expand-dan gələn kanoniklər
+    for v in variants:
+        name = str(v or '').strip()
+        if not name or name in pool or len(_fold(name).split()) > 8:
+            continue
+        if any(_fold(name) == _fold(c) or qurum_stem(name) == qurum_stem(c) for c in pool):
+            continue
+        if _live_covers(name):
+            continue
+        if any(_fold(canon) == _fold(name) for _, canon in pairs):
+            pool.append(name)
 
     q_content: set = set()
     for qf in q_folds:
-        q_content |= {w for w in qf.split() if len(w) >= 3 and w not in _STOP}
+        q_content |= {w for w in _query_tokens(qf) if len(w) >= 3}
 
     # Map each candidate to extra alias keys for scoring
     cand_keys: Dict[str, List[str]] = {}
@@ -565,40 +675,44 @@ def fuzzy_qurum(
             if qf in keys or cf == qf or cs == qf:
                 score = max(score, 100 if len(qf) <= 12 else 96)
                 continue
-            if len(qf) >= 4 and any(qf in k or k in qf for k in keys if len(k) >= 4):
+            # Qısa alias yalnız tam bərabərlik (gin ⊂ azerishigin yox)
+            short_hit = any(k == qf for k in keys if len(k) <= 4)
+            if short_hit:
+                score = max(score, 95)
+                continue
+            if len(qf) >= 5 and any(
+                (qf in k or k in qf) and len(k) >= 5 for k in keys
+            ):
                 score = max(score, 88 + min(10, len(qf)))
                 continue
-            qw = set(qf.split())
-            cw = set(cs.split()) | set(cf.split())
-            qw2 = {w for w in qw if len(w) >= 3 and w not in _STOP}
-            cw2 = {w for w in cw if len(w) >= 3 and w not in _STOP}
+            qw2 = {w for w in _query_tokens(qf) if len(w) >= 3}
+            cw2 = {w for w in (cs.split() + cf.split()) if len(w) >= 3 and w not in _STOP}
             if qw2 and cw2:
                 overlap = len(qw2 & cw2)
                 if overlap:
                     ratio = overlap / max(len(qw2), 1)
                     score = max(score, 45 + overlap * 18 + ratio * 20)
                 for w in qw2:
-                    if len(w) >= 5 and w in cw2:
+                    if len(w) >= 5 and (w in cw2 or any(w in k or k in w for k in keys if len(k) >= 5)):
                         score = max(score, 75 + min(15, len(w)))
         if score <= 0:
             continue
         c_content = {w for w in (cs.split() + cf.split()) if len(w) >= 3 and w not in _STOP}
         extra = c_content - q_content
-        # «turizm», «vergi», «yaninda» sorğuda yoxdursa — cəzalandır
         if extra:
             score -= min(55.0, 14.0 * len(extra))
         if q_content and q_content <= c_content:
             score += 12.0
         if cand in live_set:
             score += 10.0
-        # eyni balda qısa ad üstün (Turizm Agentliyi yox, Nazirlik)
-        scored.append((score, len(cf), cand))
+        # Live tam ad qısa abbreviaturadan (TƏBİB) üstün; eyni balda uzun ad
+        scored.append((score, 0 if cand in live_set else 1, -len(cf), cand))
 
-    scored.sort(key=lambda x: (-x[0], x[1], x[2]))
+    scored.sort(key=lambda x: (-x[0], x[1], x[2], x[3]))
     if not scored:
         return None, []
-    suggestions = [c for _, __, c in scored[:limit]]
-    best_score, _, best = scored[0]
+    suggestions = [c for _, __, ___, c in scored[:limit]]
+    best_score, _, __, best = scored[0]
     if best_score < 50:
         return None, suggestions
     return best, suggestions

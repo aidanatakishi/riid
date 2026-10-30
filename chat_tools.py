@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from chat_kb import fuzzy_qurum, search_knowledge, qurum_stem, format_qurum_glossary, derive_aliases
@@ -52,10 +53,22 @@ ASSESS_LABELS = {
     'self': 'Özünüqiymətləndirmə',
     'meqsed': 'Məqsədəuyğunluq rəyi',
 }
+ASSESS_SHORT = {
+    'diag': 'Diaqnostika',
+    'exq': 'EXQ',
+    'isq': 'İSQ',
+    'self': 'Özünüqiymətləndirmə',
+    'meqsed': 'Məqsədəuyğunluq',
+}
 
 
 def fold(s: Any) -> str:
-    text = str(s or '').lower()
+    """Az/latın qatlama. İ → i (Python İ.lower() = i+̇ əks «İSQ» → «i sq»)."""
+    text = str(s or '')
+    text = text.replace('\u0130', 'i').replace('I', 'i').replace('\u0131', 'i')
+    text = text.lower()
+    text = unicodedata.normalize('NFD', text)
+    text = ''.join(c for c in text if unicodedata.category(c) != 'Mn')
     for a, b in (
         ('ı', 'i'), ('ə', 'e'), ('ö', 'o'), ('ü', 'u'),
         ('ğ', 'g'), ('ş', 's'), ('ç', 'c'),
@@ -579,19 +592,24 @@ def _normalize_assess_cat(raw: str) -> str:
 
 
 def infer_assess_category(question: str, default: str = 'diag') -> str:
-    """Sual mətnindən qiymətləndirmə kateqoriyası (özünüqiymət ≠ diaqnostika)."""
-    f = fold(question or '')
+    """Sual mətnindən qiymətləndirmə kateqoriyası (özünüqiymət ≠ diaqnostika ≠ EXQ ≠ İSQ)."""
+    raw = str(question or '')
+    # Abbreviatura əvvəl — digər kateqoriyaya qarışmasın
+    if re.search(r'(?i)(?<![a-zəıöüğçş])[iİı]sq(?![a-zəıöüğçş])', raw):
+        return 'isq'
+    if re.search(r'(?i)(?<![a-zəıöüğçş])exq(?![a-zəıöüğçş])', raw):
+        return 'exq'
+    f = fold(raw)
     if not f:
         return default
     cat = _normalize_assess_cat(f)
     if cat in ASSESS_LABELS and cat != 'meqsed':
         return cat
-    # Aydın açar sözlər
     if re.search(r'ozunuqiymet|ozunu\s*qiymet|\bself\s*assess', f):
         return 'self'
     if re.search(r'\bexq\b|elektron xidmet', f):
         return 'exq'
-    if re.search(r'\bisq\b|informasiya ehtiyat|sistemlerin qiymet', f):
+    if re.search(r'\bisq\b|\bi\s*sq\b|informasiya ehtiyat|sistemlerin qiymet', f):
         return 'isq'
     if re.search(r'diaqnost|reqemsallas|yetkinlik', f):
         return 'diag'
@@ -2042,9 +2060,17 @@ def format_qurum_score_answer(payload: dict, *, force: bool = False) -> Optional
     if not is_assess:
         return None
     score_f, year, label = _extract_payload_score(payload)
+    cat = fold(payload.get('category') or '')
+    if cat in ASSESS_SHORT:
+        label = ASSESS_SHORT[cat]
+    elif payload.get('categoryLabel'):
+        label = str(payload.get('categoryLabel'))
     if score_f is None or payload.get('empty'):
         if force or payload.get('empty') or payload.get('withScore') == 0:
-            return f'«{qurum}» üçün {label} balı paneldə mövcud deyil.'
+            return (
+                f'«{qurum}» üçün {label} balı Qiymətləndirmə analitikasında mövcud deyil. '
+                f'Qiymətləndirmə analitikası → {label} bölməsini yoxlayın.'
+            )
         return None
     score_disp = int(score_f) if score_f == int(score_f) else score_f
     year_txt = f'{year}-cı il üzrə ' if year else ''
@@ -2555,18 +2581,44 @@ def try_fast_panel_answer(hint: str, question: str, tools: 'SnapshotTools') -> O
 
     # Özünüqiymət / diaqnostika / EXQ / İSQ — kateqoriyanı sualdan seç
     assess_cat = infer_assess_category(q, default='')
+    has_score_kw = bool(
+        re.search(r'\bbal\b|ballar|diaqnost|\bexq\b|\bisq\b|ozunuqiymet|elektron xidmet', qf)
+        or re.search(r'(?i)\b[iİı]sq\b|\bexq\b', q)
+    )
     wants_assess = bool(
         assess_cat
         or _SELF_ASSESS_Q_RE.search(q)
         or _SELF_ASSESS_Q_RE.search(qf)
-        or re.search(r'diaqnost|\bexq\b|\bisq\b|qiymetlendir.*bal|bal.*qiymet', qf)
+        or has_score_kw
     )
-    if wants_assess or (hint in ('assess', 'qurum') and _ORG_SCORE_RE.search(qf)):
+    # Konkret qurum niyyəti: «X üçün EXQ/İSQ» — başqa qurumların reytinqini yapışdırma
+    wants_org_score = bool(
+        re.search(
+            r'ucun|üçün|nin\b|nın\b|nun\b|nün\b|in\b|'
+            r'nazirlik|agentlik|xidmet|komite|azerishiq|azerishig|eesmn|əəsmn|'
+            r'\bdmx\b|\bdin(?:de|da)?\b|tabib|t[eə]bib|miqrasiya|vergi',
+            qf,
+        )
+        or re.search(r'(?i)azerishiq|azerishig|əəsmn|eesmn', q)
+    )
+    # «EXQ-lər / İSQ balları» — ümumi siyahı
+    wants_cat_rank = bool(
+        re.search(r'\b(?:exq|isq)(?:ler|lər|lari|ları)?\b', qf)
+        and not wants_org_score
+        and (_RANK_RE.search(qf) or re.search(r'ballar|siyahi|siyahı|reyting', qf)
+             or re.search(r'^(?:exq|isq|diaqnost\w*)(?:\s+ball?ar?\w*)?$', qf))
+    )
+    if wants_assess or (hint == 'assess' and _ORG_SCORE_RE.search(qf)):
         cat = assess_cat or infer_assess_category(q, default='diag')
         year_n = _extract_year(q)
-        # Reyting / ümümi ballar (konkret qurum yox)
-        if _RANK_RE.search(qf) or (
-            _SELF_ASSESS_Q_RE.search(qf) and not re.search(r'nazirlik|agentlik|xidmet|tabib|təbib|\bdmx\b|vergi', qf)
+        # Reyting / ümümi ballar — yalnız qurum soruşulmayanda
+        if (not wants_org_score) and (
+            wants_cat_rank
+            or _RANK_RE.search(qf)
+            or (
+                _SELF_ASSESS_Q_RE.search(qf)
+                and not re.search(r'nazirlik|agentlik|xidmet|tabib|təbib|\bdmx\b|vergi', qf)
+            )
         ):
             sort = 'bottom' if re.search(r'asagi|aşağı|lowest|az\b|en az', qf) else 'top'
             result = tools.get_assessment_scores(
@@ -2575,14 +2627,25 @@ def try_fast_panel_answer(hint: str, question: str, tools: 'SnapshotTools') -> O
             text = format_assessment_rank_answer(result)
             if text:
                 return text, ['get_assessment_scores'], [result]
-        # Konkret qurum + bal
-        if _ORG_SCORE_RE.search(qf) or hint in ('assess', 'qurum', 'open', ''):
+        # Konkret qurum + bal (İSQ / EXQ / diaq eyni qayda)
+        if _ORG_SCORE_RE.search(qf) or wants_org_score or hint in ('assess', 'qurum', 'open', ''):
             if hint not in ('assess', 'qurum', 'open', '') and not wants_assess:
                 return None
             result = tools.get_assessment_scores(category=cat, qurum=q, limit=1, year=year_n)
             if result.get('error') == 'not_found':
-                # Bəlkə ranking sualıdır
-                if wants_assess:
+                sugg = result.get('suggestions') or []
+                label = ASSESS_SHORT.get(cat) or ASSESS_LABELS.get(cat, 'Qiymətləndirmə')
+                if sugg:
+                    text = (
+                        f'Qurum adı dəqiq uyğun gəlmədi ({label}). Bənzərlər: '
+                        + ', '.join(str(s) for s in sugg[:5])
+                        + '.'
+                    )
+                    return text, ['get_assessment_scores'], [result]
+                # Qurum soruşulubsa digər qurum reytinqini göstərmə
+                if wants_org_score:
+                    return None
+                if wants_assess and not wants_org_score:
                     result = tools.get_assessment_scores(category=cat, sort='top', limit=10, year=year_n)
                     text = format_assessment_rank_answer(result)
                     if text:
@@ -2592,7 +2655,7 @@ def try_fast_panel_answer(hint: str, question: str, tools: 'SnapshotTools') -> O
                 text = format_qurum_score_answer(result, force=True)
                 if text:
                     return text, ['get_assessment_scores'], [result]
-            elif wants_assess:
+            elif wants_assess and not wants_org_score:
                 text = format_assessment_rank_answer(result)
                 if text:
                     return text, ['get_assessment_scores'], [result]

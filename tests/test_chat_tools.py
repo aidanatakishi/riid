@@ -37,6 +37,76 @@ def test_fold_az_latin():
     assert fold('Məmmədova') == 'memmedova'
     a, _ = fuzzy_person('mammadova', ['Sabina Məmmədova', 'Ali'])
     assert a == 'Sabina Məmmədova'
+    assert fold('İSQ') == 'isq'
+    assert 'isq' in fold('Azerishigin İSQ balı')
+
+
+def test_azerishiq_not_confused_with_gin():
+    """«Azerishigin» içində «gin» → GİN yox, Azərişıq."""
+    from chat_kb import fuzzy_qurum, expand_qurum_query
+    from chat_tools import infer_assess_category, try_fast_panel_answer, SnapshotTools
+
+    q = 'Azerishigin İSQ balı'
+    assert infer_assess_category(q) == 'isq'
+    expanded = expand_qurum_query(q)
+    assert not any('Gənclər' in str(v) or 'Idman' in str(v) for v in expanded)
+    cands = ['Gənclər və İdman Nazirliyi', 'Azərişıq', 'Azərişıq ASC']
+    match, sugg = fuzzy_qurum(q, cands)
+    assert match and 'Azərişıq' in match
+    assert 'Gənclər' not in (match or '')
+
+    # Yalnız GİN live-dadırsa — səhvə yapışma, Azərişıq KB-dən gəlsin və ya None
+    match2, _ = fuzzy_qurum(q, ['Gənclər və İdman Nazirliyi'])
+    assert match2 is None or 'Azərişıq' in (match2 or '')
+
+    snap = {
+        'meta': {}, 'overview': {}, 'tasks': [],
+        'assessments': [
+            'isq|Azərişıq|71|2026|DGD-A1',
+            'isq|Gənclər və İdman Nazirliyi|55|2026|DGD-G1',
+        ],
+    }
+    fast = try_fast_panel_answer('assess', q, SnapshotTools(snap))
+    assert fast is not None
+    text, tools_used, payloads = fast
+    assert tools_used == ['get_assessment_scores']
+    assert payloads[0].get('category') == 'isq'
+    assert 'Azərişıq' in text
+    assert 'Gənclər' not in text
+    assert '**71**' in text
+
+
+def test_exq_same_as_isq_for_org_score():
+    """EXQ də İSQ kimi: doğru kateqoriya + doğru qurum, diaqnostika/reytinq qarışmasın."""
+    from chat_tools import infer_assess_category, try_fast_panel_answer, SnapshotTools
+
+    assert infer_assess_category('Azerishigin EXQ balı') == 'exq'
+    assert infer_assess_category('ƏƏSMN üçün EXQ balı') == 'exq'
+    snap = {
+        'meta': {}, 'overview': {}, 'tasks': [],
+        'assessments': [
+            'diag|Azərişıq|50|2026|DGD-D',
+            'isq|Azərişıq|71|2026|DGD-I',
+            'exq|Azərişıq|66|2026|DGD-E',
+            'exq|Gənclər və İdman Nazirliyi|40|2026|DGD-G',
+            'exq|Azərbaycan Respublikası Əmək və Əhalinin Sosial Müdafiəsi Nazirliyi|58|2026|DGD-A',
+        ],
+    }
+    tools = SnapshotTools(snap)
+    for q, expect_org, expect_score in (
+        ('Azerishigin EXQ balı', 'Azərişıq', '66'),
+        ('ƏƏSMN üçün EXQ balı', 'Əmək', '58'),
+    ):
+        fast = try_fast_panel_answer('assess', q, tools)
+        assert fast is not None, q
+        text, tools_used, payloads = fast
+        assert tools_used == ['get_assessment_scores'], q
+        assert payloads[0].get('category') == 'exq', q
+        assert expect_org in text, (q, text)
+        assert f'**{expect_score}**' in text, (q, text)
+        assert 'Gənclər' not in text or expect_org == 'Gənclər', q
+        assert 'diaqnostika' not in text.lower(), q
+        assert 'İSQ' not in text, q
 
 
 def test_fuzzy_sabina_variants():

@@ -3271,15 +3271,16 @@ function buildAssessmentSnapshotRows() {
             row.key
         ].join('|');
     });
-    // Balı olan diaq/exq/isq əvvəl — truncate olanda itməsin
+    // Balı olan diag/exq/isq/self əvvəl — truncate olanda EXQ/İSQ itməsin
     rows.sort(function(a, b) {
         var pa = a.split('|');
         var pb = b.split('|');
         var sa = pa[2] ? 1 : 0;
         var sb = pb[2] ? 1 : 0;
         if (sa !== sb) return sb - sa;
-        var ca = pa[0] === 'diag' ? 0 : 1;
-        var cb = pb[0] === 'diag' ? 0 : 1;
+        var order = { diag: 0, exq: 1, isq: 2, self: 3 };
+        var ca = order.hasOwnProperty(pa[0]) ? order[pa[0]] : 9;
+        var cb = order.hasOwnProperty(pb[0]) ? order[pb[0]] : 9;
         if (ca !== cb) return ca - cb;
         var na = parseFloat(pa[2] || '0') || 0;
         var nb = parseFloat(pb[2] || '0') || 0;
